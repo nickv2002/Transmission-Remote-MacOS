@@ -28,7 +28,7 @@ function FPC-Lazarus-Build-Install {
 
     $env:Path = "${fpc322}\bin\i386-win32;" + $env:Path
 
-    $fpc324_commit = 'cd84c2d5cd1f7b17de0ca0b62c3d35c661f535b1'
+    $fpc324_commit = '56baf314b5ebf4e5a44fe3e214914fa2e1b34adb'
     My-Download -Uri "https://gitlab.com/freepascal.org/fpc/source/-/archive/${fpc324_commit}/source-${fpc324_commit}.zip" -OutFile fpc-324-rc1.zip
 
     # we could use Expand-Archive but it takes an eternity and then some
@@ -43,7 +43,7 @@ function FPC-Lazarus-Build-Install {
     fpcmkcfg -d basepath=${fpc324} -o "${fpc324}\bin\i386-win32\fpc.cfg"
 
     cd "$sdk_dir"
-    $lazarus_commit = 'dab5c509c6fd70f8fac2144e468291899286616f'
+    $lazarus_commit = 'cadda6230398688d6106fe37fb0673a9a2bf0cf3'
     My-Download -Uri "https://gitlab.com/dkk089/lazarus/-/archive/${lazarus_commit}/lazarus-${lazarus_commit}.zip" -OutFile lazarus-src.zip
     7z x lazarus-src.zip
 
