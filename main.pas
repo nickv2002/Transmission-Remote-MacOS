@@ -1257,14 +1257,12 @@ begin
   Ini.CacheUpdates:=True;
 
   // Check for outdated IPC file
-  if FileExistsUTF8(FIPCFileName) then begin
-    h:=FileOpenUTF8(FIPCFileName, fmOpenRead or fmShareDenyNone);
-    if h <> INVALID_HANDLE_VALUE then begin
-      i:=FileGetDate(h);
-      FileClose(h);
-      if (i > 0) and (Abs(Now - FileDateToDateTime(i)) > 1/MinsPerDay) then
-        DeleteFileUTF8(FIPCFileName);
-    end;
+  h:=FileOpenUTF8(FIPCFileName, fmOpenRead or fmShareDenyNone);
+  if h <> System.THandle(feInvalidHandle) then begin
+    i:=FileGetDate(h);
+    FileClose(h);
+    if (i > 0) and (Abs(Now - FileDateToDateTime(i)) > 1/MinsPerDay) then
+      DeleteFileUTF8(FIPCFileName);
   end;
 
   for i:=1 to ParamCount do begin
