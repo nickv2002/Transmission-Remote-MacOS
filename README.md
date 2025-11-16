@@ -1,3 +1,5 @@
+# This repository is now abandoned.
+
 # Transmission Remote GUI
 
 **This is a fork of a fork**. If you're looking for the community-maintained version, go [here](https://github.com/transmission-remote-gui/transgui/). If you're looking for the original project, go [here](https://sourceforge.net/projects/transgui/).
