@@ -25,7 +25,11 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.nickvance.transmission-remote-mac
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: Info.plist
+        # Asset-catalog app icon (the Dock tile renders blank from an .icns-only
+        # bundle on macOS 15). Keep CFBundleIconFile for Finder/.icns consumers.
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleIconFile: AppIcon
+        INFOPLIST_KEY_CFBundleIconName: AppIcon
         INFOPLIST_KEY_NSPrincipalClass: NSApplication
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
