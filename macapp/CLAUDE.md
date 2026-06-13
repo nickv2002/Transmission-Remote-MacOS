@@ -14,10 +14,20 @@ legacy Free Pascal / Lazarus app that fills the rest of this repo.
 
 ## Current status (MVP complete + verified)
 
-Done and verified end-to-end against the owner's real server (1041 torrents,
+Done and verified end-to-end against the owner's real server (~1040 torrents,
 Transmission 4.1.2): connect to one server, live torrent list with progress,
-sortable columns, **start / stop / force-start / rename / move**, a basic detail
-pane, and a **name search/filter** box in the toolbar.
+sortable columns (incl. a queue-position `#` column), **start / stop / force-start
+/ rename / move / verify(recheck) / queue-move (top/up/down/bottom) / bandwidth
+priority (high/normal/low) / remove**, a detail pane (now incl. priority + queue),
+and a name search box in the toolbar whose **match mode toggles between fuzzy
+(subsequence, ranked by quality, e.g. `ppgrl` → papergirls) and exact substring**
+via the native magnifying-glass dropdown menu (`searchMenuTemplate`; the active
+mode is checkmarked through `validateMenuItem`).
+
+- **Remove** has a two-step confirmation; "Remove + Data" requires a second
+  critical confirm. The data-deleting path was intentionally **not** fired against
+  the owner's prod server — every other mutating RPC (`torrent-set bandwidthPriority`,
+  `queue-move-*`, `torrent-verify`) was tested live and state restored.
 
 - Plan of record: `../.context/mac-port-plan.md`
 - Feature backlog (next things to build, being ranked by the owner):

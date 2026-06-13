@@ -103,6 +103,36 @@ actor TransmissionClient {
         )
     }
 
+    func verify(ids: [Int]) async throws {
+        try await sendIgnoringResult(method: "torrent-verify", arguments: ["ids": ids])
+    }
+
+    /// Where in the queue to move the given torrents.
+    enum QueueMove: String {
+        case top = "queue-move-top"
+        case up = "queue-move-up"
+        case down = "queue-move-down"
+        case bottom = "queue-move-bottom"
+    }
+
+    func queueMove(ids: [Int], to move: QueueMove) async throws {
+        try await sendIgnoringResult(method: move.rawValue, arguments: ["ids": ids])
+    }
+
+    func setBandwidthPriority(ids: [Int], priority: BandwidthPriority) async throws {
+        try await sendIgnoringResult(
+            method: "torrent-set",
+            arguments: ["ids": ids, "bandwidthPriority": priority.rawValue]
+        )
+    }
+
+    func remove(ids: [Int], deleteLocalData: Bool) async throws {
+        try await sendIgnoringResult(
+            method: "torrent-remove",
+            arguments: ["ids": ids, "delete-local-data": deleteLocalData]
+        )
+    }
+
     // MARK: - Core
 
     /// A response whose `arguments` we don't need to inspect.
