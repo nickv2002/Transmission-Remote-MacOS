@@ -96,6 +96,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     let hashString: String
     let queuePosition: Int
     let bandwidthPriorityRaw: Int
+    let trackers: [TrackerInfo]
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -118,9 +119,27 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         case hashString
         case queuePosition
         case bandwidthPriorityRaw = "bandwidthPriority"
+        case trackers
     }
 
     var status: TorrentStatus { TorrentStatus(rawValue: statusRaw) ?? .stopped }
+
+    /// True while the torrent is actually transferring (has up/down throughput).
+    var isTransferring: Bool { rateDownload > 0 || rateUpload > 0 }
+
+    /// True when the daemon reported a tracker/local error for this torrent.
+    var hasError: Bool { !errorString.isEmpty }
+
+    /// Host of the torrent's primary tracker (e.g. `tracker.example.org`), or nil.
+    /// Used to group torrents in the sidebar. Strips a leading `www.`.
+    var trackerHost: String? {
+        for tracker in trackers {
+            if let host = URL(string: tracker.announce)?.host, !host.isEmpty {
+                return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+            }
+        }
+        return nil
+    }
 
     var bandwidthPriority: BandwidthPriority {
         BandwidthPriority(rawValue: bandwidthPriorityRaw) ?? .normal
@@ -132,8 +151,13 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
         "downloadDir", "errorString", "peersConnected", "peersSendingToUs",
         "peersGettingFromUs", "addedDate", "hashString", "queuePosition",
-        "bandwidthPriority",
+        "bandwidthPriority", "trackers",
     ]
+}
+
+/// One tracker entry from a torrent's `trackers` array (we only need the URL).
+struct TrackerInfo: Codable, Sendable, Equatable {
+    let announce: String
 }
 
 /// Subset of `session-get` we care about for the MVP.
