@@ -42,6 +42,38 @@ enum BandwidthPriority: Int, Sendable, CaseIterable {
     }
 }
 
+/// Per-file priority (`torrent-set` `priority-low/normal/high`). Same raw values
+/// as `BandwidthPriority` but a distinct type because the RPC methods differ.
+enum FilePriority: Int, Sendable, CaseIterable {
+    case low = -1
+    case normal = 0
+    case high = 1
+
+    var displayName: String {
+        switch self {
+        case .low: return "Low"
+        case .normal: return "Normal"
+        case .high: return "High"
+        }
+    }
+}
+
+/// One file inside a torrent, merged from the `files` and `fileStats` arrays of a
+/// single-torrent `torrent-get`. `index` is the file's position in those arrays —
+/// the id used by `files-wanted` / `priority-*`.
+struct TorrentFile: Sendable, Equatable, Identifiable {
+    let index: Int
+    let name: String
+    let length: Int64
+    let bytesCompleted: Int64
+    let wanted: Bool
+    let priorityRaw: Int
+
+    var id: Int { index }
+    var percentDone: Double { length > 0 ? Double(bytesCompleted) / Double(length) : 1 }
+    var priority: FilePriority { FilePriority(rawValue: priorityRaw) ?? .normal }
+}
+
 /// A single torrent as returned by `torrent-get`. Only the MVP fields are decoded.
 struct Torrent: Codable, Sendable, Identifiable, Equatable {
     let id: Int
@@ -126,4 +158,52 @@ struct RPCResponse<Arguments: Decodable>: Decodable {
 /// Decoded `arguments` for `torrent-get`.
 struct TorrentListArguments: Decodable, Sendable {
     let torrents: [Torrent]
+}
+
+// MARK: - Files RPC decoding
+
+/// Raw `files` array entry from a single-torrent `torrent-get`.
+private struct RawFile: Decodable {
+    let name: String
+    let length: Int64
+    let bytesCompleted: Int64
+}
+
+/// Raw `fileStats` array entry (parallel to `files`).
+private struct RawFileStat: Decodable {
+    let wanted: Bool
+    let priority: Int
+}
+
+/// One torrent's `files` + `fileStats`, merged into `[TorrentFile]`.
+struct TorrentFilesEntry: Decodable, Sendable {
+    let id: Int
+    let files: [TorrentFile]
+
+    private enum CodingKeys: String, CodingKey {
+        case id, files, fileStats
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        let raw = try c.decode([RawFile].self, forKey: .files)
+        let stats = try c.decodeIfPresent([RawFileStat].self, forKey: .fileStats) ?? []
+        files = raw.enumerated().map { index, file in
+            let stat = stats.indices.contains(index) ? stats[index] : nil
+            return TorrentFile(
+                index: index,
+                name: file.name,
+                length: file.length,
+                bytesCompleted: file.bytesCompleted,
+                wanted: stat?.wanted ?? true,
+                priorityRaw: stat?.priority ?? 0
+            )
+        }
+    }
+}
+
+/// Decoded `arguments` for a single-torrent files `torrent-get`.
+struct TorrentFilesArguments: Decodable, Sendable {
+    let torrents: [TorrentFilesEntry]
 }

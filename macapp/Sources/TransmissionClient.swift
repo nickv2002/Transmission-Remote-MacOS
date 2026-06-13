@@ -126,6 +126,32 @@ actor TransmissionClient {
         )
     }
 
+    /// Fetch the file list for one torrent (`files` + `fileStats`). Kept separate
+    /// from the list poll because these arrays are heavy and only needed for the
+    /// selected torrent.
+    func fetchFiles(id: Int) async throws -> [TorrentFile] {
+        let args: [String: Any] = ["ids": [id], "fields": ["id", "files", "fileStats"]]
+        let response: RPCResponse<TorrentFilesArguments> = try await send(method: "torrent-get", arguments: args)
+        return response.arguments?.torrents.first?.files ?? []
+    }
+
+    func setFilesWanted(id: Int, fileIndices: [Int], wanted: Bool) async throws {
+        guard !fileIndices.isEmpty else { return }
+        let key = wanted ? "files-wanted" : "files-unwanted"
+        try await sendIgnoringResult(method: "torrent-set", arguments: ["ids": [id], key: fileIndices])
+    }
+
+    func setFilePriority(id: Int, fileIndices: [Int], priority: FilePriority) async throws {
+        guard !fileIndices.isEmpty else { return }
+        let key: String
+        switch priority {
+        case .low: key = "priority-low"
+        case .normal: key = "priority-normal"
+        case .high: key = "priority-high"
+        }
+        try await sendIgnoringResult(method: "torrent-set", arguments: ["ids": [id], key: fileIndices])
+    }
+
     func remove(ids: [Int], deleteLocalData: Bool) async throws {
         try await sendIgnoringResult(
             method: "torrent-remove",
