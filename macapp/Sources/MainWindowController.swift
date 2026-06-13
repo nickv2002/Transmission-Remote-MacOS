@@ -9,6 +9,16 @@ final class MainWindowController: NSWindowController {
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let statusLabel = NSTextField(labelWithString: "")
 
+    /// Detail-pane tabs (Info / Files) and the per-file table.
+    let detailTabView = NSTabView()
+    let filesTable = NSTableView()
+
+    /// Files currently shown in the Files tab, and which torrent they belong to.
+    var files: [TorrentFile] = []
+    var filesTorrentId: Int?
+    /// In-flight files fetch, so a new selection can cancel a stale one.
+    var filesFetchTask: Task<Void, Never>?
+
     /// Full sorted model — every torrent from the server.
     var torrents: [Torrent] = []
 
@@ -160,12 +170,24 @@ final class MainWindowController: NSWindowController {
             detailContainer.topAnchor.constraint(equalTo: detailScroll.contentView.topAnchor),
         ])
 
+        // Detail tabs: Info (the text above) + Files (per-file table).
+        let filesScroll = buildFilesTable()
+        detailTabView.delegate = self
+        let infoTab = NSTabViewItem(identifier: "info")
+        infoTab.label = "Info"
+        infoTab.view = detailScroll
+        let filesTab = NSTabViewItem(identifier: "files")
+        filesTab.label = "Files"
+        filesTab.view = filesScroll
+        detailTabView.addTabViewItem(infoTab)
+        detailTabView.addTabViewItem(filesTab)
+
         // Vertical split between table and detail.
         let split = NSSplitView()
         split.isVertical = false
         split.dividerStyle = .thin
         split.addArrangedSubview(scroll)
-        split.addArrangedSubview(detailScroll)
+        split.addArrangedSubview(detailTabView)
         split.translatesAutoresizingMaskIntoConstraints = false
 
         // Status bar.
@@ -238,6 +260,7 @@ final class MainWindowController: NSWindowController {
         tableView.reloadData()
         restoreSelection(selectedIds)
         updateDetail()
+        loadFilesIfNeeded()
         updateStatusBar(state: refresh.state)
         window?.toolbar?.validateVisibleItems()
     }
@@ -419,9 +442,12 @@ final class MainWindowController: NSWindowController {
 // MARK: - Table data source / delegate
 
 extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int { displayed.count }
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        tableView === filesTable ? files.count : displayed.count
+    }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+        guard tableView !== filesTable else { return }
         let ids = selectedTorrentIds()
         sortTorrents()
         rebuildDisplayed()
@@ -430,12 +456,16 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard (notification.object as AnyObject) !== filesTable else { return }
         updateDetail()
+        loadFilesIfNeeded()
         window?.toolbar?.validateVisibleItems()
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard let tableColumn, let column = Column(rawValue: tableColumn.identifier.rawValue),
+        guard let tableColumn else { return nil }
+        if tableView === filesTable { return fileCell(for: tableColumn, row: row) }
+        guard let column = Column(rawValue: tableColumn.identifier.rawValue),
               displayed.indices.contains(row) else { return nil }
         let t = displayed[row]
 
