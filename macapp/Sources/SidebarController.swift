@@ -86,8 +86,9 @@ final class SidebarController: NSObject {
         var folderCounts: [String: Int] = [:]
         for t in torrents { folderCounts[t.downloadDir, default: 0] += 1 }
         let folderNode = Node(title: "Folders")
+        let folderLabels = disambiguatedFolderLabels(Array(folderCounts.keys))
         folderNode.children = folderCounts.keys.sorted().map { dir in
-            Node(title: (dir as NSString).lastPathComponent.isEmpty ? dir : (dir as NSString).lastPathComponent,
+            Node(title: folderLabels[dir] ?? dir,
                  symbol: "folder", filter: .folder(dir), count: folderCounts[dir] ?? 0)
         }
 
@@ -100,6 +101,48 @@ final class SidebarController: NSObject {
         outlineView.reloadData()
         for group in groups { outlineView.expandItem(group) }
         reselectActive()
+    }
+
+    /// Compute the shortest trailing-path suffix for each folder that makes it
+    /// distinguishable from every other folder. Folders with a unique leaf keep
+    /// just the leaf (e.g. "movies"); those that collide grow toward the root one
+    /// component at a time until unique (e.g. "2024/11" vs "2025/11"). A folder
+    /// that can't be extended further falls back to its full path.
+    private func disambiguatedFolderLabels(_ dirs: [String]) -> [String: String] {
+        // Split each distinct dir into its non-empty path components.
+        let components: [String: [String]] = Dictionary(uniqueKeysWithValues: Set(dirs).map { dir in
+            (dir, (dir as NSString).pathComponents.filter { $0 != "/" && !$0.isEmpty })
+        })
+
+        // Current suffix depth per dir (number of trailing components used).
+        var depth: [String: Int] = components.mapValues { min(1, $0.count) }
+
+        func label(for dir: String) -> String {
+            let parts = components[dir] ?? []
+            let d = max(depth[dir] ?? 1, 1)
+            let suffix = parts.suffix(d)
+            return suffix.isEmpty ? dir : suffix.joined(separator: "/")
+        }
+
+        // Repeatedly grow the depth of any label shared by more than one dir,
+        // but only for dirs that still have a deeper parent to include.
+        while true {
+            var labelToDirs: [String: [String]] = [:]
+            for dir in components.keys { labelToDirs[label(for: dir), default: []].append(dir) }
+            var grew = false
+            for (_, group) in labelToDirs where group.count > 1 {
+                for dir in group {
+                    let parts = components[dir] ?? []
+                    if (depth[dir] ?? 1) < parts.count {
+                        depth[dir, default: 1] += 1
+                        grew = true
+                    }
+                }
+            }
+            if !grew { break }
+        }
+
+        return Dictionary(uniqueKeysWithValues: components.keys.map { ($0, label(for: $0)) })
     }
 
     /// Reselect the row matching `selectedFilter` after a reload.
@@ -176,7 +219,13 @@ extension SidebarController: NSOutlineViewDelegate {
         let cell = (outlineView.makeView(withIdentifier: id, owner: self) as? FilterCellView)
             ?? FilterCellView(identifier: id)
         cell.configure(symbol: node.symbol, title: node.title, count: node.count)
-        cell.toolTip = node.title
+        // For folders show the full path on hover; the visible label is only the
+        // minimal disambiguating suffix.
+        if case .folder(let dir) = node.filter {
+            cell.toolTip = dir
+        } else {
+            cell.toolTip = node.title
+        }
         return cell
     }
 
