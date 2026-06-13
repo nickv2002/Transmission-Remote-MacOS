@@ -8,6 +8,8 @@ extension MainWindowController: NSToolbarDelegate {
         static let forceStart = NSToolbarItem.Identifier("forceStart")
         static let rename = NSToolbarItem.Identifier("rename")
         static let move = NSToolbarItem.Identifier("move")
+        static let verify = NSToolbarItem.Identifier("verify")
+        static let remove = NSToolbarItem.Identifier("remove")
         static let search = NSToolbarItem.Identifier("search")
     }
 
@@ -21,7 +23,8 @@ extension MainWindowController: NSToolbarDelegate {
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
-         ToolbarID.rename, ToolbarID.move, .flexibleSpace, ToolbarID.search]
+         ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
+         .flexibleSpace, ToolbarID.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -39,6 +42,7 @@ extension MainWindowController: NSToolbarDelegate {
             item.searchField.sendsSearchStringImmediately = true
             item.searchField.target = self
             item.searchField.action = #selector(searchChanged(_:))
+            item.searchField.searchMenuTemplate = searchModeMenu()
             searchField = item.searchField
             return item
         }
@@ -50,6 +54,8 @@ extension MainWindowController: NSToolbarDelegate {
         case ToolbarID.forceStart: spec = ("Force Start", "forward.fill", #selector(forceStartSelected(_:)))
         case ToolbarID.rename: spec = ("Rename", "pencil", #selector(renameSelected(_:)))
         case ToolbarID.move: spec = ("Move", "folder", #selector(moveSelected(_:)))
+        case ToolbarID.verify: spec = ("Verify", "checkmark.shield", #selector(verifySelected(_:)))
+        case ToolbarID.remove: spec = ("Remove", "trash", #selector(removeSelected(_:)))
         default: spec = nil
         }
         guard let spec else { return nil }
@@ -63,16 +69,70 @@ extension MainWindowController: NSToolbarDelegate {
         return item
     }
 
+    /// The magnifying-glass dropdown menu inside the search field: pick the match
+    /// mode (Fuzzy vs Exact). Checkmarks are kept current in `validateMenuItem`.
+    private func searchModeMenu() -> NSMenu {
+        let menu = NSMenu()
+        let fuzzy = menu.addItem(withTitle: "Fuzzy Match",
+                                 action: #selector(searchModeChanged(_:)), keyEquivalent: "")
+        fuzzy.tag = SearchMode.fuzzy.rawValue
+        fuzzy.target = self
+        let exact = menu.addItem(withTitle: "Exact Match",
+                                 action: #selector(searchModeChanged(_:)), keyEquivalent: "")
+        exact.tag = SearchMode.exact.rawValue
+        exact.target = self
+        return menu
+    }
+
+    @objc func searchModeChanged(_ sender: NSMenuItem) {
+        guard let mode = SearchMode(rawValue: sender.tag) else { return }
+        setSearchMode(mode)
+    }
+
     func rowContextMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(withTitle: "Start", action: #selector(startSelected(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "Stop", action: #selector(stopSelected(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "Force Start", action: #selector(forceStartSelected(_:)), keyEquivalent: "")
         menu.addItem(.separator())
+        menu.addItem(withTitle: "Verify Local Data", action: #selector(verifySelected(_:)), keyEquivalent: "")
+
+        // Queue submenu.
+        let queueItem = menu.addItem(withTitle: "Queue", action: nil, keyEquivalent: "")
+        let queueMenu = NSMenu()
+        let queueSpecs: [(String, Int)] = [
+            ("Move to Top", QueueMoveTag.top), ("Move Up", QueueMoveTag.up),
+            ("Move Down", QueueMoveTag.down), ("Move to Bottom", QueueMoveTag.bottom),
+        ]
+        for (title, tag) in queueSpecs {
+            let item = queueMenu.addItem(withTitle: title, action: #selector(queueMoveSelected(_:)), keyEquivalent: "")
+            item.tag = tag
+            item.target = self
+        }
+        queueItem.submenu = queueMenu
+
+        // Priority submenu.
+        let priorityItem = menu.addItem(withTitle: "Priority", action: nil, keyEquivalent: "")
+        let priorityMenu = NSMenu()
+        for priority in [BandwidthPriority.high, .normal, .low] {
+            let item = priorityMenu.addItem(withTitle: priority.displayName, action: #selector(setPrioritySelected(_:)), keyEquivalent: "")
+            item.tag = priority.rawValue
+            item.target = self
+        }
+        priorityItem.submenu = priorityMenu
+
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Rename…", action: #selector(renameSelected(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "Move…", action: #selector(moveSelected(_:)), keyEquivalent: "")
-        for item in menu.items { item.target = self }
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Remove…", action: #selector(removeSelected(_:)), keyEquivalent: "")
+        for item in menu.items where item.action != nil { item.target = self }
         return menu
+    }
+
+    /// Tags used to carry the queue direction through a single menu selector.
+    private enum QueueMoveTag {
+        static let top = 0, up = 1, down = 2, bottom = 3
     }
 
     // MARK: - Enablement
@@ -82,7 +142,12 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        validate(action: menuItem.action)
+        // Reflect the active search mode as a checkmark in the search-field menu.
+        if menuItem.action == #selector(searchModeChanged(_:)) {
+            menuItem.state = (menuItem.tag == searchMode.rawValue) ? .on : .off
+            return true
+        }
+        return validate(action: menuItem.action)
     }
 
     private func validate(action: Selector?) -> Bool {
@@ -99,6 +164,9 @@ extension MainWindowController: NSToolbarDelegate {
             return true
         case #selector(renameSelected(_:)), #selector(moveSelected(_:)):
             return selection.count == 1
+        case #selector(verifySelected(_:)), #selector(removeSelected(_:)),
+             #selector(queueMoveSelected(_:)), #selector(setPrioritySelected(_:)):
+            return true
         default:
             return true
         }
@@ -149,6 +217,78 @@ extension MainWindowController: NSToolbarDelegate {
                    defaultValue: t.downloadDir) { [weak self] location in
             guard let location, !location.isEmpty, location != t.downloadDir else { return }
             self?.runRPC { try await $0.setLocation(ids: [t.id], location: location, move: true) }
+        }
+    }
+
+    @objc func verifySelected(_ sender: Any?) {
+        let ids = selectionForAction().map(\.id)
+        guard !ids.isEmpty else { return }
+        runRPC { try await $0.verify(ids: ids) }
+    }
+
+    @objc func queueMoveSelected(_ sender: NSMenuItem) {
+        let ids = selectionForAction().map(\.id)
+        guard !ids.isEmpty else { return }
+        let move: TransmissionClient.QueueMove
+        switch sender.tag {
+        case QueueMoveTag.top: move = .top
+        case QueueMoveTag.up: move = .up
+        case QueueMoveTag.down: move = .down
+        default: move = .bottom
+        }
+        runRPC { try await $0.queueMove(ids: ids, to: move) }
+    }
+
+    @objc func setPrioritySelected(_ sender: NSMenuItem) {
+        let ids = selectionForAction().map(\.id)
+        guard !ids.isEmpty, let priority = BandwidthPriority(rawValue: sender.tag) else { return }
+        runRPC { try await $0.setBandwidthPriority(ids: ids, priority: priority) }
+    }
+
+    @objc func removeSelected(_ sender: Any?) {
+        let targets = selectionForAction()
+        guard !targets.isEmpty, let window else { return }
+        let ids = targets.map(\.id)
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = targets.count == 1
+            ? "Remove “\(targets[0].name)”?"
+            : "Remove \(targets.count) torrents?"
+        alert.informativeText = "This removes the torrent from Transmission. Choose “Remove + Data” to also delete the downloaded files from the server — this cannot be undone."
+        // Default (leftmost, also the Return key) is the non-destructive choice.
+        alert.addButton(withTitle: "Remove")
+        let deleteButton = alert.addButton(withTitle: "Remove + Data")
+        alert.addButton(withTitle: "Cancel")
+        if #available(macOS 11.0, *) { deleteButton.hasDestructiveAction = true }
+
+        alert.beginSheetModal(for: window) { [weak self] response in
+            switch response {
+            case .alertFirstButtonReturn:
+                self?.runRPC { try await $0.remove(ids: ids, deleteLocalData: false) }
+            case .alertSecondButtonReturn:
+                self?.confirmDeleteWithData(ids: ids, count: targets.count)
+            default:
+                break   // Cancel
+            }
+        }
+    }
+
+    /// Second confirmation before the irreversible "delete files too" path.
+    private func confirmDeleteWithData(ids: [Int], count: Int) {
+        guard let window else { return }
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = count == 1
+            ? "Delete the downloaded files too?"
+            : "Delete the downloaded files for \(count) torrents too?"
+        alert.informativeText = "The data will be permanently deleted from the server."
+        alert.addButton(withTitle: "Cancel")
+        let confirm = alert.addButton(withTitle: "Delete Files")
+        if #available(macOS 11.0, *) { confirm.hasDestructiveAction = true }
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertSecondButtonReturn else { return }
+            self?.runRPC { try await $0.remove(ids: ids, deleteLocalData: true) }
         }
     }
 

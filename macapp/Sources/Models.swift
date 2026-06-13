@@ -27,6 +27,21 @@ enum TorrentStatus: Int, Sendable {
     var isActive: Bool { self != .stopped }
 }
 
+/// Transmission `bandwidthPriority` values (RPC spec): -1 low, 0 normal, 1 high.
+enum BandwidthPriority: Int, Sendable, CaseIterable {
+    case low = -1
+    case normal = 0
+    case high = 1
+
+    var displayName: String {
+        switch self {
+        case .low: return "Low"
+        case .normal: return "Normal"
+        case .high: return "High"
+        }
+    }
+}
+
 /// A single torrent as returned by `torrent-get`. Only the MVP fields are decoded.
 struct Torrent: Codable, Sendable, Identifiable, Equatable {
     let id: Int
@@ -47,6 +62,8 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     let peersGettingFromUs: Int
     let addedDate: Double
     let hashString: String
+    let queuePosition: Int
+    let bandwidthPriorityRaw: Int
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -67,16 +84,23 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         case peersGettingFromUs
         case addedDate
         case hashString
+        case queuePosition
+        case bandwidthPriorityRaw = "bandwidthPriority"
     }
 
     var status: TorrentStatus { TorrentStatus(rawValue: statusRaw) ?? .stopped }
+
+    var bandwidthPriority: BandwidthPriority {
+        BandwidthPriority(rawValue: bandwidthPriorityRaw) ?? .normal
+    }
 
     /// The list of fields the MVP requests from `torrent-get`.
     static let requestedFields = [
         "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
         "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
         "downloadDir", "errorString", "peersConnected", "peersSendingToUs",
-        "peersGettingFromUs", "addedDate", "hashString",
+        "peersGettingFromUs", "addedDate", "hashString", "queuePosition",
+        "bandwidthPriority",
     ]
 }
 

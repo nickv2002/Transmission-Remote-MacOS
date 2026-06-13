@@ -20,6 +20,23 @@ final class MainWindowController: NSWindowController {
     /// Current search text; empty means "show everything".
     private var filterText = ""
 
+    /// How the search box matches: fuzzy subsequence (ranked) or exact substring.
+    enum SearchMode: Int { case fuzzy, exact }
+    private(set) var searchMode: SearchMode = .fuzzy
+
+    /// Switch match mode (from the search field's magnifying-glass menu) and re-filter.
+    func setSearchMode(_ mode: SearchMode) {
+        guard mode != searchMode else { return }
+        searchMode = mode
+        let ids = selectedTorrentIds()
+        rebuildDisplayed()
+        tableView.reloadData()
+        restoreSelection(ids)
+        updateDetail()
+        updateStatusBar(state: refresh.state)
+        window?.toolbar?.validateVisibleItems()
+    }
+
     /// The toolbar's search field, retained so ⌘F can focus it.
     weak var searchField: NSSearchField?
 
@@ -31,10 +48,11 @@ final class MainWindowController: NSWindowController {
 
     // Column identifiers double as sort keys.
     private enum Column: String, CaseIterable {
-        case name, status, progress, down, up, eta, ratio
+        case queue, name, status, progress, down, up, eta, ratio
 
         var title: String {
             switch self {
+            case .queue: return "#"
             case .name: return "Name"
             case .status: return "Status"
             case .progress: return "Progress"
@@ -47,6 +65,7 @@ final class MainWindowController: NSWindowController {
 
         var width: CGFloat {
             switch self {
+            case .queue: return 40
             case .name: return 260
             case .status: return 110
             case .progress: return 90
@@ -223,13 +242,32 @@ final class MainWindowController: NSWindowController {
         window?.toolbar?.validateVisibleItems()
     }
 
-    /// Recompute the rendered list from `torrents` + `filterText`. Exact,
-    /// case-insensitive substring match on the name. (Future: fuzzy/subsequence
-    /// matching with ranking — see the project memory.)
+    /// Recompute the rendered list from `torrents` + `filterText` + `searchMode`.
+    ///
+    /// Empty filter: show everything in the current column-sort order. `.exact`:
+    /// case-insensitive substring filter, keeping the column-sort order. `.fuzzy`:
+    /// subsequence matching (see `FuzzyMatch`), ranked by match quality so the
+    /// closest matches float to the top (e.g. `ppgrl` finds "papergirls").
     private func rebuildDisplayed() {
-        displayed = filterText.isEmpty
-            ? torrents
-            : torrents.filter { $0.name.localizedCaseInsensitiveContains(filterText) }
+        guard !filterText.isEmpty else {
+            displayed = torrents
+            return
+        }
+        switch searchMode {
+        case .exact:
+            displayed = torrents.filter { $0.name.localizedCaseInsensitiveContains(filterText) }
+        case .fuzzy:
+            displayed = torrents
+                .compactMap { t -> (Torrent, Int)? in
+                    FuzzyMatch.score(query: filterText, candidate: t.name).map { (t, $0) }
+                }
+                .sorted { a, b in
+                    a.1 != b.1
+                        ? a.1 > b.1
+                        : a.0.name.localizedCaseInsensitiveCompare(b.0.name) == .orderedAscending
+                }
+                .map(\.0)
+        }
     }
 
     private func restoreSelection(_ ids: Set<Int>) {
@@ -289,6 +327,7 @@ final class MainWindowController: NSWindowController {
         torrents.sort { a, b in
             let result: Bool
             switch column {
+            case .queue: result = a.queuePosition < b.queuePosition
             case .name: result = a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             case .status: result = a.statusRaw < b.statusRaw
             case .progress: result = a.percentDone < b.percentDone
@@ -337,6 +376,8 @@ final class MainWindowController: NSWindowController {
         lines.append("Size:        \(Formatters.size(t.totalSize)) (want \(Formatters.size(t.sizeWhenDone)))")
         lines.append("Downloaded:  \(Formatters.size(downloaded))")
         lines.append("Ratio:       \(Formatters.ratio(t.uploadRatio))")
+        lines.append("Priority:    \(t.bandwidthPriority.displayName)")
+        lines.append("Queue:       \(t.queuePosition + 1)")
         lines.append("Download:    \(Formatters.speed(t.rateDownload).isEmpty ? "—" : Formatters.speed(t.rateDownload))")
         lines.append("Upload:      \(Formatters.speed(t.rateUpload).isEmpty ? "—" : Formatters.speed(t.rateUpload))")
         lines.append("ETA:         \(Formatters.eta(t.eta).isEmpty ? "—" : Formatters.eta(t.eta))")
@@ -430,6 +471,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         let value: String
         var alignment: NSTextAlignment = .left
         switch column {
+        case .queue: value = "\(t.queuePosition + 1)"; alignment = .right
         case .name: value = t.name
         case .status: value = t.status.displayName
         case .progress: value = ""
