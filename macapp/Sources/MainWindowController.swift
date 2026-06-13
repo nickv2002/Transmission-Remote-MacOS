@@ -13,6 +13,11 @@ final class MainWindowController: NSWindowController {
     let detailTabView = NSTabView()
     let filesTable = NSTableView()
 
+    /// Source-list sidebar of status / tracker / folder filter groups.
+    let sidebar = SidebarController()
+    /// The active sidebar filter applied before the search filter.
+    private var activeFilter: SidebarFilter = .all
+
     /// Files currently shown in the Files tab, and which torrent they belong to.
     var files: [TorrentFile] = []
     var filesTorrentId: Int?
@@ -190,6 +195,17 @@ final class MainWindowController: NSWindowController {
         split.addArrangedSubview(detailTabView)
         split.translatesAutoresizingMaskIntoConstraints = false
 
+        // Sidebar filter groups, then the table/detail split, side by side.
+        sidebar.onFilterChange = { [weak self] filter in self?.applyFilter(filter) }
+        let mainSplit = NSSplitView()
+        mainSplit.isVertical = true
+        mainSplit.dividerStyle = .thin
+        mainSplit.addArrangedSubview(sidebar.scrollView)
+        mainSplit.addArrangedSubview(split)
+        mainSplit.setHoldingPriority(.defaultLow, forSubviewAt: 0)
+        mainSplit.translatesAutoresizingMaskIntoConstraints = false
+        sidebar.scrollView.widthAnchor.constraint(greaterThanOrEqualToConstant: 150).isActive = true
+
         // Status bar.
         statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         statusLabel.textColor = .secondaryLabelColor
@@ -211,13 +227,13 @@ final class MainWindowController: NSWindowController {
         let content = DropView()
         content.onDropFiles = { [weak self] urls in self?.addFiles(urls) }
         content.onDropText = { [weak self] text in self?.addDroppedText(text) }
-        content.addSubview(split)
+        content.addSubview(mainSplit)
         content.addSubview(statusBar)
         NSLayoutConstraint.activate([
-            split.topAnchor.constraint(equalTo: content.topAnchor),
-            split.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            split.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            split.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            mainSplit.topAnchor.constraint(equalTo: content.topAnchor),
+            mainSplit.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            mainSplit.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            mainSplit.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
 
             statusBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -225,10 +241,11 @@ final class MainWindowController: NSWindowController {
         ])
         window.contentView = content
 
-        // Give the detail pane a sensible starting height once laid out.
+        // Give the detail pane and sidebar sensible starting sizes once laid out.
         DispatchQueue.main.async {
             let h = split.bounds.height
             if h > 200 { split.setPosition(h - 170, ofDividerAt: 0) }
+            mainSplit.setPosition(190, ofDividerAt: 0)
         }
     }
 
@@ -258,6 +275,7 @@ final class MainWindowController: NSWindowController {
         let selectedIds = selectedTorrentIds()
         torrents = incoming
         sortTorrents()
+        sidebar.update(with: torrents)
         rebuildDisplayed()
         tableView.reloadData()
         restoreSelection(selectedIds)
@@ -274,15 +292,17 @@ final class MainWindowController: NSWindowController {
     /// subsequence matching (see `FuzzyMatch`), ranked by match quality so the
     /// closest matches float to the top (e.g. `ppgrl` finds "papergirls").
     private func rebuildDisplayed() {
+        // Sidebar filter first, then the search box.
+        let base = activeFilter == .all ? torrents : torrents.filter { activeFilter.matches($0) }
         guard !filterText.isEmpty else {
-            displayed = torrents
+            displayed = base
             return
         }
         switch searchMode {
         case .exact:
-            displayed = torrents.filter { $0.name.localizedCaseInsensitiveContains(filterText) }
+            displayed = base.filter { $0.name.localizedCaseInsensitiveContains(filterText) }
         case .fuzzy:
-            displayed = torrents
+            displayed = base
                 .compactMap { t -> (Torrent, Int)? in
                     FuzzyMatch.score(query: filterText, candidate: t.name).map { (t, $0) }
                 }
@@ -301,6 +321,19 @@ final class MainWindowController: NSWindowController {
             .filter { ids.contains($0.element.id) }
             .map { $0.offset })
         tableView.selectRowIndexes(rows, byExtendingSelection: false)
+    }
+
+    /// Apply a sidebar filter selection and re-render the list.
+    private func applyFilter(_ filter: SidebarFilter) {
+        guard filter != activeFilter else { return }
+        activeFilter = filter
+        let ids = selectedTorrentIds()
+        rebuildDisplayed()
+        tableView.reloadData()
+        restoreSelection(ids)
+        updateDetail()
+        loadFilesIfNeeded()
+        updateStatusBar(state: refresh.state)
     }
 
     /// Live filtering as the user types in the toolbar search field.
@@ -331,7 +364,7 @@ final class MainWindowController: NSWindowController {
         let rates = [down.isEmpty ? nil : "↓ \(down)", up.isEmpty ? nil : "↑ \(up)"]
             .compactMap { $0 }.joined(separator: "   ")
 
-        let count = filterText.isEmpty
+        let count = displayed.count == torrents.count
             ? "\(torrents.count) torrents"
             : "\(displayed.count) of \(torrents.count) torrents"
         var parts = [count, connection]
