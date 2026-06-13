@@ -63,18 +63,21 @@ final class MainWindowController: NSWindowController {
 
     // Column identifiers double as sort keys.
     private enum Column: String, CaseIterable {
-        case queue, name, status, progress, down, up, eta, ratio
+        case queue, name, size, status, progress, down, up, eta, ratio, added, tracker
 
         var title: String {
             switch self {
             case .queue: return "#"
             case .name: return "Name"
+            case .size: return "Size"
             case .status: return "Status"
             case .progress: return "Progress"
             case .down: return "↓ Speed"
             case .up: return "↑ Speed"
             case .eta: return "ETA"
             case .ratio: return "Ratio"
+            case .added: return "Added"
+            case .tracker: return "Tracker"
             }
         }
 
@@ -82,11 +85,22 @@ final class MainWindowController: NSWindowController {
             switch self {
             case .queue: return 40
             case .name: return 260
+            case .size: return 80
             case .status: return 110
             case .progress: return 90
             case .down, .up: return 80
             case .eta: return 70
             case .ratio: return 60
+            case .added: return 130
+            case .tracker: return 150
+            }
+        }
+
+        /// Columns hidden by default (still toggleable from the header menu).
+        var hiddenByDefault: Bool {
+            switch self {
+            case .size, .added, .tracker: return true
+            default: return false
             }
         }
 
@@ -254,8 +268,65 @@ final class MainWindowController: NSWindowController {
             let col = NSTableColumn(identifier: column.identifier)
             col.title = column.title
             col.width = column.width
+            col.minWidth = 36
+            col.isHidden = column.hiddenByDefault
             col.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: true)
             tableView.addTableColumn(col)
+        }
+        tableView.allowsColumnReordering = true
+        tableView.allowsColumnResizing = true
+        tableView.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        // Persist column order / width / visibility across launches.
+        tableView.autosaveName = "TorrentTable"
+        tableView.autosaveTableColumns = true
+        tableView.headerView?.menu = columnHeaderMenu()
+    }
+
+    /// Right-click header menu to show/hide columns and auto-size widths.
+    private func columnHeaderMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.delegate = self
+        for column in Column.allCases where column != .name {
+            let item = menu.addItem(withTitle: column.title.isEmpty ? column.rawValue : column.title,
+                                    action: #selector(toggleColumn(_:)), keyEquivalent: "")
+            item.representedObject = column.rawValue
+            item.target = self
+        }
+        menu.addItem(.separator())
+        let fit = menu.addItem(withTitle: "Auto-Size Columns", action: #selector(autoSizeColumns(_:)), keyEquivalent: "")
+        fit.target = self
+        return menu
+    }
+
+    @objc private func toggleColumn(_ sender: NSMenuItem) {
+        guard let key = sender.representedObject as? String,
+              let col = tableView.tableColumns.first(where: { $0.identifier.rawValue == key }) else { return }
+        col.isHidden.toggle()
+    }
+
+    /// Refresh the header menu checkmarks to reflect current column visibility.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        for item in menu.items {
+            guard let key = item.representedObject as? String,
+                  let col = tableView.tableColumns.first(where: { $0.identifier.rawValue == key }) else { continue }
+            item.state = col.isHidden ? .off : .on
+        }
+    }
+
+    /// Size each visible column to fit its header and the widest displayed value.
+    @objc private func autoSizeColumns(_ sender: Any?) {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        for col in tableView.tableColumns where !col.isHidden {
+            guard let column = Column(rawValue: col.identifier.rawValue) else { continue }
+            if column == .progress { continue }   // fixed-style bar cell
+            var maxWidth = (col.title as NSString).size(withAttributes: attrs).width + 16
+            for t in displayed {
+                let text = cellText(for: column, torrent: t)
+                let w = (text as NSString).size(withAttributes: attrs).width + 16
+                if w > maxWidth { maxWidth = w }
+            }
+            col.width = min(max(maxWidth, col.minWidth), 600)
         }
     }
 
@@ -387,12 +458,15 @@ final class MainWindowController: NSWindowController {
             switch column {
             case .queue: result = a.queuePosition < b.queuePosition
             case .name: result = a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            case .size: result = a.totalSize < b.totalSize
             case .status: result = a.statusRaw < b.statusRaw
             case .progress: result = a.percentDone < b.percentDone
             case .down: result = a.rateDownload < b.rateDownload
             case .up: result = a.rateUpload < b.rateUpload
             case .eta: result = a.eta < b.eta
             case .ratio: result = a.uploadRatio < b.uploadRatio
+            case .added: result = a.addedDate < b.addedDate
+            case .tracker: result = (a.trackerHost ?? "").localizedCaseInsensitiveCompare(b.trackerHost ?? "") == .orderedAscending
             }
             return ascending ? result : !result
         }
@@ -446,6 +520,36 @@ final class MainWindowController: NSWindowController {
         detailLabel.stringValue = lines.joined(separator: "\n")
     }
 
+    /// Text shown for a torrent in a given column (shared by the cell view and the
+    /// auto-size routine). Progress renders as a bar, so it returns "".
+    private func cellText(for column: Column, torrent t: Torrent) -> String {
+        switch column {
+        case .queue: return "\(t.queuePosition + 1)"
+        case .name: return t.name
+        case .size: return Formatters.size(t.totalSize)
+        case .status: return t.status.displayName
+        case .progress: return ""
+        case .down: return Formatters.speed(t.rateDownload)
+        case .up: return Formatters.speed(t.rateUpload)
+        case .eta: return Formatters.eta(t.eta)
+        case .ratio: return Formatters.ratio(t.uploadRatio)
+        case .added: return Formatters.date(t.addedDate)
+        case .tracker: return t.trackerHost ?? "—"
+        }
+    }
+
+    /// Colour the progress bar by torrent state (native polish).
+    private func progressColor(for t: Torrent) -> NSColor {
+        if t.hasError { return .systemRed }
+        switch t.status {
+        case .stopped: return .systemGray
+        case .checking, .checkWait: return .systemOrange
+        case .seeding: return .systemGreen
+        default:
+            return t.percentDone >= 1 ? .systemGreen : .controlAccentColor
+        }
+    }
+
     @objc private func didDoubleClickRow() {
         guard tableView.clickedRow >= 0 else { return }
         renameSelected(nil)
@@ -473,6 +577,10 @@ final class MainWindowController: NSWindowController {
     @objc private func windowHidden() { refresh.setPaused(true) }
     @objc private func windowShown() { refresh.setPaused(false); refresh.refreshNow() }
 }
+
+// MARK: - Header menu
+
+extension MainWindowController: NSMenuDelegate {}
 
 // MARK: - Table data source / delegate
 
@@ -511,7 +619,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
                     c.identifier = ProgressCellView.reuseIdentifier
                     return c
                 }()
-            cell.configure(fraction: t.percentDone)
+            cell.configure(fraction: t.percentDone, color: progressColor(for: t))
             return cell
         }
 
@@ -533,20 +641,9 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             return c
         }()
 
-        let value: String
-        var alignment: NSTextAlignment = .left
-        switch column {
-        case .queue: value = "\(t.queuePosition + 1)"; alignment = .right
-        case .name: value = t.name
-        case .status: value = t.status.displayName
-        case .progress: value = ""
-        case .down: value = Formatters.speed(t.rateDownload); alignment = .right
-        case .up: value = Formatters.speed(t.rateUpload); alignment = .right
-        case .eta: value = Formatters.eta(t.eta); alignment = .right
-        case .ratio: value = Formatters.ratio(t.uploadRatio); alignment = .right
-        }
-        cell.textField?.stringValue = value
-        cell.textField?.alignment = alignment
+        let rightAligned: Set<Column> = [.queue, .size, .down, .up, .eta, .ratio]
+        cell.textField?.stringValue = cellText(for: column, torrent: t)
+        cell.textField?.alignment = rightAligned.contains(column) ? .right : .left
         return cell
     }
 }
