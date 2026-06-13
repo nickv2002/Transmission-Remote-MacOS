@@ -55,7 +55,9 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 
 - Plans live in `../.context/`, numbered chronologically: `01-mac-port-plan.md` (MVP),
   `02-feature-backlog.md`, `03-feature-ranking.md` (ranked backlog), `04-native-followups.md`
-  (icon recolor, Ratio-Limit column, folder-filter fix, connecting state).
+  (icon recolor, Ratio-Limit column, folder-filter fix, connecting state),
+  `05-native-followups-2.md` (Dock icon, completed-ETA, folder dupes, sidebar scroll +
+  reordering).
 
 ## Layout (`macapp/Sources/`)
 
