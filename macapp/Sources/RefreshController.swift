@@ -30,6 +30,10 @@ final class RefreshController {
     private(set) var freeSpace: Int64?
     private var loopTask: Task<Void, Never>?
     private var paused = false
+    /// Set once the first handshake succeeds. Until then, connection errors keep
+    /// the state at `.connecting` (the loop retries) rather than `.failed`, so the
+    /// first paint never shows an offline/error message.
+    private var hasConnectedOnce = false
     private(set) var state: State = .idle {
         didSet { if oldValue != state { onState?(state) } }
     }
@@ -85,9 +89,14 @@ final class RefreshController {
         do {
             let info = try await client.fetchSession()
             defaultDownloadDir = info.downloadDir
+            hasConnectedOnce = true
             state = .connected(version: info.version)
         } catch {
-            state = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            // Before the first success, keep retrying as `.connecting`; only show
+            // a failure once we've connected at least once.
+            state = hasConnectedOnce
+                ? .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+                : .connecting
         }
 
         while !Task.isCancelled {
@@ -106,6 +115,7 @@ final class RefreshController {
             if case .connected = state {} else {
                 let info = try? await client.fetchSession()
                 defaultDownloadDir = info?.downloadDir
+                hasConnectedOnce = true
                 state = .connected(version: info?.version ?? "?")
             }
             if let dir = defaultDownloadDir {
@@ -113,7 +123,10 @@ final class RefreshController {
             }
             onTorrents?(torrents)
         } catch {
-            state = .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+            // Same first-connect grace as the initial handshake.
+            state = hasConnectedOnce
+                ? .failed((error as? LocalizedError)?.errorDescription ?? error.localizedDescription)
+                : .connecting
         }
     }
 }

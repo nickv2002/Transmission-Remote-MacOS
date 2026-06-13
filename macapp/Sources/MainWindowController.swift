@@ -240,7 +240,7 @@ final class MainWindowController: NSWindowController {
         // Status bar.
         statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         statusLabel.textColor = .secondaryLabelColor
-        statusLabel.stringValue = "Idle"
+        statusLabel.stringValue = "Connecting…"
         let statusBar = NSView()
         statusBar.addSubview(statusLabel)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -451,7 +451,7 @@ final class MainWindowController: NSWindowController {
     private func updateStatusBar(state: RefreshController.State) {
         let connection: String
         switch state {
-        case .idle: connection = "Idle"
+        case .idle: connection = "Connecting…"
         case .connecting: connection = "Connecting…"
         case .connected(let version): connection = "Connected — Transmission \(version)"
         case .failed(let message): connection = "⚠︎ \(message)"
