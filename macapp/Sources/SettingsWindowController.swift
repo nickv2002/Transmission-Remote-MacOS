@@ -1,19 +1,25 @@
 import AppKit
 
 /// Native Settings window (⌘,) replacing the old hand-edited JSONC file. Two
-/// panes: **Servers** (a list of connections with editable host/port/auth) and
-/// **General** (poll interval + the default server). Edits mutate a working copy
-/// of `AppConfig`; the working copy is persisted and applied live whenever it
-/// changes, so there's no separate Save step.
+/// panes: **Servers** (a default-server picker, a list of connections with
+/// editable host/port/auth, plus Test Connection / Save) and **General** (poll
+/// interval).
+///
+/// Edits mutate an in-memory working copy of `AppConfig`. Nothing is persisted or
+/// applied to the live connection until the user presses **Save** — closing with
+/// unsaved changes prompts to save or discard.
 @MainActor
 final class SettingsWindowController: NSWindowController {
-    /// Called with the edited config after every change (persist + apply live).
+    /// Called with the edited config when the user saves (persist + apply live).
     var onChange: ((AppConfig) -> Void)?
 
     /// Working copy being edited.
     private var config: AppConfig
+    /// The last saved state, used to detect unsaved changes and to revert.
+    private var savedBaseline: AppConfig
 
     // Servers pane.
+    private let defaultServerPopup = NSPopUpButton()
     private let serverTable = NSTableView()
     private var selectedIndex: Int? { serverTable.selectedRow >= 0 ? serverTable.selectedRow : nil }
     private let nameField = NSTextField()
@@ -29,31 +35,52 @@ final class SettingsWindowController: NSWindowController {
     // General pane.
     private let refreshField = NSTextField()
     private let refreshStepper = NSStepper()
-    private let defaultServerPopup = NSPopUpButton()
+
+    // Bottom bar.
+    private let testButton = NSButton()
+    private let saveButton = NSButton()
+    private let testSpinner = NSProgressIndicator()
 
     init(config: AppConfig) {
         self.config = config
+        self.savedBaseline = config
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 360),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 420),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered, defer: false)
         window.title = "Settings"
         super.init(window: window)
+        window.delegate = self
         window.center()
-        window.contentView = buildTabView()
+        window.contentView = buildContent()
         reloadServerList()
+        reloadDefaultServerPopup()
         reloadGeneral()
         selectServer(at: config.servers.isEmpty ? nil : 0)
+        updateDirtyState()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    /// Re-seed the working copy when the window is reopened, so it always reflects
+    /// the current saved config (and never lingering discarded edits).
+    func reset(to config: AppConfig) {
+        self.config = config
+        self.savedBaseline = config
+        reloadServerList()
+        reloadDefaultServerPopup()
+        reloadGeneral()
+        selectServer(at: config.servers.isEmpty ? nil : 0)
+        updateDirtyState()
+    }
+
     // MARK: - Layout
 
-    private func buildTabView() -> NSView {
+    private func buildContent() -> NSView {
         let tabView = NSTabView()
         tabView.translatesAutoresizingMaskIntoConstraints = false
+        tabView.delegate = self
 
         let serversItem = NSTabViewItem(identifier: "servers")
         serversItem.label = "Servers"
@@ -65,19 +92,72 @@ final class SettingsWindowController: NSWindowController {
         generalItem.view = buildGeneralPane()
         tabView.addTabViewItem(generalItem)
 
+        let bar = buildBottomBar()
+
         let container = NSView()
         container.addSubview(tabView)
+        container.addSubview(bar)
         NSLayoutConstraint.activate([
             tabView.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
             tabView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             tabView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            tabView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
+
+            bar.topAnchor.constraint(equalTo: tabView.bottomAnchor, constant: 10),
+            bar.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            bar.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -16),
+            bar.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
         ])
         return container
     }
 
+    private func buildBottomBar() -> NSView {
+        let bar = NSView()
+        bar.translatesAutoresizingMaskIntoConstraints = false
+
+        testSpinner.translatesAutoresizingMaskIntoConstraints = false
+        testSpinner.style = .spinning
+        testSpinner.controlSize = .small
+        testSpinner.isDisplayedWhenStopped = false
+
+        testButton.translatesAutoresizingMaskIntoConstraints = false
+        testButton.title = "Test Connection"
+        testButton.bezelStyle = .rounded
+        testButton.target = self
+        testButton.action = #selector(testConnection)
+
+        saveButton.translatesAutoresizingMaskIntoConstraints = false
+        saveButton.title = "Save"
+        saveButton.bezelStyle = .rounded
+        saveButton.keyEquivalent = "\r"   // Return triggers Save.
+        saveButton.target = self
+        saveButton.action = #selector(save)
+
+        bar.addSubview(testSpinner)
+        bar.addSubview(testButton)
+        bar.addSubview(saveButton)
+        NSLayoutConstraint.activate([
+            bar.heightAnchor.constraint(equalToConstant: 28),
+            saveButton.trailingAnchor.constraint(equalTo: bar.trailingAnchor),
+            saveButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+            saveButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+
+            testButton.trailingAnchor.constraint(equalTo: saveButton.leadingAnchor, constant: -10),
+            testButton.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+
+            testSpinner.trailingAnchor.constraint(equalTo: testButton.leadingAnchor, constant: -8),
+            testSpinner.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
+        ])
+        return bar
+    }
+
     private func buildServersPane() -> NSView {
         let pane = NSView()
+
+        // Top: the default-server picker.
+        defaultServerPopup.target = self
+        defaultServerPopup.action = #selector(defaultServerChanged)
+        let defaultRow = stack([label("Default server:"), defaultServerPopup])
+        defaultRow.translatesAutoresizingMaskIntoConstraints = false
 
         // Left: the server list with +/- buttons beneath it.
         let column = NSTableColumn(identifier: .init("name"))
@@ -87,7 +167,6 @@ final class SettingsWindowController: NSWindowController {
         serverTable.dataSource = self
         serverTable.delegate = self
         serverTable.allowsEmptySelection = true
-        serverTable.usesAutomaticRowHeights = false
 
         let scroll = NSScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -111,12 +190,16 @@ final class SettingsWindowController: NSWindowController {
         // Right: the detail form for the selected server.
         let form = buildServerForm()
 
+        pane.addSubview(defaultRow)
         pane.addSubview(scroll)
         pane.addSubview(addButton)
         pane.addSubview(removeButton)
         pane.addSubview(form)
         NSLayoutConstraint.activate([
-            scroll.topAnchor.constraint(equalTo: pane.topAnchor, constant: 16),
+            defaultRow.topAnchor.constraint(equalTo: pane.topAnchor, constant: 16),
+            defaultRow.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 16),
+
+            scroll.topAnchor.constraint(equalTo: defaultRow.bottomAnchor, constant: 14),
             scroll.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 16),
             scroll.widthAnchor.constraint(equalToConstant: 160),
             scroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -4),
@@ -128,7 +211,7 @@ final class SettingsWindowController: NSWindowController {
             removeButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
             removeButton.widthAnchor.constraint(equalToConstant: 24),
 
-            form.topAnchor.constraint(equalTo: pane.topAnchor, constant: 16),
+            form.topAnchor.constraint(equalTo: scroll.topAnchor),
             form.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 16),
             form.trailingAnchor.constraint(equalTo: pane.trailingAnchor, constant: -16),
         ])
@@ -182,12 +265,8 @@ final class SettingsWindowController: NSWindowController {
         refreshStepper.increment = 1
         refreshStepper.valueWraps = false
 
-        defaultServerPopup.target = self
-        defaultServerPopup.action = #selector(defaultServerChanged)
-
         let grid = NSGridView(views: [
             [label("Refresh every:"), stack([refreshField, refreshStepper, label("seconds")])],
-            [label("Default server:"), defaultServerPopup],
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.column(at: 0).xPlacement = .trailing
@@ -202,8 +281,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func label(_ text: String) -> NSTextField {
-        let l = NSTextField(labelWithString: text)
-        return l
+        NSTextField(labelWithString: text)
     }
 
     private func stack(_ views: [NSView]) -> NSStackView {
@@ -231,6 +309,7 @@ final class SettingsWindowController: NSWindowController {
         let enabled = selectedIndex != nil
         for field in detailFields { field.isEnabled = enabled }
         removeButton.isEnabled = enabled && config.servers.count > 1
+        testButton.isEnabled = enabled
 
         guard let i = selectedIndex else {
             nameField.stringValue = ""; hostField.stringValue = ""; portField.stringValue = ""
@@ -259,8 +338,9 @@ final class SettingsWindowController: NSWindowController {
             name: name, host: "localhost", port: 9091,
             useHTTPS: false, rpcPath: "/transmission/rpc"))
         reloadServerList()
+        reloadDefaultServerPopup()
         selectServer(at: config.servers.count - 1)
-        commit()
+        updateDirtyState()
     }
 
     @objc private func removeServer() {
@@ -270,9 +350,9 @@ final class SettingsWindowController: NSWindowController {
             config.currentServer = config.servers.first?.name
         }
         reloadServerList()
+        reloadDefaultServerPopup()
         selectServer(at: min(i, config.servers.count - 1))
-        reloadGeneral()
-        commit()
+        updateDirtyState()
     }
 
     @objc private func serverFieldChanged() {
@@ -299,8 +379,24 @@ final class SettingsWindowController: NSWindowController {
         }
         config.servers[i] = s
         reloadServerList()
-        reloadGeneral()
-        commit()
+        reloadDefaultServerPopup()
+        updateDirtyState()
+    }
+
+    @objc private func defaultServerChanged() {
+        config.currentServer = defaultServerPopup.titleOfSelectedItem
+        updateDirtyState()
+    }
+
+    private func reloadDefaultServerPopup() {
+        let previous = config.currentServer
+        defaultServerPopup.removeAllItems()
+        defaultServerPopup.addItems(withTitles: config.serverNames)
+        if let previous, config.serverNames.contains(previous) {
+            defaultServerPopup.selectItem(withTitle: previous)
+        } else if let first = config.serverNames.first {
+            defaultServerPopup.selectItem(withTitle: first)
+        }
     }
 
     // MARK: - General
@@ -308,42 +404,83 @@ final class SettingsWindowController: NSWindowController {
     private func reloadGeneral() {
         refreshField.stringValue = String(format: "%g", config.refreshSeconds)
         refreshStepper.doubleValue = config.refreshSeconds
-        defaultServerPopup.removeAllItems()
-        defaultServerPopup.addItems(withTitles: config.serverNames)
-        if let current = config.currentServer, config.serverNames.contains(current) {
-            defaultServerPopup.selectItem(withTitle: current)
-        } else if let first = config.serverNames.first {
-            defaultServerPopup.selectItem(withTitle: first)
-        }
     }
 
     @objc private func refreshChanged() {
         config.refreshSeconds = max(1, Double(refreshField.stringValue) ?? config.refreshSeconds)
         refreshStepper.doubleValue = config.refreshSeconds
         refreshField.stringValue = String(format: "%g", config.refreshSeconds)
-        commit()
+        updateDirtyState()
     }
 
     @objc private func stepperChanged() {
         config.refreshSeconds = max(1, refreshStepper.doubleValue)
         refreshField.stringValue = String(format: "%g", config.refreshSeconds)
-        commit()
+        updateDirtyState()
     }
 
-    @objc private func defaultServerChanged() {
-        config.currentServer = defaultServerPopup.titleOfSelectedItem
-        commit()
+    // MARK: - Dirty / Save
+
+    /// The working copy, normalized through `AppConfig.init` (clamps + fallbacks).
+    private func normalizedConfig() -> AppConfig {
+        AppConfig(servers: config.servers,
+                  refreshSeconds: config.refreshSeconds,
+                  currentServer: config.currentServer)
     }
 
-    // MARK: - Persist + apply
+    private var hasUnsavedChanges: Bool { normalizedConfig() != savedBaseline }
 
-    /// Normalize the working copy through `AppConfig.init` (clamps, fallbacks) and
-    /// publish it to the app.
-    private func commit() {
-        let normalized = AppConfig(servers: config.servers,
-                                   refreshSeconds: config.refreshSeconds,
-                                   currentServer: config.currentServer)
+    private func updateDirtyState() {
+        saveButton.isEnabled = hasUnsavedChanges
+    }
+
+    @objc private func save() {
+        let normalized = normalizedConfig()
+        savedBaseline = normalized
+        config = normalized
         onChange?(normalized)
+        updateDirtyState()
+    }
+
+    // MARK: - Test Connection
+
+    @objc private func testConnection() {
+        guard let i = selectedIndex else { return }
+        let server = config.servers[i]
+        testButton.isEnabled = false
+        testSpinner.startAnimation(nil)
+
+        Task { [weak self] in
+            let result: Result<String, Error>
+            do {
+                let client = try TransmissionClient(server: server)
+                let info = try await client.fetchSession()
+                result = .success(info.version)
+            } catch {
+                result = .failure(error)
+            }
+            guard let self else { return }
+            self.testSpinner.stopAnimation(nil)
+            self.testButton.isEnabled = self.selectedIndex != nil
+            self.presentTestResult(result, server: server)
+        }
+    }
+
+    private func presentTestResult(_ result: Result<String, Error>, server: ServerConfig) {
+        let alert = NSAlert()
+        switch result {
+        case .success(let version):
+            alert.alertStyle = .informational
+            alert.messageText = "Connection succeeded"
+            alert.informativeText = "Connected to \(server.host):\(server.port).\n"
+                + "Transmission \(version)."
+        case .failure(let error):
+            alert.alertStyle = .warning
+            alert.messageText = "Connection failed"
+            alert.informativeText = ConnectionDiagnostics.message(for: error, server: server)
+        }
+        if let window { alert.beginSheetModal(for: window) }
+        else { alert.runModal() }
     }
 }
 
@@ -376,5 +513,39 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         loadDetail()
+    }
+}
+
+// MARK: - Tab + window delegate
+
+extension SettingsWindowController: NSTabViewDelegate {
+    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        // Test Connection only applies to a server, so hide it off the Servers tab.
+        let onServers = (tabViewItem?.identifier as? String) == "servers"
+        testButton.isHidden = !onServers
+        testSpinner.isHidden = !onServers
+    }
+}
+
+extension SettingsWindowController: NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard hasUnsavedChanges else { return true }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Save changes to settings?"
+        alert.informativeText = "Your changes haven’t been saved. Save them before closing?"
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:   // Save
+            save()
+            return true
+        case .alertSecondButtonReturn:  // Discard
+            reset(to: savedBaseline)
+            return true
+        default:                        // Cancel
+            return false
+        }
     }
 }

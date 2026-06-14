@@ -70,6 +70,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.rebuildServerMenu()
             }
             settingsController = controller
+        } else {
+            // Reopened: reflect the latest saved config, discarding any prior edits.
+            settingsController?.reset(to: config)
         }
         settingsController?.showWindow(nil)
         settingsController?.window?.makeKeyAndOrderFront(nil)
