@@ -60,10 +60,14 @@ targets:
       - path: Sources/AppConfig.swift
       - path: Sources/TransmissionClient.swift
       - path: Sources/ConnectionDiagnostics.swift
+      - path: Sources/SettingsEditor.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nickvance.transmission-remote-mac.tests
         GENERATE_INFOPLIST_FILE: YES
+        # Custom plist adds an ATS exception so the env-gated live connection
+        # tests can reach plain-HTTP hosts by name (as the app does).
+        INFOPLIST_FILE: TestsInfo.plist
         SWIFT_STRICT_CONCURRENCY: complete
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "-"

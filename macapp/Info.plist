@@ -10,6 +10,19 @@
 	-->
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<!--
+	  App Transport Security: this app talks to a self-hosted Transmission daemon,
+	  typically over plain HTTP on a LAN or VPN (e.g. 10.0.1.2, n5.local, a
+	  Tailscale host). ATS blocks cleartext HTTP to named hosts by default, so a
+	  hostname like "n5.local" would fail where the bare IP works. Allow arbitrary
+	  loads so any user-entered host works over HTTP; HTTPS hosts (e.g. Tailscale
+	  with a valid cert) still validate normally.
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

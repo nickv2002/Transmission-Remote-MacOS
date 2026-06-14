@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Test bundle Info.plist. Mirrors the app's ATS exception so the live
+	  connection integration tests (gated by RUN_LIVE_TRANSMISSION_TESTS) can
+	  reach plain-HTTP hosts by name, exactly like the app does. Other keys are
+	  generated and merged in by Xcode (GENERATE_INFOPLIST_FILE = YES).
+	-->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+</dict>
+</plist>
