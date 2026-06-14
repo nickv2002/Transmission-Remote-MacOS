@@ -13,10 +13,8 @@ final class SettingsWindowController: NSWindowController {
     /// Called with the edited config when the user saves (persist + apply live).
     var onChange: ((AppConfig) -> Void)?
 
-    /// Working copy being edited.
-    private var config: AppConfig
-    /// The last saved state, used to detect unsaved changes and to revert.
-    private var savedBaseline: AppConfig
+    /// The editing model: working copy + saved baseline + all mutations.
+    private var editor: SettingsEditor
 
     // Servers pane.
     private let defaultServerPopup = NSPopUpButton()
@@ -42,8 +40,7 @@ final class SettingsWindowController: NSWindowController {
     private let testSpinner = NSProgressIndicator()
 
     init(config: AppConfig) {
-        self.config = config
-        self.savedBaseline = config
+        self.editor = SettingsEditor(config)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 580, height: 420),
             styleMask: [.titled, .closable, .miniaturizable],
@@ -53,11 +50,7 @@ final class SettingsWindowController: NSWindowController {
         window.delegate = self
         window.center()
         window.contentView = buildContent()
-        reloadServerList()
-        reloadDefaultServerPopup()
-        reloadGeneral()
-        selectServer(at: config.servers.isEmpty ? nil : 0)
-        updateDirtyState()
+        reloadEverything()
     }
 
     @available(*, unavailable)
@@ -66,12 +59,16 @@ final class SettingsWindowController: NSWindowController {
     /// Re-seed the working copy when the window is reopened, so it always reflects
     /// the current saved config (and never lingering discarded edits).
     func reset(to config: AppConfig) {
-        self.config = config
-        self.savedBaseline = config
+        editor.reset(to: config)
+        reloadEverything()
+    }
+
+    /// Refresh all UI from the editor and select the first server.
+    private func reloadEverything() {
         reloadServerList()
         reloadDefaultServerPopup()
         reloadGeneral()
-        selectServer(at: config.servers.isEmpty ? nil : 0)
+        selectServer(at: editor.serverCount == 0 ? nil : 0)
         updateDirtyState()
     }
 
@@ -290,7 +287,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func selectServer(at index: Int?) {
-        if let index, config.servers.indices.contains(index) {
+        if let index, editor.servers.indices.contains(index) {
             serverTable.selectRowIndexes([index], byExtendingSelection: false)
         }
         loadDetail()
@@ -299,16 +296,17 @@ final class SettingsWindowController: NSWindowController {
     private func loadDetail() {
         let enabled = selectedIndex != nil
         for field in detailFields { field.isEnabled = enabled }
-        removeButton.isEnabled = enabled && config.servers.count > 1
+        removeButton.isEnabled = enabled && editor.serverCount > 1
+        // Test reads the form fields directly (see currentServerFromFields) and
+        // validates the host itself, so keep it available whenever a row is shown.
         testButton.isEnabled = enabled
 
-        guard let i = selectedIndex else {
+        guard let i = selectedIndex, let s = editor.server(at: i) else {
             nameField.stringValue = ""; hostField.stringValue = ""; portField.stringValue = ""
             rpcPathField.stringValue = ""; usernameField.stringValue = ""; passwordField.stringValue = ""
             httpsCheckbox.state = .off
             return
         }
-        let s = config.servers[i]
         nameField.stringValue = s.name
         hostField.stringValue = s.host
         portField.stringValue = String(s.port)
@@ -319,73 +317,45 @@ final class SettingsWindowController: NSWindowController {
     }
 
     @objc private func addServer() {
-        let base = "New Server"
-        var name = base
-        var n = 2
-        while config.servers.contains(where: { $0.name == name }) {
-            name = "\(base) \(n)"; n += 1
-        }
-        config.servers.append(ServerConfig(
-            name: name, host: "localhost", port: 9091,
-            useHTTPS: false, rpcPath: "/transmission/rpc"))
+        let index = editor.addServer()
         reloadServerList()
         reloadDefaultServerPopup()
-        selectServer(at: config.servers.count - 1)
+        selectServer(at: index)
         updateDirtyState()
     }
 
     @objc private func removeServer() {
-        guard let i = selectedIndex, config.servers.count > 1 else { return }
-        let removed = config.servers.remove(at: i)
-        if config.currentServer == removed.name {
-            config.currentServer = config.servers.first?.name
-        }
+        guard let i = selectedIndex else { return }
+        editor.removeServer(at: i)
         reloadServerList()
         reloadDefaultServerPopup()
-        selectServer(at: min(i, config.servers.count - 1))
+        selectServer(at: min(i, editor.serverCount - 1))
         updateDirtyState()
     }
 
+    /// End-of-edit (Tab/Return/focus loss): normalize the name and commit the row.
     @objc private func serverFieldChanged() {
         guard let i = selectedIndex else { return }
-        var s = config.servers[i]
-        let trimmedName = nameField.stringValue.trimmingCharacters(in: .whitespaces)
-        let oldName = s.name
-        s.name = trimmedName.isEmpty ? oldName : trimmedName
-        // Keep names unique so the Server menu and `currentServer` stay unambiguous.
-        if s.name != oldName && config.servers.contains(where: { $0.name == s.name }) {
-            s.name = oldName
-        }
-        nameField.stringValue = s.name
-        s.host = hostField.stringValue.trimmingCharacters(in: .whitespaces)
-        s.port = Int(portField.stringValue) ?? s.port
-        s.useHTTPS = httpsCheckbox.state == .on
-        let path = rpcPathField.stringValue.trimmingCharacters(in: .whitespaces)
-        s.rpcPath = path.isEmpty ? "/transmission/rpc" : path
-        s.username = usernameField.stringValue.isEmpty ? nil : usernameField.stringValue
-        s.password = passwordField.stringValue.isEmpty ? nil : passwordField.stringValue
-
-        if s.name != oldName, config.currentServer == oldName {
-            config.currentServer = s.name
-        }
-        config.servers[i] = s
-        reloadServerList()
+        let stored = editor.updateServer(at: i, to: currentServerFromFields(), normalizeName: true)
+        // The normalized name may differ (trim / dedupe) — reflect it in the field.
+        nameField.stringValue = stored.name
+        updateRowLabel(at: i)
         reloadDefaultServerPopup()
         updateDirtyState()
     }
 
     @objc private func defaultServerChanged() {
-        config.currentServer = defaultServerPopup.titleOfSelectedItem
+        editor.setDefaultServer(defaultServerPopup.titleOfSelectedItem)
         updateDirtyState()
     }
 
     private func reloadDefaultServerPopup() {
-        let previous = config.currentServer
+        let previous = editor.currentServer
         defaultServerPopup.removeAllItems()
-        defaultServerPopup.addItems(withTitles: config.serverNames)
-        if let previous, config.serverNames.contains(previous) {
+        defaultServerPopup.addItems(withTitles: editor.serverNames)
+        if let previous, editor.serverNames.contains(previous) {
             defaultServerPopup.selectItem(withTitle: previous)
-        } else if let first = config.serverNames.first {
+        } else if let first = editor.serverNames.first {
             defaultServerPopup.selectItem(withTitle: first)
         }
     }
@@ -393,53 +363,41 @@ final class SettingsWindowController: NSWindowController {
     // MARK: - General
 
     private func reloadGeneral() {
-        refreshField.stringValue = String(format: "%g", config.refreshSeconds)
-        refreshStepper.doubleValue = config.refreshSeconds
+        refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
+        refreshStepper.doubleValue = editor.refreshSeconds
     }
 
     @objc private func refreshChanged() {
-        config.refreshSeconds = max(1, Double(refreshField.stringValue) ?? config.refreshSeconds)
-        refreshStepper.doubleValue = config.refreshSeconds
-        refreshField.stringValue = String(format: "%g", config.refreshSeconds)
+        editor.setRefreshSeconds(max(1, Double(refreshField.stringValue) ?? editor.refreshSeconds))
+        refreshStepper.doubleValue = editor.refreshSeconds
+        refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
         updateDirtyState()
     }
 
     @objc private func stepperChanged() {
-        config.refreshSeconds = max(1, refreshStepper.doubleValue)
-        refreshField.stringValue = String(format: "%g", config.refreshSeconds)
+        editor.setRefreshSeconds(max(1, refreshStepper.doubleValue))
+        refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
         updateDirtyState()
     }
 
     // MARK: - Dirty / Save
 
-    /// The working copy, normalized through `AppConfig.init` (clamps + fallbacks).
-    private func normalizedConfig() -> AppConfig {
-        AppConfig(servers: config.servers,
-                  refreshSeconds: config.refreshSeconds,
-                  currentServer: config.currentServer)
-    }
-
-    private var hasUnsavedChanges: Bool { normalizedConfig() != savedBaseline }
-
     private func updateDirtyState() {
-        saveButton.isEnabled = hasUnsavedChanges
+        saveButton.isEnabled = editor.isDirty
     }
 
     @objc private func save() {
-        let normalized = normalizedConfig()
-        savedBaseline = normalized
-        config = normalized
-        onChange?(normalized)
+        let saved = editor.save()
+        onChange?(saved)
         updateDirtyState()
     }
 
     // MARK: - Live field editing
 
     /// Build a `ServerConfig` from the form's current text (used by Test
-    /// Connection so the user can test edits before saving). Returns nil when no
-    /// server row is selected.
-    private func currentServerFromFields() -> ServerConfig? {
-        guard selectedIndex != nil else { return nil }
+    /// Connection so the user can test edits before saving). Independent of the
+    /// table selection — it reads whatever is in the fields right now.
+    private func currentServerFromFields() -> ServerConfig {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
         let host = hostField.stringValue.trimmingCharacters(in: .whitespaces)
         let path = rpcPathField.stringValue.trimmingCharacters(in: .whitespaces)
@@ -456,32 +414,44 @@ final class SettingsWindowController: NSWindowController {
     /// Sync the selected server from the form's current text on every keystroke,
     /// so Save enables immediately (the field's target/action only fires on
     /// end-editing). Kept light: no trimming/uniqueness reset while typing — that
-    /// normalization happens on end-editing in `serverFieldChanged`.
+    /// normalization happens on end-editing in `serverFieldChanged`. Crucially it
+    /// does NOT call `reloadData()` (which would drop the table selection mid-edit
+    /// and break Test/Remove); it updates only the affected row label.
     private func liveSyncSelectedServer() {
         guard let i = selectedIndex else { return }
-        var s = config.servers[i]
-        let oldName = s.name
-        s.name = nameField.stringValue
-        s.host = hostField.stringValue
-        s.port = Int(portField.stringValue) ?? s.port
-        s.useHTTPS = httpsCheckbox.state == .on
-        s.rpcPath = rpcPathField.stringValue
-        s.username = usernameField.stringValue.isEmpty ? nil : usernameField.stringValue
-        s.password = passwordField.stringValue.isEmpty ? nil : passwordField.stringValue
-        if s.name != oldName, config.currentServer == oldName {
-            config.currentServer = s.name
-        }
-        config.servers[i] = s
-        reloadServerList()
+        // Take the raw fields as-is (no name normalization while typing); the
+        // editor handles the currentServer-rename follow.
+        var candidate = currentServerFromFields()
+        candidate.name = nameField.stringValue   // keep raw (currentServerFromFields trims)
+        editor.updateServer(at: i, to: candidate, normalizeName: false)
+        updateRowLabel(at: i)
         reloadDefaultServerPopup()
         updateDirtyState()
+    }
+
+    /// Update one server row's displayed name in place, without `reloadData()`
+    /// (which would reset the table selection).
+    private func updateRowLabel(at index: Int) {
+        guard let server = editor.server(at: index) else { return }
+        if let cell = serverTable.view(atColumn: 0, row: index, makeIfNecessary: false)
+            as? NSTableCellView {
+            cell.textField?.stringValue = server.name
+        }
     }
 
     // MARK: - Test Connection
 
     @objc private func testConnection() {
         // Test exactly what's typed in the form right now, even if not yet saved.
-        guard let server = currentServerFromFields() else { return }
+        let server = currentServerFromFields()
+        guard !server.host.isEmpty else {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Enter a host to test"
+            alert.informativeText = "Type a host name or IP address first, then try again."
+            if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+            return
+        }
         testButton.isEnabled = false
         testSpinner.startAnimation(nil)
 
@@ -526,8 +496,8 @@ extension SettingsWindowController: NSTextFieldDelegate {
         if (obj.object as AnyObject) === refreshField {
             // Update the working copy live; don't rewrite the field text mid-type.
             if let value = Double(refreshField.stringValue) {
-                config.refreshSeconds = max(1, value)
-                refreshStepper.doubleValue = config.refreshSeconds
+                editor.setRefreshSeconds(max(1, value))
+                refreshStepper.doubleValue = editor.refreshSeconds
             }
             updateDirtyState()
         } else {
@@ -539,7 +509,7 @@ extension SettingsWindowController: NSTextFieldDelegate {
 // MARK: - Server table data source / delegate
 
 extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int { config.servers.count }
+    func numberOfRows(in tableView: NSTableView) -> Int { editor.serverCount }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let id = NSUserInterfaceItemIdentifier("serverCell")
@@ -559,7 +529,7 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
                 ])
                 return c
             }()
-        cell.textField?.stringValue = config.servers[row].name
+        cell.textField?.stringValue = editor.server(at: row)?.name ?? ""
         return cell
     }
 
@@ -581,7 +551,7 @@ extension SettingsWindowController: NSTabViewDelegate {
 
 extension SettingsWindowController: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard hasUnsavedChanges else { return true }
+        guard editor.isDirty else { return true }
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Save changes to settings?"
@@ -594,7 +564,7 @@ extension SettingsWindowController: NSWindowDelegate {
             save()
             return true
         case .alertSecondButtonReturn:  // Discard
-            reset(to: savedBaseline)
+            reset(to: editor.savedBaseline)
             return true
         default:                        // Cancel
             return false
