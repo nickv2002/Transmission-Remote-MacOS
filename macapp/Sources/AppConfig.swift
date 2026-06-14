@@ -133,46 +133,64 @@ enum PreferencesStore {
     /// Load the stored preferences, migrating from legacy JSONC or seeding a
     /// default on first run. Always leaves a `preferences.json` on disk afterward.
     static func load() throws -> AppConfig {
-        let fm = FileManager.default
+        try load(storeURL: storeURL, legacyURL: legacyConfigURL)
+    }
 
-        if fm.fileExists(atPath: storeURL.path) {
+    /// Persist the config as pretty-printed JSON, creating the support folder.
+    static func save(_ config: AppConfig) throws {
+        try save(config, to: storeURL)
+    }
+
+    // MARK: - Testable core (path-injectable)
+
+    /// Load from `storeURL`, migrating from `legacyURL` (or the built-in default)
+    /// when no native store exists yet, then persisting the result.
+    static func load(storeURL: URL, legacyURL: URL?) throws -> AppConfig {
+        if FileManager.default.fileExists(atPath: storeURL.path) {
             let data: Data
             do {
                 data = try Data(contentsOf: storeURL)
             } catch {
                 throw ConfigError.unreadable(error.localizedDescription)
             }
-            do {
-                return try JSONDecoder().decode(AppConfig.self, from: data)
-            } catch {
-                throw ConfigError.malformed(error.localizedDescription)
-            }
+            return try decode(data)
         }
 
         // First run for the native store: migrate the legacy JSONC if present,
         // otherwise start from the built-in default.
-        let migrated = (try? loadLegacyJSONC()) ?? .default
-        try save(migrated)
+        let migrated = (legacyURL.flatMap { try? loadLegacyJSONC(from: $0) }) ?? .default
+        try save(migrated, to: storeURL)
         return migrated
     }
 
-    /// Persist the config as pretty-printed JSON, creating the support folder.
-    static func save(_ config: AppConfig) throws {
-        let fm = FileManager.default
+    static func save(_ config: AppConfig, to url: URL) throws {
         do {
-            try fm.createDirectory(at: supportDirectory, withIntermediateDirectories: true)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(config)
-            try data.write(to: storeURL, options: .atomic)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try encode(config).write(to: url, options: .atomic)
         } catch {
             throw ConfigError.unreadable(error.localizedDescription)
         }
     }
 
-    /// Read the legacy JSONC config, or nil if there is no legacy file.
-    static func loadLegacyJSONC() throws -> AppConfig? {
-        let url = legacyConfigURL
+    /// Decode native preferences JSON into an `AppConfig`.
+    static func decode(_ data: Data) throws -> AppConfig {
+        do {
+            return try JSONDecoder().decode(AppConfig.self, from: data)
+        } catch {
+            throw ConfigError.malformed(error.localizedDescription)
+        }
+    }
+
+    /// Encode an `AppConfig` to pretty-printed, key-sorted JSON.
+    static func encode(_ config: AppConfig) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try encoder.encode(config)
+    }
+
+    /// Read a legacy JSONC config from `url`, or nil if the file is absent.
+    static func loadLegacyJSONC(from url: URL) throws -> AppConfig? {
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let data = try Data(contentsOf: url)
         // JSONDecoder has no comment support, so normalize JSONC → object via
@@ -180,6 +198,6 @@ enum PreferencesStore {
         // trailing commas), then re-encode and decode into the typed struct.
         let object = try JSONSerialization.jsonObject(with: data, options: [.json5Allowed])
         let normalized = try JSONSerialization.data(withJSONObject: object)
-        return try JSONDecoder().decode(AppConfig.self, from: normalized)
+        return try decode(normalized)
     }
 }
