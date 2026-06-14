@@ -133,7 +133,9 @@ final class SettingsWindowController: NSWindowController {
         saveButton.translatesAutoresizingMaskIntoConstraints = false
         saveButton.title = "Save"
         saveButton.bezelStyle = .rounded
-        saveButton.keyEquivalent = "\r"   // Return triggers Save.
+        // Deliberately NOT the default (Return) button: Return while editing a
+        // field should commit that field, not save+apply the whole dialog. Save is
+        // an explicit click only.
         saveButton.target = self
         saveButton.action = #selector(save)
     }
