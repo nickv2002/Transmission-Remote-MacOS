@@ -153,12 +153,18 @@ window** (⌘,) — no more hand-edited JSONC.
   `AppConfig.default`. Verified live: the owner's real server (with credentials)
   migrated correctly.
 - **Settings window** (`SettingsWindowController.swift`): tabbed (Servers /
-  General). Servers tab is a list with +/- and an editable detail form
-  (name/host/port/HTTPS/rpcPath/username/password). General tab has the refresh
-  interval (field + stepper) and a default-server popup. Edits mutate a working
-  copy and are persisted + applied **live on every change** (no Save button) via
-  the `onChange` callback in `AppDelegate` → `PreferencesStore.save` +
-  `windowController.applyConfig` + Server-menu rebuild.
+  General). Servers tab has the **default-server popup at the top**, then a list
+  with +/- and an editable detail form (name/host/port/HTTPS/rpcPath/username/
+  password); General tab has the refresh interval (field + stepper). Edits mutate
+  an in-memory working copy and are **only persisted + applied when the user
+  presses Save** (bottom-right; disabled until there are unsaved changes) via the
+  `onChange` callback → `PreferencesStore.save` + `windowController.applyConfig` +
+  Server-menu rebuild. Closing with unsaved changes prompts Save / Discard /
+  Cancel. `AppDelegate.showSettings` calls `reset(to:)` on reopen so the window
+  always reflects the saved config. A **Test Connection** button (left of Save,
+  Servers tab only) runs `session-get` against the edited server and shows a
+  field-targeted success/failure alert; the diagnostic mapping lives in the
+  Foundation-only `ConnectionDiagnostics.message(for:server:)` (unit-tested).
 - `PreferencesStore` exposes path-injectable cores
   (`load(storeURL:legacyURL:)`, `save(_:to:)`, `encode`/`decode`,
   `loadLegacyJSONC(from:)`) so the store is unit-tested against temp dirs without
@@ -173,13 +179,14 @@ launch the real app and connect to the owner's server), the **business-logic
 source files are compiled directly into the test bundle**, so tests run standalone
 via `xctest` with no `TEST_HOST`.
 
-Coverage (53 tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
+Coverage (62 tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
 (size/speed/percent/ratio/eta/dates), `Filtering` (every `StatusFilter` predicate,
 tints, `SidebarFilter`), `Models` (status/eta-display/normalizeDownloadDir/
-trackerHost/seed-ratio + RPC `torrent-get`/files decoding), and `AppConfig` /
+trackerHost/seed-ratio + RPC `torrent-get`/files decoding), `AppConfig` /
 `PreferencesStore` (decode defaults, round-trip, migration, default seeding,
-native-store precedence). A `TorrentFactory` helper builds `Torrent` values by
-decoding a default JSON dict with overrides.
+native-store precedence), and `ConnectionDiagnostics` (every `TransmissionError`
+maps to a field-targeted message). A `TorrentFactory` helper builds `Torrent`
+values by decoding a default JSON dict with overrides.
 
 ```sh
 cd macapp

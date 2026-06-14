@@ -58,6 +58,8 @@ targets:
       - path: Sources/Filtering.swift
       - path: Sources/Models.swift
       - path: Sources/AppConfig.swift
+      - path: Sources/TransmissionClient.swift
+      - path: Sources/ConnectionDiagnostics.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nickvance.transmission-remote-mac.tests
