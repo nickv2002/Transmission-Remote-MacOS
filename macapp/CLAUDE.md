@@ -107,6 +107,8 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `main.swift` — explicit AppKit entry point (see gotcha below).
 - `AppDelegate.swift` — app lifecycle, menus (Settings… ⌘,, Find ⌘F, Edit, Server).
 - `SettingsWindowController.swift` — native preferences window (Servers / General).
+- `SettingsEditor.swift` — Foundation-only editing model behind Settings (tested).
+- `ConnectionDiagnostics.swift` — Test Connection error→message mapping (tested).
 - `MainWindowController.swift` — window, `NSTableView`, detail pane, status bar,
   sorting, search/filter (`displayed` is the filtered view of the `torrents` model).
 - `MainWindowController+Actions.swift` — toolbar (incl. Add pull-down), context
@@ -153,23 +155,43 @@ window** (⌘,) — no more hand-edited JSONC.
   `AppConfig.default`. Verified live: the owner's real server (with credentials)
   migrated correctly.
 - **Settings window** (`SettingsWindowController.swift`): tabbed (Servers /
-  General). Servers tab has the **default-server popup at the top**, then a list
-  with +/- and an editable detail form (name/host/port/HTTPS/rpcPath/username/
-  password); General tab has the refresh interval (field + stepper). Edits mutate
-  an in-memory working copy and are **only persisted + applied when the user
-  presses Save** (bottom-right; disabled until there are unsaved changes) via the
-  `onChange` callback → `PreferencesStore.save` + `windowController.applyConfig` +
-  Server-menu rebuild. Closing with unsaved changes prompts Save / Discard /
-  Cancel. `AppDelegate.showSettings` calls `reset(to:)` on reopen so the window
-  always reflects the saved config. A **Test Connection** button (left of Save,
-  Servers tab only) runs `session-get` against the edited server and shows a
-  field-targeted success/failure alert; the diagnostic mapping lives in the
-  Foundation-only `ConnectionDiagnostics.message(for:server:)` (unit-tested).
+  General), inside the tab box's gray content area. Servers tab has the
+  **default-server popup at the top**, then a list with +/- and an editable detail
+  form (name/host/port/HTTPS/rpcPath/username/password); General tab has the
+  refresh interval (field + stepper). All editing logic (working copy, baseline,
+  dirty detection, add/remove/edit/default/save) is factored into the
+  Foundation-only **`SettingsEditor`** (in `SettingsEditor.swift`); the controller
+  is a thin view layer over it.
+  - Edits mutate the working copy and are **only persisted + applied when the user
+    clicks Save** (bottom-right; enabled only when dirty). Save is **not** the
+    Return/default button — Return commits the focused field, not the whole dialog.
+  - Save enables on **every keystroke** (`controlTextDidChange`), not just on
+    end-editing. Live edits update just the affected row label, **never**
+    `reloadData()` (which dropped the table selection mid-edit and broke
+    Test/Remove).
+  - Saving runs `onChange` → `PreferencesStore.save` + `windowController.applyConfig`
+    + Server-menu rebuild. Closing dirty prompts Save / Discard / Cancel;
+    `AppDelegate.showSettings` calls `reset(to:)` on reopen.
+  - **Test Connection** (left of Save) builds a `ServerConfig` from the **current
+    form fields** (so you can test before saving), runs `session-get`, and shows a
+    field-targeted success/failure alert (diagnostic mapping in the Foundation-only
+    `ConnectionDiagnostics.message(for:server:)`).
 - `PreferencesStore` exposes path-injectable cores
   (`load(storeURL:legacyURL:)`, `save(_:to:)`, `encode`/`decode`,
   `loadLegacyJSONC(from:)`) so the store is unit-tested against temp dirs without
   touching the real Application Support file.
 - "Reveal Preferences in Finder" (File menu) selects the JSON store.
+
+### Hosts & ATS
+
+The app talks to a self-hosted daemon, usually over **plain HTTP** on a LAN/VPN.
+macOS App Transport Security blocks cleartext HTTP to *named* hosts by default, so
+`Info.plist` sets **`NSAllowsArbitraryLoads`** — otherwise `n5.local` would fail
+where the bare IP `10.0.1.2` works. Verified live: `10.0.1.2` and `n5.local` both
+connect over HTTP; the **Tailscale** host
+`transmission.raptor-ruffe.ts.net` speaks **HTTPS** (valid cert) on :9091 and :443,
+so it needs **Use HTTPS** checked (plain HTTP there returns "Client sent an HTTP
+request to an HTTPS server").
 
 ## Tests
 
@@ -179,19 +201,33 @@ launch the real app and connect to the owner's server), the **business-logic
 source files are compiled directly into the test bundle**, so tests run standalone
 via `xctest` with no `TEST_HOST`.
 
-Coverage (62 tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
+Coverage (81 hermetic tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
 (size/speed/percent/ratio/eta/dates), `Filtering` (every `StatusFilter` predicate,
 tints, `SidebarFilter`), `Models` (status/eta-display/normalizeDownloadDir/
 trackerHost/seed-ratio + RPC `torrent-get`/files decoding), `AppConfig` /
 `PreferencesStore` (decode defaults, round-trip, migration, default seeding,
-native-store precedence), and `ConnectionDiagnostics` (every `TransmissionError`
-maps to a field-targeted message). A `TorrentFactory` helper builds `Torrent`
-values by decoding a default JSON dict with overrides.
+native-store precedence), `ConnectionDiagnostics` (every `TransmissionError` maps
+to a field-targeted message), and **`SettingsEditor`** (add/remove/edit/default/
+refresh, name trim+dedupe, default-follows-rename, dirty detection, save, reset).
+A `TorrentFactory` helper builds `Torrent` values from a default JSON dict.
 
 ```sh
 cd macapp
 xcodebuild -project TransmissionRemote.xcodeproj -scheme TransmissionRemote \
   -configuration Debug test
+```
+
+**Live connection tests** (`LiveConnectionTests`) hit the real daemon and are
+**skipped by default**. They read credentials from the legacy JSONC at runtime
+(never hard-coded) and cover IP/`.local`/Tailscale-HTTPS plus failures (unknown
+host, wrong password). Note: a host-less test bundle's ATS is governed by the
+`xctest` runner (not the bundle's `Info.plist`), so the cleartext-HTTP cases
+`XCTSkip` in the runner — those are verified through the app + `curl` instead.
+Forward the opt-in env var with the `TEST_RUNNER_` prefix:
+
+```sh
+TEST_RUNNER_RUN_LIVE_TRANSMISSION_TESTS=1 xcodebuild ... test \
+  -only-testing:TransmissionRemoteTests/LiveConnectionTests
 ```
 
 ## Gotchas (learned the hard way — don't regress these)
