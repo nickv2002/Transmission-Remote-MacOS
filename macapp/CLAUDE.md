@@ -97,12 +97,16 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
   (icon recolor, Ratio-Limit column, folder-filter fix, connecting state),
   `05-native-followups-2.md` (Dock icon, completed-ETA, folder dupes, sidebar scroll +
   reordering), `06-multi-server-and-polish.md` (search placeholder, tinted sidebar
-  icons, adaptive Added date, multi-server + Server menu, fetch spinner/idle dot).
+  icons, adaptive Added date, multi-server + Server menu, fetch spinner/idle dot),
+  `07-resize-tints-window-frame.md` (column h-scroll, status tints, window frame),
+  `08-native-prefs-and-tests.md` (Application Support preferences store + Settings
+  window replacing JSONC; XCTest unit-test target).
 
 ## Layout (`macapp/Sources/`)
 
 - `main.swift` — explicit AppKit entry point (see gotcha below).
-- `AppDelegate.swift` — app lifecycle, menus (Reload Config, Find ⌘F, Edit).
+- `AppDelegate.swift` — app lifecycle, menus (Settings… ⌘,, Find ⌘F, Edit, Server).
+- `SettingsWindowController.swift` — native preferences window (Servers / General).
 - `MainWindowController.swift` — window, `NSTableView`, detail pane, status bar,
   sorting, search/filter (`displayed` is the filtered view of the `torrents` model).
 - `MainWindowController+Actions.swift` — toolbar (incl. Add pull-down), context
@@ -135,11 +139,53 @@ Keep the build **clean with zero warnings** (Swift 6 strict concurrency `complet
 
 ## Config
 
-User-editable JSONC at `~/.config/transmission-remote-mac/config.jsonc`
-(auto-created with a commented template on first run; parsed via
-`JSONSerialization(.json5Allowed)`). It holds host/port/credentials and
-`refreshSeconds`. The owner's real server config already lives there — **do not
-print the password**. "Reload Config" in the menu re-reads it without a rebuild.
+Config is now a **native preferences store**, edited through a native **Settings
+window** (⌘,) — no more hand-edited JSONC.
+
+- Persisted as JSON at
+  `~/Library/Application Support/Transmission Remote/preferences.json`
+  (`PreferencesStore` in `AppConfig.swift`). Holds the `servers` array
+  (host/port/credentials/HTTPS/rpcPath), `currentServer`, and `refreshSeconds`.
+  The owner's real server config lives there — **do not print the password**.
+- **Migration:** on first run, if no native store exists, `PreferencesStore.load`
+  migrates the legacy JSONC at `~/.config/transmission-remote-mac/config.jsonc`
+  (left in place as a backup) into the native store; otherwise it seeds
+  `AppConfig.default`. Verified live: the owner's real server (with credentials)
+  migrated correctly.
+- **Settings window** (`SettingsWindowController.swift`): tabbed (Servers /
+  General). Servers tab is a list with +/- and an editable detail form
+  (name/host/port/HTTPS/rpcPath/username/password). General tab has the refresh
+  interval (field + stepper) and a default-server popup. Edits mutate a working
+  copy and are persisted + applied **live on every change** (no Save button) via
+  the `onChange` callback in `AppDelegate` → `PreferencesStore.save` +
+  `windowController.applyConfig` + Server-menu rebuild.
+- `PreferencesStore` exposes path-injectable cores
+  (`load(storeURL:legacyURL:)`, `save(_:to:)`, `encode`/`decode`,
+  `loadLegacyJSONC(from:)`) so the store is unit-tested against temp dirs without
+  touching the real Application Support file.
+- "Reveal Preferences in Finder" (File menu) selects the JSON store.
+
+## Tests
+
+XCTest unit tests live in `macapp/Tests/`, built by the `TransmissionRemoteTests`
+target (XcodeGen `bundle.unit-test`). Rather than host the application (which would
+launch the real app and connect to the owner's server), the **business-logic
+source files are compiled directly into the test bundle**, so tests run standalone
+via `xctest` with no `TEST_HOST`.
+
+Coverage (53 tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
+(size/speed/percent/ratio/eta/dates), `Filtering` (every `StatusFilter` predicate,
+tints, `SidebarFilter`), `Models` (status/eta-display/normalizeDownloadDir/
+trackerHost/seed-ratio + RPC `torrent-get`/files decoding), and `AppConfig` /
+`PreferencesStore` (decode defaults, round-trip, migration, default seeding,
+native-store precedence). A `TorrentFactory` helper builds `Torrent` values by
+decoding a default JSON dict with overrides.
+
+```sh
+cd macapp
+xcodebuild -project TransmissionRemote.xcodeproj -scheme TransmissionRemote \
+  -configuration Debug test
+```
 
 ## Gotchas (learned the hard way — don't regress these)
 
