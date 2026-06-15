@@ -110,6 +110,8 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `SettingsEditor.swift` — Foundation-only editing model behind Settings (tested).
 - `ConnectionDiagnostics.swift` — Test Connection error→message mapping (tested).
 - `HostCandidates.swift` — comma-separated host parsing + `ConnectionResolver` (tested).
+- `PathMapping.swift` — `ServerConfig.pathMappings` + remote→local mapping and the
+  `remote=local` text parse/format used by the Settings editor (tested).
 - `MainWindowController.swift` — window, `NSTableView`, detail pane, status bar,
   sorting, search/filter (`displayed` is the filtered view of the `torrents` model).
 - `MainWindowController+Actions.swift` — toolbar (incl. Add pull-down), context
@@ -224,6 +226,33 @@ first that responds, so leaving/joining the tailnet fails over transparently.
   Tailscale-HTTPS) respond, and failover resolves to a reachable host
   (`LiveConnectionTests`).
 
+### Remote→local path mappings (Reveal in Finder / Open)
+
+A torrent's `downloadDir` is a path on the **remote** daemon (e.g. `/video/...`),
+which the Mac can't open directly. Each server can carry a list of **path
+mappings** that rewrite a remote prefix to a local one (e.g.
+`/video=/Volumes/Video`), so files can be revealed/opened locally. Ported from the
+legacy app's per-connection `PathMap` (`main.pas` `MapRemoteToLocal`).
+
+- `ServerConfig.pathMappings: [PathMapping]` (`PathMapping.swift`), persisted in
+  `preferences.json`. Backward-compatible: configs predating this decode to `[]`.
+- `ServerConfig.mapRemoteToLocal(_:)` — first match wins, case-sensitive; an exact
+  match returns the local path as-is, a prefix match (guarded by a trailing `/`, so
+  `/var` ≠ `/var2`) appends the remainder. Both sides are `/`-based on macOS.
+- **Settings UI** (`SettingsWindowController`): a multi-line `NSTextView` editor in
+  the server form, one `remote=local` per line (mirrors the legacy `edPaths` memo),
+  with an example caption. `PathMapping.parse`/`.format` bridge text ↔ array; it
+  flows through the existing live-sync/dirty/`SettingsEditor` path.
+- **Actions** (`MainWindowController+Actions.swift` / `+Files.swift`): right-click a
+  torrent (or a file in the Files tab) → **Reveal in Finder** / **Open**. The items
+  are **enabled only when a mapping matches** the target's remote path; if it maps
+  but the local file isn't present (not mounted/synced) a **non-modal toast**
+  (`MainWindowController.showToast`) appears instead of opening. Reveal uses
+  `NSWorkspace.activateFileViewerSelecting`, Open uses `NSWorkspace.open`.
+- Verified against real N5 data: with `/video=/Volumes/Video` + `/undupe=/Volumes/undupe`,
+  all 1040 torrents map and 1039 resolve to existing local files (the 1 miss is the
+  toast case). Algorithm covered by `PathMappingTests`.
+
 ## Tests
 
 XCTest unit tests live in `macapp/Tests/`, built by the `TransmissionRemoteTests`
@@ -232,7 +261,7 @@ launch the real app and connect to the owner's server), the **business-logic
 source files are compiled directly into the test bundle**, so tests run standalone
 via `xctest` with no `TEST_HOST`.
 
-Coverage (104 hermetic tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
+Coverage (120 hermetic tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
 (size/speed/percent/ratio/eta/dates), `Filtering` (every `StatusFilter` predicate,
 tints, `SidebarFilter`), `Models` (status/eta-display/normalizeDownloadDir/
 trackerHost/seed-ratio + RPC `torrent-get`/files decoding), `AppConfig` /
@@ -241,7 +270,9 @@ native-store precedence), `ConnectionDiagnostics` (every `TransmissionError` map
 to a field-targeted message), **`SettingsEditor`** (add/remove/edit/default/
 refresh, name trim+dedupe, default-follows-rename, dirty detection, save, reset),
 and **`HostCandidates`/`ConnectionResolver`** (comma- and newline-list parsing
-incl. scheme/port/path/IPv6/inheritance + first-reachable failover selection).
+incl. scheme/port/path/IPv6/inheritance + first-reachable failover selection),
+and **`PathMapping`** (remote→local exact/prefix mapping, separator guard,
+first-match-wins, case-sensitivity; `parse`/`format` round-trip).
 A `TorrentFactory` helper builds `Torrent` values from a default JSON dict.
 
 ```sh

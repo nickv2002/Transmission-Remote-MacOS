@@ -35,6 +35,18 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertEqual(e.servers[0].host, "changed.local")
     }
 
+    func testPathMappingsFlowThroughUpdateAndSave() {
+        var e = SettingsEditor(sample())
+        var edited = server("A", host: "a.local")
+        edited.pathMappings = [PathMapping(remote: "/video", local: "/Volumes/Video")]
+        e.updateServer(at: 0, to: edited, normalizeName: true)
+        XCTAssertTrue(e.isDirty)               // a mappings change makes the editor dirty
+        let saved = e.save()
+        XCTAssertEqual(saved.servers[0].pathMappings,
+                       [PathMapping(remote: "/video", local: "/Volumes/Video")])
+        XCTAssertFalse(e.isDirty)
+    }
+
     func testResetRevertsToBaseline() {
         var e = SettingsEditor(sample())
         e.updateServer(at: 0, to: server("A", host: "x"), normalizeName: true)

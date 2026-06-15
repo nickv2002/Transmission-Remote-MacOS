@@ -62,6 +62,7 @@ targets:
       - path: Sources/ConnectionDiagnostics.swift
       - path: Sources/SettingsEditor.swift
       - path: Sources/HostCandidates.swift
+      - path: Sources/PathMapping.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nickvance.transmission-remote-mac.tests

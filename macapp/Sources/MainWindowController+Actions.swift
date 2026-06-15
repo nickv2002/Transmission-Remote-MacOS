@@ -146,6 +146,9 @@ extension MainWindowController: NSToolbarDelegate {
         priorityItem.submenu = priorityMenu
 
         menu.addItem(.separator())
+        menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealInFinderSelected(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Open", action: #selector(openSelected(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
         menu.addItem(withTitle: "Rename…", action: #selector(renameSelected(_:)), keyEquivalent: "")
         menu.addItem(withTitle: "Move…", action: #selector(moveSelected(_:)), keyEquivalent: "")
         menu.addItem(.separator())
@@ -179,9 +182,18 @@ extension MainWindowController: NSToolbarDelegate {
         if action == #selector(searchChanged(_:)) { return true }
         // Adding is always available (independent of the row selection).
         if action == #selector(addFile(_:)) || action == #selector(addLink(_:)) { return true }
+        // Files-tab Reveal/Open: enabled only when a mapping resolves the file path.
+        if action == #selector(revealFileInFinder(_:)) || action == #selector(openFile(_:)) {
+            guard let remote = targetedFileRemotePath() else { return false }
+            return refresh.activeServerConfig.mapRemoteToLocal(remote) != nil
+        }
         let selection = selectionForAction()
         guard !selection.isEmpty else { return false }
         switch action {
+        case #selector(revealInFinderSelected(_:)), #selector(openSelected(_:)):
+            // Enabled only when a mapping resolves the torrent's remote path.
+            guard let t = selection.first else { return false }
+            return refresh.activeServerConfig.mapRemoteToLocal(remotePath(for: t)) != nil
         case #selector(startSelected(_:)):
             return selection.contains { !$0.status.isActive }
         case #selector(stopSelected(_:)):
@@ -315,6 +327,43 @@ extension MainWindowController: NSToolbarDelegate {
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertSecondButtonReturn else { return }
             self?.runRPC { try await $0.remove(ids: ids, deleteLocalData: true) }
+        }
+    }
+
+    // MARK: - Reveal / Open (remote→local path mapping)
+
+    @objc func revealInFinderSelected(_ sender: Any?) {
+        guard let t = selectionForAction().first else { return }
+        revealOrOpen(remotePath: remotePath(for: t), open: false)
+    }
+
+    @objc func openSelected(_ sender: Any?) {
+        guard let t = selectionForAction().first else { return }
+        revealOrOpen(remotePath: remotePath(for: t), open: true)
+    }
+
+    /// A torrent's remote path: its (normalized) download dir plus the top-level
+    /// file/folder name the daemon reports.
+    func remotePath(for t: Torrent) -> String {
+        t.normalizedDownloadDir + "/" + t.name
+    }
+
+    /// Translate `remotePath` to a local one via the active server's mappings, then
+    /// reveal it in Finder or open it. If a mapping applies but the file isn't
+    /// present locally (not mounted/synced), show a non-modal toast instead.
+    /// Callers should only invoke this when a mapping exists (the menu items are
+    /// disabled otherwise).
+    func revealOrOpen(remotePath: String, open: Bool) {
+        guard let local = refresh.activeServerConfig.mapRemoteToLocal(remotePath) else { return }
+        guard FileManager.default.fileExists(atPath: local) else {
+            showToast("Not available locally: \(local)")
+            return
+        }
+        let url = URL(fileURLWithPath: local)
+        if open {
+            NSWorkspace.shared.open(url)
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
         }
     }
 
