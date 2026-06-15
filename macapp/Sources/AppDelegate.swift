@@ -140,6 +140,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                        action: #selector(addTorrentLink(_:)), keyEquivalent: "l")
         addLink.target = self
         fileMenu.addItem(.separator())
+        // Standard Close (⌘W) — routes via the responder chain to the key window,
+        // so it closes the Settings window (and any other) with a nil target.
+        fileMenu.addItem(withTitle: "Close",
+                         action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         let reveal = fileMenu.addItem(withTitle: "Reveal Preferences in Finder",
                                       action: #selector(revealPreferences(_:)), keyEquivalent: "")
         reveal.target = self
