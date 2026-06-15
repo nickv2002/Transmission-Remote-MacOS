@@ -24,6 +24,26 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(s.rpcPath, "/transmission/rpc")
         XCTAssertNil(s.username)
         XCTAssertNil(s.password)
+        // Backward-compatible: configs predating path mappings decode to empty.
+        XCTAssertEqual(s.pathMappings, [])
+    }
+
+    func testServerConfigDecodesPathMappings() throws {
+        let json = #"""
+        {"name":"N","host":"h","pathMappings":[{"remote":"/video","local":"/Volumes/Video"}]}
+        """#
+        let s = try JSONDecoder().decode(ServerConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(s.pathMappings, [PathMapping(remote: "/video", local: "/Volumes/Video")])
+    }
+
+    func testPathMappingsSurviveEncodeDecodeRoundTrip() throws {
+        let server = ServerConfig(
+            name: "N", host: "h", port: 9091, useHTTPS: false,
+            rpcPath: "/transmission/rpc",
+            pathMappings: [PathMapping(remote: "/video", local: "/Volumes/Video"),
+                           PathMapping(remote: "/undupe", local: "/Volumes/undupe")])
+        let data = try JSONEncoder().encode(server)
+        XCTAssertEqual(try JSONDecoder().decode(ServerConfig.self, from: data), server)
     }
 
     func testAppConfigFallsBackToLocalhostWhenEmpty() throws {

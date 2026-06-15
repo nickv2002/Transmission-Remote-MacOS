@@ -10,13 +10,17 @@ struct ServerConfig: Codable, Sendable, Equatable {
     var rpcPath: String
     var username: String?
     var password: String?
+    /// Remote→local path-mapping rules (see `PathMapping`). Empty for servers that
+    /// never need them; populated via the Settings screen.
+    var pathMappings: [PathMapping]
 
     enum CodingKeys: String, CodingKey {
-        case name, host, port, useHTTPS, rpcPath, username, password
+        case name, host, port, useHTTPS, rpcPath, username, password, pathMappings
     }
 
     init(name: String, host: String, port: Int, useHTTPS: Bool, rpcPath: String,
-         username: String? = nil, password: String? = nil) {
+         username: String? = nil, password: String? = nil,
+         pathMappings: [PathMapping] = []) {
         self.name = name
         self.host = host
         self.port = port
@@ -24,6 +28,7 @@ struct ServerConfig: Codable, Sendable, Equatable {
         self.rpcPath = rpcPath
         self.username = username
         self.password = password
+        self.pathMappings = pathMappings
     }
 
     init(from decoder: Decoder) throws {
@@ -36,6 +41,8 @@ struct ServerConfig: Codable, Sendable, Equatable {
         rpcPath = try c.decodeIfPresent(String.self, forKey: .rpcPath) ?? "/transmission/rpc"
         username = try c.decodeIfPresent(String.self, forKey: .username)
         password = try c.decodeIfPresent(String.self, forKey: .password)
+        // Backward-compatible: configs written before this feature have no key.
+        pathMappings = try c.decodeIfPresent([PathMapping].self, forKey: .pathMappings) ?? []
     }
 
     /// The built-in default used when the config has no servers.

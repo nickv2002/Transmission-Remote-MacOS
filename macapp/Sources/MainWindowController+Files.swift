@@ -70,8 +70,45 @@ extension MainWindowController {
             item.target = self
         }
         priorityItem.submenu = priorityMenu
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealFileInFinder(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Open", action: #selector(openFile(_:)), keyEquivalent: "")
         for item in menu.items where item.action != nil { item.target = self }
         return menu
+    }
+
+    // MARK: - Reveal / Open a single file (remote→local path mapping)
+
+    @objc func revealFileInFinder(_ sender: Any?) {
+        guard let remote = targetedFileRemotePath() else { return }
+        revealOrOpen(remotePath: remote, open: false)
+    }
+
+    @objc func openFile(_ sender: Any?) {
+        guard let remote = targetedFileRemotePath() else { return }
+        revealOrOpen(remotePath: remote, open: true)
+    }
+
+    /// The remote path of the single targeted file (right-clicked row, else a lone
+    /// selection): the current torrent's download dir + the file's relative name.
+    /// `nil` when no single file is targeted.
+    func targetedFileRemotePath() -> String? {
+        guard let torrent = selectedTorrents.first, let file = targetedSingleFile() else { return nil }
+        return torrent.normalizedDownloadDir + "/" + file.name
+    }
+
+    private func targetedSingleFile() -> TorrentFile? {
+        let clicked = filesTable.clickedRow
+        let selected = filesTable.selectedRowIndexes
+        let row: Int
+        if clicked >= 0, !selected.contains(clicked) {
+            row = clicked
+        } else if selected.count == 1, let only = selected.first {
+            row = only
+        } else {
+            return nil
+        }
+        return files.indices.contains(row) ? files[row] : nil
     }
 
     // MARK: - Fetching

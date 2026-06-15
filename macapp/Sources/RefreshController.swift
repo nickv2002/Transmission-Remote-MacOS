@@ -80,6 +80,10 @@ final class RefreshController {
     /// The active server's display name.
     var currentServerName: String { selectedServerName }
 
+    /// The active server's full config — used by the torrent actions to map a
+    /// remote download path to a local one (`pathMappings`).
+    var activeServerConfig: ServerConfig { activeServer }
+
     /// All configured server names, for the Server menu.
     var availableServerNames: [String] { config.serverNames }
 

@@ -27,6 +27,7 @@ final class SettingsWindowController: NSWindowController {
     private let rpcPathField = NSTextField()
     private let usernameField = NSTextField()
     private let passwordField = NSSecureTextField()
+    private let pathMappingsView = NSTextView()   // multi-line: one `remote=local` per line
     private let removeButton = NSButton()
     private var detailFields: [NSControl] = []
 
@@ -42,7 +43,7 @@ final class SettingsWindowController: NSWindowController {
     init(config: AppConfig) {
         self.editor = SettingsEditor(config)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 540),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered, defer: false)
         window.title = "Settings"
@@ -234,6 +235,11 @@ final class SettingsWindowController: NSWindowController {
         detailFields = [nameField, hostField, portField, httpsCheckbox,
                         rpcPathField, usernameField, passwordField]
 
+        let mappingsScroll = buildPathMappingsEditor()
+        let caption = label("Remote→local, one per line.  e.g.  /video=/Volumes/Video")
+        caption.font = .systemFont(ofSize: 10)
+        caption.textColor = .secondaryLabelColor
+
         let grid = NSGridView(views: [
             [label("Name:"), nameField],
             [label("Host:"), hostField],
@@ -242,12 +248,43 @@ final class SettingsWindowController: NSWindowController {
             [label("RPC Path:"), rpcPathField],
             [label("Username:"), usernameField],
             [label("Password:"), passwordField],
+            [label("Path Mappings:"), mappingsScroll],
+            [NSView(), caption],
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
         grid.column(at: 1).width = 240
+        // The mappings editor is multi-line; top-align its row so the label sits at
+        // the first line rather than floating to the vertical centre.
+        grid.row(at: 7).yPlacement = .top
+        grid.row(at: 7).rowAlignment = .none
         return grid
+    }
+
+    /// A multi-line text editor (scrollable `NSTextView`) for the `remote=local`
+    /// path-mapping lines — the native take on the legacy app's `edPaths` memo.
+    private func buildPathMappingsEditor() -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        scroll.heightAnchor.constraint(equalToConstant: 96).isActive = true
+        scroll.widthAnchor.constraint(equalToConstant: 240).isActive = true
+
+        pathMappingsView.delegate = self
+        pathMappingsView.isRichText = false
+        pathMappingsView.isAutomaticQuoteSubstitutionEnabled = false
+        pathMappingsView.isAutomaticDashSubstitutionEnabled = false
+        pathMappingsView.isAutomaticSpellingCorrectionEnabled = false
+        pathMappingsView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        pathMappingsView.textContainerInset = NSSize(width: 2, height: 4)
+        pathMappingsView.isVerticallyResizable = true
+        pathMappingsView.isHorizontallyResizable = false
+        pathMappingsView.autoresizingMask = [.width]
+        pathMappingsView.textContainer?.widthTracksTextView = true
+        scroll.documentView = pathMappingsView
+        return scroll
     }
 
     private func buildGeneralPane() -> NSView {
@@ -309,6 +346,8 @@ final class SettingsWindowController: NSWindowController {
     private func loadDetail() {
         let enabled = selectedIndex != nil
         for field in detailFields { field.isEnabled = enabled }
+        pathMappingsView.isEditable = enabled
+        pathMappingsView.isSelectable = enabled
         removeButton.isEnabled = enabled && editor.serverCount > 1
         // Test reads the form fields directly (see currentServerFromFields) and
         // validates the host itself, so keep it available whenever a row is shown.
@@ -318,6 +357,7 @@ final class SettingsWindowController: NSWindowController {
             nameField.stringValue = ""; hostField.stringValue = ""; portField.stringValue = ""
             rpcPathField.stringValue = ""; usernameField.stringValue = ""; passwordField.stringValue = ""
             httpsCheckbox.state = .off
+            pathMappingsView.string = ""
             return
         }
         nameField.stringValue = s.name
@@ -327,6 +367,7 @@ final class SettingsWindowController: NSWindowController {
         rpcPathField.stringValue = s.rpcPath
         usernameField.stringValue = s.username ?? ""
         passwordField.stringValue = s.password ?? ""
+        pathMappingsView.string = PathMapping.format(s.pathMappings)
     }
 
     @objc private func addServer() {
@@ -421,7 +462,8 @@ final class SettingsWindowController: NSWindowController {
             useHTTPS: httpsCheckbox.state == .on,
             rpcPath: path.isEmpty ? "/transmission/rpc" : path,
             username: usernameField.stringValue.isEmpty ? nil : usernameField.stringValue,
-            password: passwordField.stringValue.isEmpty ? nil : passwordField.stringValue)
+            password: passwordField.stringValue.isEmpty ? nil : passwordField.stringValue,
+            pathMappings: PathMapping.parse(pathMappingsView.string))
     }
 
     /// Sync the selected server from the form's current text on every keystroke,
@@ -577,6 +619,15 @@ extension SettingsWindowController: NSTextFieldDelegate {
         } else {
             liveSyncSelectedServer()
         }
+    }
+}
+
+extension SettingsWindowController: NSTextViewDelegate {
+    /// The multi-line path-mappings editor changed — sync it live like the text
+    /// fields, so Save enables on each keystroke.
+    func textDidChange(_ notification: Notification) {
+        guard (notification.object as AnyObject) === pathMappingsView else { return }
+        liveSyncSelectedServer()
     }
 }
 

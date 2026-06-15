@@ -648,6 +648,59 @@ final class MainWindowController: NSWindowController {
         displayed.indices.contains(row) ? displayed[row] : nil
     }
 
+    // MARK: - Toast
+
+    /// Show a brief, non-modal message near the bottom of the window that fades out
+    /// on its own. Used for soft warnings (e.g. a mapped local path that isn't
+    /// mounted) where a modal alert would be too heavy.
+    func showToast(_ message: String) {
+        guard let content = window?.contentView else { return }
+
+        let label = NSTextField(labelWithString: message)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.textColor = .white
+        label.font = .systemFont(ofSize: 12)
+        label.lineBreakMode = .byTruncatingMiddle
+        label.alignment = .center
+
+        let bg = NSVisualEffectView()
+        bg.translatesAutoresizingMaskIntoConstraints = false
+        bg.material = .hudWindow
+        bg.blendingMode = .withinWindow
+        bg.state = .active
+        bg.wantsLayer = true
+        bg.layer?.cornerRadius = 8
+        bg.layer?.masksToBounds = true
+        bg.addSubview(label)
+        content.addSubview(bg)
+
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: bg.topAnchor, constant: 8),
+            label.bottomAnchor.constraint(equalTo: bg.bottomAnchor, constant: -8),
+            label.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 14),
+            label.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -14),
+            bg.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            bg.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -48),
+            bg.widthAnchor.constraint(lessThanOrEqualTo: content.widthAnchor, multiplier: 0.85),
+        ])
+
+        // Fade in, hold ~2.4s, fade out, remove.
+        bg.alphaValue = 0
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.18
+            bg.animator().alphaValue = 1
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.35
+                bg.animator().alphaValue = 0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                bg.removeFromSuperview()
+            }
+        }
+    }
+
     // MARK: - Detail pane
 
     private func updateDetail() {
