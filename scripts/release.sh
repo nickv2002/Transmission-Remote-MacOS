@@ -45,6 +45,7 @@ git push --tags
 
 echo "==> creating GitHub release"
 gh release create "$tag" "dist/Transmission Remote-${version}.zip" \
+  --repo nickv2002/transgui \
   --title "${version}" --notes-file build/release-notes.md
 
 scripts/install_local.sh
