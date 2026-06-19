@@ -60,12 +60,23 @@ final class MainWindowController: NSWindowController {
 
     /// How the search box matches: fuzzy subsequence (ranked) or exact substring.
     enum SearchMode: Int { case fuzzy, exact }
-    private(set) var searchMode: SearchMode = .fuzzy
+
+    /// UserDefaults key persisting the chosen match mode across launches.
+    private static let searchModeDefaultsKey = "SearchMode"
+
+    /// Restored from UserDefaults so the choice survives relaunch; when the key
+    /// has never been written the mode defaults to `.exact`.
+    private(set) var searchMode: SearchMode = {
+        guard let raw = UserDefaults.standard.object(forKey: searchModeDefaultsKey) as? Int,
+              let mode = SearchMode(rawValue: raw) else { return .exact }
+        return mode
+    }()
 
     /// Switch match mode (from the search field's magnifying-glass menu) and re-filter.
     func setSearchMode(_ mode: SearchMode) {
         guard mode != searchMode else { return }
         searchMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: Self.searchModeDefaultsKey)
         let ids = selectedTorrentIds()
         rebuildDisplayed()
         tableView.reloadData()
