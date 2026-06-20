@@ -1,3 +1,5 @@
+<img src="docs/images/app-icon.png" width="128" height="128" alt="Transmission Remote app icon">
+
 # Transmission Remote for macOS
 
 A native macOS app for controlling a [Transmission](https://transmissionbt.com)
