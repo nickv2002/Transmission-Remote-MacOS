@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026.06.23.1 — 2026-06-23
+
+- makefile
+- Add Torrent menu with keyboard shortcuts mirroring the context menu
+- Add Return-key rename shortcut for single selection in torrent table
+- README: add app icon at the top for visual flare
+- Add welcoming README, CONTRIBUTING, and Code of Conduct
+- release.sh: target the fork explicitly with gh --repo
+
 ## 2026.06.19.1 — 2026-06-19
 
 - Add Developer ID signing, notarization, and release automation
