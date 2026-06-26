@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.06.26.1 — 2026-06-26
+
+- Add recent-directory combo box to Move dialog
+
 ## 2026.06.24.1 — 2026-06-24
 
 - Add make help default and dev/run/clean targets
