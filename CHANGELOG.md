@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.06.28.1 — 2026-06-28
+
+- Add file rename to the Files pane
+- Preserve files-table focus and selection across refreshes
+- Standardize torrent keyboard shortcuts
+
 ## 2026.06.26.2 — 2026-06-26
 
 - Add GitHub link to About panel and Check for Update menu item
