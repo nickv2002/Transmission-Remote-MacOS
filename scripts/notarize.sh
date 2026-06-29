@@ -1,6 +1,7 @@
 #!/bin/bash
 # Notarizes and staples the exported .app, then zips the stapled app into
-# dist/Transmission Remote-<version>.zip — the artifact uploaded to GitHub.
+# dist/Transmission.Remote-<version>.zip — the artifact uploaded to GitHub.
+# (Dot separator matches what GitHub names the asset after upload.)
 #
 # The App Store Connect API key is pulled live from 1Password on every run
 # (op CLI — prompts for unlock/approval each time). Nothing is ever stored
@@ -22,7 +23,7 @@ cd "$repo_root"
 app_path="build/export/Transmission Remote.app"
 submit_zip="build/notarize-submission.zip"
 dist_dir="dist"
-dist_zip="$dist_dir/Transmission Remote-${version}.zip"
+dist_zip="$dist_dir/Transmission.Remote-${version}.zip"
 
 if [[ ! -d "$app_path" ]]; then
   echo "error: $app_path not found — run scripts/build_release.sh first" >&2
