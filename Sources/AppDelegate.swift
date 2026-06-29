@@ -1,4 +1,5 @@
 import AppKit
+import Sparkle
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -10,8 +11,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The live app config (servers + poll interval), kept in sync with the
     /// preferences store and the Settings window.
     private var config = AppConfig.default
+    private var updaterController: SPUStandardUpdaterController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Sparkle must be initialized before setupMainMenu() so the
+        // "Check for Update…" item can target the controller.
+        updaterController = SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: nil,
+            userDriverDelegate: nil
+        )
+
         NSApp.setActivationPolicy(.regular)
         setupMainMenu()
 
@@ -79,56 +89,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private enum GitHub {
-        static let slug = "nickv2002/Transmission-Remote-MacOS"
-        static let repoURL      = URL(string: "https://github.com/\(slug)")!
-        static let releasesURL  = URL(string: "https://github.com/\(slug)/releases")!
-        static let apiLatestURL = URL(string: "https://api.github.com/repos/\(slug)/releases/latest")!
-    }
-
     @objc private func showAboutPanel(_ sender: Any?) {
+        let repoURL = URL(string: "https://github.com/nickv2002/Transmission-Remote-MacOS")!
         let linkStr = NSMutableAttributedString(string: "GitHub Project")
         let range = NSRange(location: 0, length: linkStr.length)
-        linkStr.addAttribute(.link, value: GitHub.repoURL, range: range)
+        linkStr.addAttribute(.link, value: repoURL, range: range)
         linkStr.addAttribute(.font, value: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), range: range)
         NSApplication.shared.orderFrontStandardAboutPanel(options: [.credits: linkStr])
-    }
-
-    @objc private func checkForUpdate(_ sender: Any?) {
-        Task { @MainActor in
-            let current = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-            do {
-                var req = URLRequest(url: GitHub.apiLatestURL)
-                req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-                let (data, _) = try await URLSession.shared.data(for: req)
-                guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let tag = json["tag_name"] as? String else {
-                    throw URLError(.cannotParseResponse)
-                }
-                let latest = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-                let alert = NSAlert()
-                if latest.localizedStandardCompare(current) == .orderedDescending {
-                    alert.messageText = "Update Available"
-                    alert.informativeText = "Version \(latest) is available (you have \(current))."
-                    alert.addButton(withTitle: "Download")
-                    alert.addButton(withTitle: "OK")
-                    if alert.runModal() == .alertFirstButtonReturn {
-                        NSWorkspace.shared.open(GitHub.releasesURL)
-                    }
-                } else {
-                    alert.messageText = "Up to Date"
-                    alert.informativeText = "You're running the latest release (\(current))."
-                    alert.addButton(withTitle: "OK")
-                    alert.runModal()
-                }
-            } catch {
-                let alert = NSAlert()
-                alert.messageText = "Update Check Failed"
-                alert.informativeText = "Could not check for updates: \(error.localizedDescription)"
-                alert.addButton(withTitle: "OK")
-                alert.runModal()
-            }
-        }
     }
 
     @objc private func revealPreferences(_ sender: Any?) {
@@ -162,9 +129,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let about = appMenu.addItem(withTitle: "About \(appName)",
                         action: #selector(showAboutPanel(_:)), keyEquivalent: "")
         about.target = self
-        let checkUpdate = appMenu.addItem(withTitle: "Check for Update…",
-                                          action: #selector(checkForUpdate(_:)), keyEquivalent: "")
-        checkUpdate.target = self
+        let checkUpdate = appMenu.addItem(
+            withTitle: "Check for Update…",
+            action: #selector(SPUStandardUpdaterController.checkForUpdates(_:)),
+            keyEquivalent: ""
+        )
+        checkUpdate.target = updaterController
         appMenu.addItem(.separator())
         // Standard "Settings…" (⌘,) opens the native preferences window.
         let settings = appMenu.addItem(withTitle: "Settings…",
