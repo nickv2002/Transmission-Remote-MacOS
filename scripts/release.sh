@@ -33,7 +33,9 @@ scripts/notarize.sh "$version"
 scripts/changelog.sh "$version" "$prev_tag"
 
 echo "==> signing update for Sparkle"
-zip_path="dist/Transmission Remote-${version}.zip"
+# GitHub replaces spaces with dots in asset filenames, so use dots here to match.
+zip_name="Transmission.Remote-${version}.zip"
+zip_path="dist/${zip_name}"
 sig_output=$(sign_update "$zip_path")
 signature=$(printf '%s' "$sig_output" | grep -oE 'sparkle:edSignature="[^"]*"' \
   | sed 's/sparkle:edSignature="//;s/"//')
@@ -45,8 +47,7 @@ if [[ -z "$signature" ]]; then
 fi
 
 file_size=$(/usr/bin/stat -f%z "$zip_path")
-version_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$version")
-download_url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v${version}/Transmission%20Remote-${version_encoded}.zip"
+download_url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v${version}/${zip_name}"
 
 scripts/update_appcast.sh "$version" "$download_url" "$signature" "$file_size"
 
@@ -62,7 +63,7 @@ git push
 git push --tags
 
 echo "==> creating GitHub release"
-gh release create "$tag" "dist/Transmission Remote-${version}.zip" \
+gh release create "$tag" "dist/Transmission.Remote-${version}.zip" \
   --repo nickv2002/Transmission-Remote-MacOS \
   --title "${version}" --notes-file build/release-notes.md
 
