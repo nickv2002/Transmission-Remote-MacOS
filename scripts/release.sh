@@ -44,7 +44,7 @@ if [[ -z "$signature" ]]; then
   exit 1
 fi
 
-file_size=$(stat -f%z "$zip_path")
+file_size=$(/usr/bin/stat -f%z "$zip_path")
 version_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$version")
 download_url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v${version}/Transmission%20Remote-${version_encoded}.zip"
 
