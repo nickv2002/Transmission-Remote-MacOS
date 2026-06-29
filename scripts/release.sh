@@ -32,8 +32,26 @@ scripts/build_release.sh
 scripts/notarize.sh "$version"
 scripts/changelog.sh "$version" "$prev_tag"
 
-echo "==> committing version bump + changelog"
-git add project.yml CHANGELOG.md
+echo "==> signing update for Sparkle"
+zip_path="dist/Transmission Remote-${version}.zip"
+sig_output=$(sign_update "$zip_path")
+signature=$(printf '%s' "$sig_output" | grep -oE 'sparkle:edSignature="[^"]*"' \
+  | sed 's/sparkle:edSignature="//;s/"//')
+
+if [[ -z "$signature" ]]; then
+  echo "error: could not extract edSignature from sign_update output" >&2
+  echo "sign_update output: $sig_output" >&2
+  exit 1
+fi
+
+file_size=$(stat -f%z "$zip_path")
+version_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$version")
+download_url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v${version}/Transmission%20Remote-${version_encoded}.zip"
+
+scripts/update_appcast.sh "$version" "$download_url" "$signature" "$file_size"
+
+echo "==> committing version bump + changelog + appcast"
+git add project.yml CHANGELOG.md appcast.xml
 git commit -m "Release ${version}"
 
 echo "==> tagging ${tag}"
@@ -45,7 +63,7 @@ git push --tags
 
 echo "==> creating GitHub release"
 gh release create "$tag" "dist/Transmission Remote-${version}.zip" \
-  --repo nickv2002/transgui \
+  --repo nickv2002/Transmission-Remote-MacOS \
   --title "${version}" --notes-file build/release-notes.md
 
 scripts/install_local.sh

@@ -13,6 +13,11 @@ settings:
     CURRENT_PROJECT_VERSION: "2026.06.28.1"
     DEVELOPMENT_TEAM: 3D9SMH4RWM
 
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.0.0
+
 targets:
   TransmissionRemote:
     type: application
@@ -20,6 +25,9 @@ targets:
     sources:
       - path: Sources
       - path: Resources
+    dependencies:
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         PRODUCT_NAME: "Transmission Remote"
