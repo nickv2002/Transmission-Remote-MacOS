@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.06.28.2 — 2026-06-28
+
+- Add Sparkle 2.x in-app auto-updater
+- Persist detail tab selection and Files column widths across launches
+- Color file progress bars green at 100%, accent otherwise
+
 ## 2026.06.28.1 — 2026-06-28
 
 - Add file rename to the Files pane
