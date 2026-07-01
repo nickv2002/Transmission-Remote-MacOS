@@ -246,10 +246,21 @@ extension MainWindowController {
     private func reloadFilesData() {
         let restoreFocus = window?.firstResponder === filesTable
         let selection = filesTable.selectedRowIndexes
-        filesTable.reloadData()
-        if !selection.isEmpty {
-            let valid = selection.filteredIndexSet { $0 < files.count }
-            if !valid.isEmpty { filesTable.selectRowIndexes(valid, byExtendingSelection: false) }
+        // A full reloadData() recreates every row view, which — if it lands
+        // between the two mouse-downs of a double-click — can silently
+        // swallow the gesture. When the file list is unchanged in content
+        // (same count), refresh in place instead; only reload fully when
+        // rows were added/removed.
+        if filesTable.numberOfRows == files.count, !files.isEmpty {
+            let rows = IndexSet(0..<files.count)
+            let columns = IndexSet(0..<filesTable.numberOfColumns)
+            filesTable.reloadData(forRowIndexes: rows, columnIndexes: columns)
+        } else {
+            filesTable.reloadData()
+            if !selection.isEmpty {
+                let valid = selection.filteredIndexSet { $0 < files.count }
+                if !valid.isEmpty { filesTable.selectRowIndexes(valid, byExtendingSelection: false) }
+            }
         }
         if restoreFocus { window?.makeFirstResponder(filesTable) }
     }
