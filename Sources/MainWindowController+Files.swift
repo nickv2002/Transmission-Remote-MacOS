@@ -51,6 +51,8 @@ extension MainWindowController {
         filesTable.rowHeight = 20
         filesTable.dataSource = self
         filesTable.delegate = self
+        filesTable.target = self
+        filesTable.doubleAction = #selector(didDoubleClickFileRow)
         filesTable.menu = filesContextMenu()
 
         let scroll = NSScrollView()
@@ -113,6 +115,14 @@ extension MainWindowController {
     @objc func openFile(_ sender: Any?) {
         guard let remote = targetedFileRemotePath() else { return }
         revealOrOpen(remotePath: remote, open: true)
+    }
+
+    /// Double-clicking a file row opens it locally if a path mapping resolves
+    /// it, otherwise shows the same "Not available locally" toast as the
+    /// context-menu Open (mirrors `didDoubleClickRow` on the main table).
+    @objc private func didDoubleClickFileRow() {
+        guard filesTable.clickedRow >= 0, let remote = targetedFileRemotePath() else { return }
+        revealOrOpen(remotePath: remote, open: true, warnIfUnmapped: true)
     }
 
     @objc func renameFile(_ sender: Any?) {
