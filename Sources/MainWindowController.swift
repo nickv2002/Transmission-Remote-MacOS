@@ -496,12 +496,25 @@ final class MainWindowController: NSWindowController {
         // sidebar/table reloads can steal focus; save it so the files table
         // stays focused across polls when the user is working there.
         let filesTableFocused = window?.firstResponder === filesTable
+        let previousIds = displayed.map(\.id)
         torrents = incoming
         sortTorrents()
         sidebar.update(with: torrents)
         rebuildDisplayed()
-        tableView.reloadData()
-        restoreSelection(selectedIds)
+        if displayed.map(\.id) == previousIds {
+            // Same rows in the same order: refresh cell content in place.
+            // A full reloadData() recreates every row view, which — if it
+            // lands between the two mouse-downs of a double-click (every
+            // poll, ~4s) — can silently swallow the double-click gesture.
+            if !displayed.isEmpty {
+                let rows = IndexSet(0..<displayed.count)
+                let columns = IndexSet(0..<tableView.numberOfColumns)
+                tableView.reloadData(forRowIndexes: rows, columnIndexes: columns)
+            }
+        } else {
+            tableView.reloadData()
+            restoreSelection(selectedIds)
+        }
         updateDetail()
         loadFilesIfNeeded()
         updateStatusBar(state: refresh.state)
