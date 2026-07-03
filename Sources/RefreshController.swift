@@ -125,7 +125,11 @@ final class RefreshController {
     /// drop the client so the loop re-resolves a reachable host next tick.
     func refreshNow() {
         guard let client else { return }
-        Task { if !(await self.poll(client: client)) { self.client = nil } }
+        Task {
+            await self.withFetchingSpan {
+                if !(await self.poll(client: client)) { self.client = nil }
+            }
+        }
     }
 
     /// The host candidate currently in use (after failover resolution), for status.
@@ -169,14 +173,21 @@ final class RefreshController {
 
     private func runLoop() async {
         while !Task.isCancelled {
-            if client == nil {
-                await resolveReachableClient()
-            }
-            if let client, !paused {
-                if !(await poll(client: client)) {
-                    // Lost the connection — re-resolve (the network may have
-                    // changed, e.g. left the tailnet) on the next iteration.
-                    self.client = nil
+            // Coalesce resolve+poll into one `isFetching` span so a reconnect
+            // (both steps run back-to-back) shows one continuous spinner instead
+            // of flickering off between the two.
+            if client == nil || !paused {
+                await withFetchingSpan {
+                    if client == nil {
+                        await resolveReachableClient()
+                    }
+                    if let client, !paused {
+                        if !(await poll(client: client)) {
+                            // Lost the connection — re-resolve (the network may
+                            // have changed, e.g. left the tailnet) next iteration.
+                            self.client = nil
+                        }
+                    }
                 }
             }
             let seconds = config.refreshSeconds
@@ -184,12 +195,18 @@ final class RefreshController {
         }
     }
 
+    /// Runs `body` with `isFetching` true for its duration — a single transition
+    /// in, a single transition out, even if `body` performs multiple sequential
+    /// network steps (e.g. resolve then poll).
+    private func withFetchingSpan(_ body: () async -> Void) async {
+        isFetching = true
+        await body()
+        isFetching = false
+    }
+
     /// Probe the active server's host candidates in order and adopt the first that
     /// answers a `session-get`. Sets `client`/`resolvedServer`/state on success.
     private func resolveReachableClient() async {
-        isFetching = true
-        defer { isFetching = false }
-
         let started = Date()
         let candidates = activeServer.connectionCandidates
 
@@ -197,7 +214,7 @@ final class RefreshController {
         // timeout. The common case (still reachable) connects in one round-trip
         // without spinning up a client per candidate.
         if let saved = UserDefaults.standard.string(forKey: lastGoodHostKey),
-           let lastGood = candidates.first(where: { $0.host == saved }),
+           let lastGood = candidates.first(where: { $0.connectionKey == saved }),
            !Task.isCancelled,
            let resolved = await Self.probe(lastGood, timeout: fastPathTimeout) {
             adopt(resolved)
@@ -233,7 +250,7 @@ final class RefreshController {
         resolvedServer = resolved.server
         defaultDownloadDir = resolved.info.downloadDir
         hasConnectedOnce = true
-        UserDefaults.standard.set(resolved.server.host, forKey: lastGoodHostKey)
+        UserDefaults.standard.set(resolved.server.connectionKey, forKey: lastGoodHostKey)
         state = .connected(version: resolved.info.version)
     }
 
@@ -262,9 +279,6 @@ final class RefreshController {
     /// caller can re-resolve a reachable host.
     @discardableResult
     private func poll(client: TransmissionClient) async -> Bool {
-        isFetching = true
-        defer { isFetching = false }
-
         // The first poll after a fresh connect uses a slim field set for a faster
         // cold paint; later polls fetch the full set (so trackers/comment/etc. fill
         // in).

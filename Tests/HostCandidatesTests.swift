@@ -120,6 +120,28 @@ final class HostCandidatesTests: XCTestCase {
         XCTAssertEqual(cands[0].port, 9091)
     }
 
+    // MARK: - connectionKey
+
+    func testConnectionKeyDistinguishesSchemeAndPort() {
+        // Same host, different scheme/port must not collide — this is the key
+        // used to remember which specific candidate last answered.
+        let plain = base("n5.local", useHTTPS: false, port: 9091)
+        let secure = base("n5.local", useHTTPS: true, port: 9443)
+        XCTAssertNotEqual(plain.connectionKey, secure.connectionKey)
+    }
+
+    func testConnectionKeyDistinguishesRPCPath() {
+        let a = base("host", rpcPath: "/transmission/rpc")
+        let b = base("host", rpcPath: "/custom/rpc")
+        XCTAssertNotEqual(a.connectionKey, b.connectionKey)
+    }
+
+    func testConnectionKeyStableForIdenticalEndpoint() {
+        let a = base("host", useHTTPS: true, port: 443, rpcPath: "/rpc")
+        let b = base("host", useHTTPS: true, port: 443, rpcPath: "/rpc")
+        XCTAssertEqual(a.connectionKey, b.connectionKey)
+    }
+
     func testTheOwnersRealScenario() {
         // The exact use case from the feature request.
         let cands = base("10.0.1.2, n5.local, https://transmission.raptor-ruffe.ts.net")

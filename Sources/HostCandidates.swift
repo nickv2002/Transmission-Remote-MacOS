@@ -25,6 +25,15 @@ extension ServerConfig {
         connectionCandidates.count > 1
     }
 
+    /// A unique identifier for this exact endpoint (scheme + host + port + RPC
+    /// path). Candidates from the same server's host-candidate list can share a
+    /// hostname while differing in scheme/port (e.g. `n5.local:9091` vs
+    /// `https://n5.local:9443`), so matching on `host` alone is ambiguous —
+    /// used to remember and re-find the specific candidate that last answered.
+    var connectionKey: String {
+        "\(useHTTPS ? "https" : "http")://\(host):\(port)\(rpcPath)"
+    }
+
     /// Build a candidate `ServerConfig` from one connection-string token,
     /// inheriting any unspecified fields from `self`.
     func candidate(fromToken token: String) -> ServerConfig {
