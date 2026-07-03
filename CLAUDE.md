@@ -5,8 +5,7 @@
 A **native macOS app in Swift + AppKit** that talks to a single Transmission
 BitTorrent daemon over JSON-RPC. It's a from-scratch rewrite of the legacy
 Free Pascal / Lazarus app, which is preserved on the `legacy-pascal` branch for
-reference (protocol/feature behavior, `rpc.pas` is the authoritative source for
-the Transmission RPC protocol).
+reference (protocol/feature behavior, `rpc.pas` is the authoritative source for the Transmission RPC protocol).
 
 - Scope is a deliberately minimal MVP for the owner's daily use — not feature parity.
 
