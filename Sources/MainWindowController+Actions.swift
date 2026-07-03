@@ -506,19 +506,75 @@ extension MainWindowController: NSToolbarDelegate {
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
 
-        let combo = NSComboBox(frame: NSRect(x: 0, y: 0, width: 320, height: 26))
+        let combo = NSComboBox(frame: NSRect(x: 0, y: 0, width: 250, height: 26))
         combo.stringValue = defaultValue
         combo.lineBreakMode = .byTruncatingHead
         combo.addItems(withObjectValues: allDirs)
         combo.completes = true
         combo.numberOfVisibleItems = 10
 
-        alert.accessoryView = combo
+        let hasPathMappings = !refresh.activeServerConfig.pathMappings.isEmpty
+        let accessory: NSView
+        if hasPathMappings {
+            let browse = NSButton(title: "Browse…", target: self, action: #selector(browseForRemoteLocation(_:)))
+            browse.bezelStyle = .rounded
+            browse.frame = NSRect(x: 260, y: 0, width: 90, height: 26)
+            pendingMoveCombo = combo
+
+            let container = NSView(frame: NSRect(x: 0, y: 0, width: 350, height: 26))
+            container.addSubview(combo)
+            container.addSubview(browse)
+            accessory = container
+        } else {
+            combo.frame = NSRect(x: 0, y: 0, width: 320, height: 26)
+            accessory = combo
+        }
+
+        alert.accessoryView = accessory
         alert.window.initialFirstResponder = combo
 
-        alert.beginSheetModal(for: window) { response in
+        alert.beginSheetModal(for: window) { [weak self] response in
             combo.validateEditing()
+            self?.pendingMoveCombo = nil
             completion(response == .alertFirstButtonReturn ? combo.stringValue : nil)
+        }
+    }
+
+    /// Move dialog's "Browse…" button: pick a local folder and reverse-map it
+    /// to a remote path via the active server's path mappings, filling the
+    /// combo box the same way typing would.
+    @objc private func browseForRemoteLocation(_ sender: NSButton) {
+        guard let combo = pendingMoveCombo, let sheetWindow = sender.window else { return }
+
+        let config = refresh.activeServerConfig
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choose"
+        panel.message = "Choose the local folder that maps to the torrent's remote location."
+
+        if let mappedLocal = config.mapRemoteToLocal(combo.stringValue),
+           FileManager.default.fileExists(atPath: mappedLocal) {
+            panel.directoryURL = URL(fileURLWithPath: mappedLocal)
+        } else if let firstLocal = config.pathMappings.first?.local,
+                  FileManager.default.fileExists(atPath: firstLocal) {
+            panel.directoryURL = URL(fileURLWithPath: firstLocal)
+        }
+
+        panel.beginSheetModal(for: sheetWindow) { response in
+            guard response == .OK, let url = panel.url else { return }
+            if let remote = config.mapLocalToRemote(url.path) {
+                combo.stringValue = remote
+            } else {
+                let error = NSAlert()
+                error.messageText = "Unable to Map Folder"
+                error.informativeText = "Unable to map this folder to a remote path. Check Path Mappings for this server in Settings."
+                error.addButton(withTitle: "OK")
+                error.beginSheetModal(for: sheetWindow) { _ in
+                    sheetWindow.makeFirstResponder(combo)
+                }
+            }
         }
     }
 

@@ -59,4 +59,29 @@ extension ServerConfig {
         }
         return nil
     }
+
+    /// Translate a local absolute path back to a remote one — the inverse of
+    /// `mapRemoteToLocal`, used by Move's "Browse…" local folder picker. An
+    /// exact match on a mapping's local side returns its remote side outright;
+    /// otherwise the longest matching local-side prefix wins (not "last
+    /// matching entry", unlike the legacy Pascal `SelectRemoteFolder`, which
+    /// lacked a break and let list order decide ties on overlapping mappings).
+    func mapLocalToRemote(_ localPath: String) -> String? {
+        let fn = localPath.trimmingCharacters(in: .whitespaces)
+        guard !fn.isEmpty else { return nil }
+        var best: (prefixLength: Int, remote: String)?
+        for mapping in pathMappings {
+            let local = mapping.local.trimmingCharacters(in: .whitespaces)
+            guard !local.isEmpty else { continue }
+            let remote = mapping.remote.trimmingCharacters(in: .whitespaces)
+            if local == fn { return remote }
+            let localWithSlash = local.hasSuffix("/") ? local : local + "/"
+            if fn.hasPrefix(localWithSlash), best == nil || localWithSlash.count > best!.prefixLength {
+                let remainder = fn.dropFirst(localWithSlash.count)
+                let base = remote.hasSuffix("/") ? String(remote.dropLast()) : remote
+                best = (localWithSlash.count, base + "/" + remainder)
+            }
+        }
+        return best?.remote
+    }
 }
