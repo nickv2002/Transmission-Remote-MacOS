@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026.07.03.1 — 2026-07-03
+
+- Reformat asset catalog JSON and unwrap a CLAUDE.md line
+- Fix reconnect-endpoint ambiguity and spinner flicker in RefreshController
+- Add Browse… button to Move dialog with remote path reverse-mapping
+- Remove hard wrapping from markdown files via oxfmt
+- Disable hard wrapping for markdown files in .editorconfig
+
 ## 2026.06.30.2 — 2026-06-30
 
 - Stop full reloadData() on every poll disrupting double-click
