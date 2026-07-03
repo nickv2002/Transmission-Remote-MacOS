@@ -55,5 +55,17 @@
         length="3193962"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.07.03.1</title>
+      <sparkle:version>2026.07.03.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 03 Jul 2026 07:11:39 +0000</pubDate>
+      <description><![CDATA[<ul><li>Reformat asset catalog JSON and unwrap a CLAUDE.md line</li><li>Fix reconnect-endpoint ambiguity and spinner flicker in RefreshController</li><li>Add Browse… button to Move dialog with remote path reverse-mapping</li><li>Remove hard wrapping from markdown files via oxfmt</li><li>Disable hard wrapping for markdown files in .editorconfig</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.07.03.1/Transmission.Remote-2026.07.03.1.zip"
+        sparkle:edSignature="rDgMCRhNIDvIydOTMYQoT98X7u1ooJ9JK3Xvan+6zng8JksLMRHcPC7/AEkPhPUdoRPS247vFb91TwBEG7w9Ag=="
+        length="3201605"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
