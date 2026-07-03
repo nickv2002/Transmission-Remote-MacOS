@@ -56,6 +56,62 @@ final class PathMappingTests: XCTestCase {
         XCTAssertNil(map("/Video/x", [("/video", "/Volumes/Video")]))
     }
 
+    // MARK: - mapLocalToRemote
+
+    private func reverseMap(_ local: String, _ rules: [(String, String)]) -> String? {
+        server(rules.map { PathMapping(remote: $0.0, local: $0.1) }).mapLocalToRemote(local)
+    }
+
+    func testReversePrefixMatchRewritesRemainder() {
+        XCTAssertEqual(reverseMap("/Volumes/Video/Show/ep.mkv", [("/video", "/Volumes/Video")]),
+                       "/video/Show/ep.mkv")
+    }
+
+    func testReverseExactMatchReturnsRemoteAsIs() {
+        XCTAssertEqual(reverseMap("/Volumes/Video", [("/video", "/Volumes/Video")]), "/video")
+    }
+
+    func testReverseNoMatchReturnsNil() {
+        XCTAssertNil(reverseMap("/Volumes/Music/x.flac", [("/video", "/Volumes/Video")]))
+    }
+
+    func testReverseEmptyMappingsReturnsNil() {
+        XCTAssertNil(reverseMap("/Volumes/Video/x", []))
+    }
+
+    func testReversePrefixGuardedBySeparator() {
+        // `/Volumes/Var` must not match `/Volumes/Var2` — the trailing-slash guard prevents it.
+        XCTAssertNil(reverseMap("/Volumes/Var2/file", [("/var", "/Volumes/Var")]))
+        XCTAssertEqual(reverseMap("/Volumes/Var/file", [("/var", "/Volumes/Var")]), "/var/file")
+    }
+
+    func testReverseLongestPrefixWins() {
+        // Overlapping mappings: the longer, more specific local prefix should win —
+        // unlike the legacy Pascal `SelectRemoteFolder`, which had no `break` and let
+        // list order (last match) decide ties instead.
+        let rules = [("/video", "/Volumes/Video"), ("/video/Show", "/Volumes/Video/Show")]
+        XCTAssertEqual(reverseMap("/Volumes/Video/Show/ep.mkv", rules), "/video/Show/ep.mkv")
+    }
+
+    func testReverseLongestPrefixWinsRegardlessOfListOrder() {
+        let rules = [("/video/Show", "/Volumes/Video/Show"), ("/video", "/Volumes/Video")]
+        XCTAssertEqual(reverseMap("/Volumes/Video/Show/ep.mkv", rules), "/video/Show/ep.mkv")
+    }
+
+    func testReverseTrailingSlashesNormalized() {
+        XCTAssertEqual(reverseMap("/Volumes/Video/x", [("/video/", "/Volumes/Video/")]),
+                       "/video/x")
+    }
+
+    func testReverseWhitespaceTrimmedAroundPath() {
+        XCTAssertEqual(reverseMap("  /Volumes/Video/x  ", [("/video", "/Volumes/Video")]),
+                       "/video/x")
+    }
+
+    func testReverseCaseSensitive() {
+        XCTAssertNil(reverseMap("/Volumes/video/x", [("/video", "/Volumes/Video")]))
+    }
+
     // MARK: - parse / format
 
     func testParseSplitsLinesOnFirstEquals() {

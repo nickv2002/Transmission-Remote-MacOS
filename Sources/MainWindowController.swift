@@ -57,6 +57,10 @@ final class MainWindowController: NSWindowController {
     /// How the search box matches: fuzzy subsequence (ranked) or exact substring.
     enum SearchMode: Int { case fuzzy, exact }
 
+    /// The Move dialog's combo box, held only while that sheet is open so its
+    /// "Browse…" button (a plain target-action `NSButton`) can reach it.
+    var pendingMoveCombo: NSComboBox?
+
     /// UserDefaults key persisting the chosen match mode across launches.
     private static let searchModeDefaultsKey = "SearchMode"
 
