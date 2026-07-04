@@ -38,6 +38,9 @@ Transmission RPC protocol.
   locally.
 - A native Settings window for everything above — no config file editing.
 
+![Transmission Remote main window (other torrents blurred for privacy)](docs/images/Transmission%20Screenshot.png)
+![Transmission Remote settings window](docs/images/Settings%20Screenshot.png)
+
 ## Installing
 
 Grab the latest signed, notarized build from the
