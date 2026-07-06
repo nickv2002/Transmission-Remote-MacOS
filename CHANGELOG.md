@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.07.06.1 — 2026-07-06
+
+- Screenshots for readme
+- Fix .torrent opened at cold launch being dropped before the window loads
+
 ## 2026.07.03.1 — 2026-07-03
 
 - Reformat asset catalog JSON and unwrap a CLAUDE.md line
