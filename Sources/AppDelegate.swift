@@ -12,6 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// preferences store and the Settings window.
     private var config = AppConfig.default
     private var updaterController: SPUStandardUpdaterController?
+    /// URLs delivered via `application(_:open:)` before the window controller
+    /// exists (cold launch by opening a `.torrent`). Held here and flushed once
+    /// `applicationDidFinishLaunching` has built the controller.
+    private var pendingURLs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Sparkle must be initialized before setupMainMenu() so the
@@ -38,6 +42,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController = controller
         controller.showWindow(nil)
         rebuildServerMenu()
+
+        // Flush any files opened before the controller existed (cold launch via
+        // double-clicking a .torrent, where `application(_:open:)` fires first).
+        if !pendingURLs.isEmpty {
+            controller.addFiles(pendingURLs)
+            pendingURLs.removeAll()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -53,7 +64,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Dock drop / "Open With" of `.torrent` files.
     func application(_ application: NSApplication, open urls: [URL]) {
-        windowController?.addFiles(urls)
+        if let windowController {
+            windowController.addFiles(urls)
+        } else {
+            // Cold launch: the open event arrives before the controller is built.
+            // Buffer the URLs; `applicationDidFinishLaunching` flushes them.
+            pendingURLs.append(contentsOf: urls)
+        }
     }
 
     // MARK: - Add menu forwarding
