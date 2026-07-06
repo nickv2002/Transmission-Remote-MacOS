@@ -67,5 +67,17 @@
         length="3201605"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.07.06.1</title>
+      <sparkle:version>2026.07.06.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 06 Jul 2026 23:10:29 +0000</pubDate>
+      <description><![CDATA[<ul><li>Screenshots for readme</li><li>Fix .torrent opened at cold launch being dropped before the window loads</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.07.06.1/Transmission.Remote-2026.07.06.1.zip"
+        sparkle:edSignature="6fwTbLeXCQJYU4j9QBjEDKfm7RZdHyIPaDmzuTTBXD39x6ZF93h+dZuGNEE1ja2SV5Wc28v2h8xt/s4IxHDIAw=="
+        length="3202340"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
