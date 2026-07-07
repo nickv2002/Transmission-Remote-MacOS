@@ -266,6 +266,33 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         }
     }
 
+    /// A `magnet:` URI built client-side from fields already fetched by
+    /// `torrent-get` (`hashString`, `name`, `trackers`) — no separate RPC field
+    /// needed. Includes `tr=` params for every known tracker so magnet-based
+    /// re-adds don't rely solely on DHT/PEX (which won't work for private torrents).
+    var magnetLink: String { Self.buildMagnetLink(hashString: hashString, name: name, trackerURLs: trackers.map(\.announce)) }
+
+    /// Percent-encodes every character except RFC 3986 "unreserved" ones — like
+    /// `encodeURIComponent` — so a query-parameter *value* that is itself a URL
+    /// (a tracker announce URL) doesn't leak `:`, `/`, `?`, `&` that would be
+    /// misparsed as part of the outer magnet URI's query string.
+    private static let magnetComponentAllowed: CharacterSet = {
+        var set = CharacterSet.alphanumerics
+        set.insert(charactersIn: "-_.~")
+        return set
+    }()
+
+    /// Pure builder behind `magnetLink`, factored out for unit testing.
+    static func buildMagnetLink(hashString: String, name: String, trackerURLs: [String]) -> String {
+        let dn = name.addingPercentEncoding(withAllowedCharacters: magnetComponentAllowed) ?? name
+        var uri = "magnet:?xt=urn:btih:\(hashString)&dn=\(dn)"
+        for tracker in trackerURLs {
+            let tr = tracker.addingPercentEncoding(withAllowedCharacters: magnetComponentAllowed) ?? tracker
+            uri += "&tr=\(tr)"
+        }
+        return uri
+    }
+
     /// The list of fields the MVP requests from `torrent-get`.
     static let requestedFields = [
         "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
