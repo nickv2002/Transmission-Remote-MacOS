@@ -51,7 +51,13 @@ final class SettingsWindowController: NSWindowController {
         window.title = "Settings"
         super.init(window: window)
         window.delegate = self
-        window.center()
+        // Restore the saved position, matching the main window's pattern
+        // (`setFrameAutosaveName` alone doesn't reliably persist under this app's
+        // manual run loop); center on first launch when there's nothing saved yet.
+        window.setFrameAutosaveName("SettingsWindow")
+        if !window.setFrameUsingName("SettingsWindow") {
+            window.center()
+        }
         window.contentView = buildContent()
         reloadEverything()
     }
@@ -709,6 +715,13 @@ extension SettingsWindowController: NSWindowDelegate {
         default:                        // Cancel
             return false
         }
+    }
+
+    /// Explicit save, paired with the `setFrameUsingName` restore above — mirrors
+    /// `AppDelegate.applicationWillTerminate`'s note that this app's manual run
+    /// loop doesn't reliably flush AppKit's automatic frame autosave.
+    func windowWillClose(_ notification: Notification) {
+        window?.saveFrame(usingName: "SettingsWindow")
     }
 }
 
