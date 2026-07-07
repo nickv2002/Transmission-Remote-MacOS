@@ -54,6 +54,11 @@ extension MainWindowController {
         filesTable.target = self
         filesTable.doubleAction = #selector(didDoubleClickFileRow)
         filesTable.menu = filesContextMenu()
+        filesTable.onSpaceKey = { [weak self] in
+            guard let self, self.currentPreviewURL() != nil else { return false }
+            self.togglePreviewPanel()
+            return true
+        }
 
         let scroll = NSScrollView()
         scroll.documentView = filesTable
@@ -359,12 +364,20 @@ extension MainWindowController: NSTabViewDelegate {
 // MARK: - FilesTableView
 
 /// NSTableView subclass that intercepts ↩ to trigger the rename-file action,
-/// matching Finder's convention for renaming selected items.
+/// matching Finder's convention for renaming selected items, and Space to Quick
+/// Look the targeted file when its remote path resolves locally (`onSpaceKey`
+/// returns `false` otherwise, so Space falls through instead of being swallowed).
 final class FilesTableView: NSTableView {
+    var onSpaceKey: (() -> Bool)?
+
     override func keyDown(with event: NSEvent) {
         let noMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
         if noMods, event.charactersIgnoringModifiers == "\r" {
             NSApp.sendAction(#selector(MainWindowController.renameFile(_:)), to: nil, from: self)
+            return
+        }
+        if noMods, event.keyCode == 49 { // Space
+            if onSpaceKey?() != true { super.keyDown(with: event) }
             return
         }
         super.keyDown(with: event)

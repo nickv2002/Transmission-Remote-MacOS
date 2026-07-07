@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 /// Top-level window: a torrent table, a detail pane, a toolbar of actions, and a
 /// status bar. Owns the `RefreshController` that drives live updates.
@@ -179,6 +180,14 @@ final class MainWindowController: NSWindowController {
         }
         super.init(window: window)
 
+        // Splice self into the window's responder chain so QLPreviewPanel (which
+        // walks the chain from the first responder looking for an object that
+        // implements the QLPreviewPanelController methods) finds this controller.
+        // A plain NSWindowController isn't in the chain by default.
+        let originalNextResponder = window.nextResponder
+        window.nextResponder = self
+        self.nextResponder = originalNextResponder
+
         buildToolbar()
         buildLayout()
         wireRefresh()
@@ -247,6 +256,11 @@ final class MainWindowController: NSWindowController {
         tableView.onDeleteKey = { [weak self] in
             guard let self, !self.selectedTorrents.isEmpty else { return }
             self.removeSelected(nil)
+        }
+        tableView.onSpaceKey = { [weak self] in
+            guard let self, self.currentPreviewURL() != nil else { return false }
+            self.togglePreviewPanel()
+            return true
         }
 
         let scroll = NSScrollView()
@@ -1003,10 +1017,14 @@ final class AddedDateCellView: NSTableCellView {
 }
 
 /// Torrent list table — intercepts Return to trigger rename on single selection,
-/// and Delete/Backspace to trigger Remove (matching Mail/Finder/Photos convention).
+/// Delete/Backspace to trigger Remove (matching Mail/Finder/Photos convention),
+/// and Space to Quick Look the selected torrent's resolved local file, when one
+/// resolves (`onSpaceKey` returns `false` otherwise, so Space falls through to the
+/// default handling instead of being silently swallowed).
 final class TorrentTableView: NSTableView {
     var onReturnKey: (() -> Void)?
     var onDeleteKey: (() -> Void)?
+    var onSpaceKey: (() -> Bool)?
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
@@ -1014,6 +1032,8 @@ final class TorrentTableView: NSTableView {
             onReturnKey?()
         case 51, 117: // Delete (Backspace), Forward Delete
             onDeleteKey?()
+        case 49: // Space
+            if onSpaceKey?() != true { super.keyDown(with: event) }
         default:
             super.keyDown(with: event)
         }
@@ -1038,5 +1058,63 @@ final class ToastView: NSVisualEffectView {
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
             self?.removeFromSuperview()
         }
+    }
+}
+
+// MARK: - Quick Look
+
+extension MainWindowController {
+    /// Toggles the shared Quick Look panel. Only called when a resolvable local
+    /// path already exists for the current selection (main table or Files tab) —
+    /// `currentPreviewURL()` is queried lazily by the data source, driven by which
+    /// table currently holds first-responder status.
+    func togglePreviewPanel() {
+        if QLPreviewPanel.sharedPreviewPanelExists(), QLPreviewPanel.shared().isVisible {
+            QLPreviewPanel.shared().orderOut(nil)
+        } else {
+            QLPreviewPanel.shared().makeKeyAndOrderFront(nil)
+        }
+    }
+
+    /// The local file/folder to preview for whichever table currently has focus:
+    /// the Files tab's targeted file, else the single selected torrent's resolved
+    /// remote path (a single-file torrent resolves to the file, a multi-file one to
+    /// its download folder — Quick Look previews folders natively).
+    func currentPreviewURL() -> URL? {
+        if window?.firstResponder === filesTable {
+            guard let remote = targetedFileRemotePath() else { return nil }
+            return resolvedExistingLocalURL(forRemotePath: remote)
+        }
+        guard selectedTorrents.count == 1, let t = selectedTorrents.first else { return nil }
+        return resolvedExistingLocalURL(forRemotePath: remotePath(for: t))
+    }
+
+    private func resolvedExistingLocalURL(forRemotePath remotePath: String) -> URL? {
+        guard let local = refresh.activeServerConfig.mapRemoteToLocal(remotePath),
+              FileManager.default.fileExists(atPath: local) else { return nil }
+        return URL(fileURLWithPath: local)
+    }
+}
+
+extension MainWindowController: @preconcurrency QLPreviewPanelDataSource {
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    // These override an un-isolated NSResponder category method, but AppKit only
+    // ever calls them on the main thread (Quick Look UI); `assumeIsolated` bridges
+    // to the main-actor-isolated `panel.dataSource` setter without an async hop.
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { panel.dataSource = self }
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { panel.dataSource = nil }
+    }
+
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        currentPreviewURL() == nil ? 0 : 1
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
+        currentPreviewURL() as NSURL?
     }
 }
