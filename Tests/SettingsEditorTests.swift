@@ -182,6 +182,18 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertEqual(e.normalized().refreshSeconds, 30)
     }
 
+    func testSetAutoCheckForUpdates() {
+        var e = SettingsEditor(sample())
+        XCTAssertTrue(e.autoCheckForUpdates)
+        XCTAssertFalse(e.isDirty)
+        e.setAutoCheckForUpdates(false)
+        XCTAssertFalse(e.autoCheckForUpdates)
+        XCTAssertTrue(e.isDirty)
+        let saved = e.save()
+        XCTAssertFalse(saved.autoCheckForUpdates)
+        XCTAssertFalse(e.isDirty)
+    }
+
     // MARK: - Combined scenario
 
     func testChangeAddRemoveThenSaveRoundTrip() {

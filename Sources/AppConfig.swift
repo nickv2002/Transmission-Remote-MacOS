@@ -61,15 +61,21 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// Name of the server selected in the config file (the menu/UserDefaults
     /// selection takes precedence at runtime).
     var currentServer: String?
+    /// Whether Sparkle should automatically check for updates (once a day, at
+    /// most, gated by its own last-check time). Defaults to `true`; the app asks
+    /// the user to confirm this once on first launch (`AppDelegate`).
+    var autoCheckForUpdates: Bool
 
     enum CodingKeys: String, CodingKey {
-        case servers, refreshSeconds, currentServer
+        case servers, refreshSeconds, currentServer, autoCheckForUpdates
     }
 
-    init(servers: [ServerConfig], refreshSeconds: Double, currentServer: String? = nil) {
+    init(servers: [ServerConfig], refreshSeconds: Double, currentServer: String? = nil,
+         autoCheckForUpdates: Bool = true) {
         self.servers = servers.isEmpty ? [.localhost] : servers
         self.refreshSeconds = max(1, refreshSeconds)
         self.currentServer = currentServer
+        self.autoCheckForUpdates = autoCheckForUpdates
     }
 
     /// The built-in default config used when nothing is stored yet.
@@ -85,6 +91,8 @@ struct AppConfig: Codable, Sendable, Equatable {
         let refresh = try c.decodeIfPresent(Double.self, forKey: .refreshSeconds) ?? 4
         refreshSeconds = max(1, refresh)
         currentServer = try c.decodeIfPresent(String.self, forKey: .currentServer)
+        // Backward-compatible: configs written before this feature have no key.
+        autoCheckForUpdates = try c.decodeIfPresent(Bool.self, forKey: .autoCheckForUpdates) ?? true
     }
 
     /// The display names of all configured servers, in file order.

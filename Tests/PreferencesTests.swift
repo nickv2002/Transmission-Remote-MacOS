@@ -59,6 +59,12 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(cfg.refreshSeconds, 1)
     }
 
+    func testAppConfigDefaultsAutoCheckForUpdatesToTrue() throws {
+        // Backward-compatible: configs written before this feature have no key.
+        let cfg = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
+        XCTAssertTrue(cfg.autoCheckForUpdates)
+    }
+
     func testServerLookupAndNames() {
         let cfg = AppConfig(
             servers: [.localhost, ServerConfig(name: "Remote", host: "h", port: 1,
@@ -80,10 +86,11 @@ final class PreferencesTests: XCTestCase {
                 ServerConfig(name: "B", host: "b.local", port: 8080,
                              useHTTPS: true, rpcPath: "/rpc"),
             ],
-            refreshSeconds: 7, currentServer: "B")
+            refreshSeconds: 7, currentServer: "B", autoCheckForUpdates: false)
         let data = try PreferencesStore.encode(original)
         let decoded = try PreferencesStore.decode(data)
         XCTAssertEqual(decoded, original)
+        XCTAssertFalse(decoded.autoCheckForUpdates)
     }
 
     func testSaveThenLoad() throws {
