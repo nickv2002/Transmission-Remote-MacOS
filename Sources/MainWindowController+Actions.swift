@@ -161,6 +161,7 @@ extension MainWindowController: NSToolbarDelegate {
             .keyEquivalentModifierMask = [.command]
         menu.addItem(withTitle: "Copy Remote Path", action: #selector(copyRemotePathSelected(_:)), keyEquivalent: "c")
             .keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(withTitle: "Copy Magnet Link", action: #selector(copyMagnetLinkSelected(_:)), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Rename…", action: #selector(renameSelected(_:)), keyEquivalent: "\r")
             .keyEquivalentModifierMask = []
@@ -405,6 +406,14 @@ extension MainWindowController: NSToolbarDelegate {
         guard !paths.isEmpty else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(paths.joined(separator: "\n"), forType: .string)
+    }
+
+    @objc func copyMagnetLinkSelected(_ sender: Any?) {
+        let links = selectionForAction().map(\.magnetLink)
+        guard !links.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
+        showToast(links.count == 1 ? "Copied Magnet Link" : "Copied \(links.count) Magnet Links")
     }
 
     /// Copy the selected torrents' names, one per line in display order.

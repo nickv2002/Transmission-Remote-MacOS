@@ -73,6 +73,35 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(unlimited.effectiveRatioLimit, .infinity)
     }
 
+    func testMagnetLinkTrackerless() {
+        let link = Torrent.buildMagnetLink(hashString: "abc123", name: "My Torrent", trackerURLs: [])
+        XCTAssertEqual(link, "magnet:?xt=urn:btih:abc123&dn=My%20Torrent")
+    }
+
+    func testMagnetLinkIncludesTrackers() {
+        let link = Torrent.buildMagnetLink(
+            hashString: "abc123", name: "My Torrent",
+            trackerURLs: ["udp://tracker.example.org:80/announce", "https://tracker2.example.org/announce"])
+        XCTAssertEqual(
+            link,
+            "magnet:?xt=urn:btih:abc123&dn=My%20Torrent"
+                + "&tr=udp%3A%2F%2Ftracker.example.org%3A80%2Fannounce"
+                + "&tr=https%3A%2F%2Ftracker2.example.org%2Fannounce")
+    }
+
+    func testMagnetLinkEncodesSpecialCharactersInName() {
+        let link = Torrent.buildMagnetLink(hashString: "abc123", name: "A & B = C+D", trackerURLs: [])
+        XCTAssertEqual(link, "magnet:?xt=urn:btih:abc123&dn=A%20%26%20B%20%3D%20C%2BD")
+    }
+
+    func testTorrentMagnetLinkPropertyUsesHashNameAndTrackers() {
+        let t = TorrentFactory.make([
+            "hashString": "deadbeef", "name": "Foo",
+            "trackers": [["announce": "https://tracker.example.org/announce"]],
+        ])
+        XCTAssertEqual(t.magnetLink, "magnet:?xt=urn:btih:deadbeef&dn=Foo&tr=https%3A%2F%2Ftracker.example.org%2Fannounce")
+    }
+
     func testTorrentListDecoding() {
         let json = """
         {"result":"success","arguments":{"torrents":[
