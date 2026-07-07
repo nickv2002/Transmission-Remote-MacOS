@@ -901,6 +901,37 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         cell.textField?.alignment = rightAligned.contains(column) ? .right : .left
         return cell
     }
+
+    // MARK: - Drag out to Finder
+
+    /// A row is draggable only when its remote path resolves (via the active
+    /// server's path mappings) to a local file that actually exists — the same
+    /// enablement condition Reveal in Finder already checks. Returning `nil`
+    /// excludes the row from the drag session entirely.
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        if tableView === filesTable {
+            guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
+            let remote = torrent.normalizedDownloadDir + "/" + files[row].name
+            return resolvedLocalFileURL(forRemotePath: remote)
+        }
+        guard displayed.indices.contains(row) else { return nil }
+        return resolvedLocalFileURL(forRemotePath: remotePath(for: displayed[row]))
+    }
+
+    /// Drag out is always a copy — moving the local file could confuse the
+    /// torrent app if it's still seeding/managing that path.
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
+                   sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .copy
+    }
+
+    /// Resolves a remote path to a local `NSURL` (an `NSPasteboardWriting`
+    /// conformer suitable for a Finder drag) only if the mapped local file exists.
+    private func resolvedLocalFileURL(forRemotePath remotePath: String) -> NSURL? {
+        guard let local = refresh.activeServerConfig.mapRemoteToLocal(remotePath),
+              FileManager.default.fileExists(atPath: local) else { return nil }
+        return URL(fileURLWithPath: local) as NSURL
+    }
 }
 
 /// Cell for the Added column that adapts the date detail to the column width in
