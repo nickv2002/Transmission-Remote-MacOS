@@ -19,9 +19,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Sparkle must be initialized before setupMainMenu() so the
-        // "Check for Update…" item can target the controller.
+        // "Check for Update…" item can target the controller. Its automatic
+        // background checking is deliberately NOT started yet — the app decides
+        // (via the first-run prompt / saved preference below) before any check
+        // can fire, so it never races Sparkle's own built-in permission prompt.
         updaterController = SPUStandardUpdaterController(
-            startingUpdater: true,
+            startingUpdater: false,
             updaterDelegate: nil,
             userDriverDelegate: nil
         )
@@ -36,7 +39,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Activate before the first-run alert so it isn't hidden behind other apps.
         NSApp.activate(ignoringOtherApps: true)
+
+        let hasPromptedKey = "HasPromptedAutoUpdateCheck"
+        if !UserDefaults.standard.bool(forKey: hasPromptedKey) {
+            config.autoCheckForUpdates = presentAutoUpdatePrompt()
+            try? PreferencesStore.save(config)
+            UserDefaults.standard.set(true, forKey: hasPromptedKey)
+        }
+        updaterController?.updater.automaticallyChecksForUpdates = config.autoCheckForUpdates
+        updaterController?.startUpdater()
 
         let controller = MainWindowController(config: config)
         windowController = controller
@@ -95,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 self.windowController?.applyConfig(updated)
                 self.rebuildServerMenu()
+                self.updaterController?.updater.automaticallyChecksForUpdates = updated.autoCheckForUpdates
             }
             settingsController = controller
         } else {
@@ -121,6 +135,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func findInList(_ sender: Any?) {
         windowController?.focusSearch()
+    }
+
+    /// Asked once, on first launch, before Sparkle's updater starts. Returns
+    /// whether automatic update checks should be enabled.
+    private func presentAutoUpdatePrompt() -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Automatically Check for Updates?"
+        alert.informativeText = "Transmission Remote can check for new versions automatically "
+            + "(at most once a day) and let you know when one is available. You can change this "
+            + "later in Settings."
+        alert.addButton(withTitle: "Enable")
+        alert.addButton(withTitle: "Disable")
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     private func presentStartupError(_ error: Error) {

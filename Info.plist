@@ -18,8 +18,6 @@
 	-->
 	<key>SUPublicEDKey</key>
 	<string>+ONkpmgvNWrF3vZIpoBPehwCK9SH4FgKELrAkXpvUgQ=</string>
-	<key>SUEnableAutomaticChecks</key>
-	<true/>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<!--

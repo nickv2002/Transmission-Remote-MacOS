@@ -15,7 +15,8 @@ struct SettingsEditor: Equatable {
         // Normalize once so a freshly opened editor isn't spuriously "dirty".
         let normalized = AppConfig(servers: config.servers,
                                    refreshSeconds: config.refreshSeconds,
-                                   currentServer: config.currentServer)
+                                   currentServer: config.currentServer,
+                                   autoCheckForUpdates: config.autoCheckForUpdates)
         self.working = normalized
         self.savedBaseline = normalized
     }
@@ -27,6 +28,7 @@ struct SettingsEditor: Equatable {
     var serverNames: [String] { working.serverNames }
     var currentServer: String? { working.currentServer }
     var refreshSeconds: Double { working.refreshSeconds }
+    var autoCheckForUpdates: Bool { working.autoCheckForUpdates }
 
     func server(at index: Int) -> ServerConfig? {
         working.servers.indices.contains(index) ? working.servers[index] : nil
@@ -36,7 +38,8 @@ struct SettingsEditor: Equatable {
     func normalized() -> AppConfig {
         AppConfig(servers: working.servers,
                   refreshSeconds: working.refreshSeconds,
-                  currentServer: working.currentServer)
+                  currentServer: working.currentServer,
+                  autoCheckForUpdates: working.autoCheckForUpdates)
     }
 
     /// True when there are changes not yet saved.
@@ -103,6 +106,10 @@ struct SettingsEditor: Equatable {
 
     mutating func setRefreshSeconds(_ seconds: Double) {
         working.refreshSeconds = seconds
+    }
+
+    mutating func setAutoCheckForUpdates(_ enabled: Bool) {
+        working.autoCheckForUpdates = enabled
     }
 
     // MARK: - Save / reset

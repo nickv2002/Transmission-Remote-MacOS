@@ -34,6 +34,8 @@ final class SettingsWindowController: NSWindowController {
     // General pane.
     private let refreshField = NSTextField()
     private let refreshStepper = NSStepper()
+    private let autoCheckBox = NSButton(checkboxWithTitle: "Automatically check for updates",
+                                        target: nil, action: nil)
 
     // Bottom bar.
     private let testButton = NSButton()
@@ -306,8 +308,12 @@ final class SettingsWindowController: NSWindowController {
         refreshStepper.increment = 1
         refreshStepper.valueWraps = false
 
+        autoCheckBox.target = self
+        autoCheckBox.action = #selector(autoCheckChanged)
+
         let grid = NSGridView(views: [
             [label("Refresh every:"), stack([refreshField, refreshStepper, label("seconds")])],
+            [NSView(), autoCheckBox],
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.column(at: 0).xPlacement = .trailing
@@ -422,6 +428,7 @@ final class SettingsWindowController: NSWindowController {
     private func reloadGeneral() {
         refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
         refreshStepper.doubleValue = editor.refreshSeconds
+        autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
     }
 
     @objc private func refreshChanged() {
@@ -434,6 +441,11 @@ final class SettingsWindowController: NSWindowController {
     @objc private func stepperChanged() {
         editor.setRefreshSeconds(max(1, refreshStepper.doubleValue))
         refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
+        updateDirtyState()
+    }
+
+    @objc private func autoCheckChanged() {
+        editor.setAutoCheckForUpdates(autoCheckBox.state == .on)
         updateDirtyState()
     }
 
