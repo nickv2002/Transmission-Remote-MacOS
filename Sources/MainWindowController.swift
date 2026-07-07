@@ -244,6 +244,10 @@ final class MainWindowController: NSWindowController {
             guard let self, self.selectedTorrents.count == 1 else { return }
             self.renameSelected(nil)
         }
+        tableView.onDeleteKey = { [weak self] in
+            guard let self, !self.selectedTorrents.isEmpty else { return }
+            self.removeSelected(nil)
+        }
 
         let scroll = NSScrollView()
         scroll.documentView = tableView
@@ -960,14 +964,19 @@ final class AddedDateCellView: NSTableCellView {
     }
 }
 
-/// Torrent list table — intercepts Return to trigger rename on single selection.
+/// Torrent list table — intercepts Return to trigger rename on single selection,
+/// and Delete/Backspace to trigger Remove (matching Mail/Finder/Photos convention).
 final class TorrentTableView: NSTableView {
     var onReturnKey: (() -> Void)?
+    var onDeleteKey: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 36 { // Return
+        switch event.keyCode {
+        case 36: // Return
             onReturnKey?()
-        } else {
+        case 51, 117: // Delete (Backspace), Forward Delete
+            onDeleteKey?()
+        default:
             super.keyDown(with: event)
         }
     }
