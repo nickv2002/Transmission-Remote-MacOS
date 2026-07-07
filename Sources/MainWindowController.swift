@@ -735,15 +735,22 @@ final class MainWindowController: NSWindowController {
         ])
 
         // Fade in, hold ~2.4s, then auto-dismiss. A click dismisses early; the
-        // ToastView guards against running its fade-out twice.
+        // ToastView guards against running its fade-out twice. Skip the fade under
+        // Reduce Motion — show it outright instead of animating.
         bg.alphaValue = 0
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.18
+            ctx.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.18
             bg.animator().alphaValue = 1
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.4) { [weak bg] in
             bg?.dismiss()
         }
+
+        // The toast is sighted-only otherwise — announce it to VoiceOver.
+        NSAccessibility.post(element: bg, notification: .announcementRequested, userInfo: [
+            .announcement: message,
+            .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+        ])
     }
 
     // MARK: - Detail pane
@@ -1023,11 +1030,12 @@ final class ToastView: NSVisualEffectView {
     func dismiss() {
         guard !dismissed, superview != nil else { return }
         dismissed = true
+        let duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : 0.35
         NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.35
+            ctx.duration = duration
             self.animator().alphaValue = 0
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
             self?.removeFromSuperview()
         }
     }
