@@ -48,6 +48,10 @@ final class ProgressCellView: NSTableCellView {
         self.fraction = fraction
         currentPrecise = nil      // force re-render on reuse
         applyLabel()
+        // So VoiceOver reads the bar itself as a progress indicator, not just the
+        // adjacent percentage text field.
+        bar.setAccessibilityRole(.progressIndicator)
+        bar.setAccessibilityValue(Formatters.percent(fraction, precise: false))
     }
 
     override func layout() {
@@ -68,6 +72,8 @@ final class ProgressCellView: NSTableCellView {
         var fillColor: NSColor = .controlAccentColor
 
         override var wantsUpdateLayer: Bool { false }
+
+        override func isAccessibilityElement() -> Bool { true }
 
         override func draw(_ dirtyRect: NSRect) {
             let radius = bounds.height / 2
