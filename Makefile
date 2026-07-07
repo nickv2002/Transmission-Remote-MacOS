@@ -46,15 +46,21 @@ test:
 generate:
 	xcodegen generate
 
+# Directory the currently-configured Debug build actually lands in (avoids
+# opening stale copies when multiple DerivedData/TransmissionRemote-* dirs exist)
+BUILT_PRODUCTS_DIR = $(shell xcodebuild -project TransmissionRemote.xcodeproj -scheme TransmissionRemote \
+	-configuration Debug -showBuildSettings 2>/dev/null | \
+	awk -F'= ' '/ BUILT_PRODUCTS_DIR =/ { print $$2 }')
+
 # Debug build, then open the app
 dev: generate
 	xcodebuild -project TransmissionRemote.xcodeproj -scheme TransmissionRemote \
 		-configuration Debug build
-	open ~/Library/Developer/Xcode/DerivedData/TransmissionRemote-*/Build/Products/Debug/"Transmission Remote.app"
+	open "$(BUILT_PRODUCTS_DIR)/Transmission Remote.app"
 
 # Open the most recent debug build without rebuilding
 run:
-	open ~/Library/Developer/Xcode/DerivedData/TransmissionRemote-*/Build/Products/Debug/"Transmission Remote.app"
+	open "$(BUILT_PRODUCTS_DIR)/Transmission Remote.app"
 
 # Remove DerivedData for this project
 clean:
