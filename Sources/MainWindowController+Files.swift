@@ -52,10 +52,10 @@ extension MainWindowController {
         filesTable.rowHeight = 20
         filesTable.dataSource = self
         filesTable.delegate = self
-        // NSTableView's default outside-app drag mask is empty — without this,
-        // Finder shows the "no drop" cursor and drag-out silently does nothing.
-        filesTable.setDraggingSourceOperationMask(.copy, forLocal: false)
-        filesTable.setDraggingSourceOperationMask(.copy, forLocal: true)
+        // Outside-app drag-out to Finder needs `.copy` granted via the
+        // `NSDraggingSource` delegate method `FilesTableView` overrides below
+        // (`draggingSession(_:sourceOperationMaskFor:)`) — see the identical note on
+        // `TorrentTableView` in `MainWindowController.swift` for how this was confirmed.
         filesTable.target = self
         filesTable.doubleAction = #selector(didDoubleClickFileRow)
         filesTable.menu = filesContextMenu()
@@ -411,6 +411,13 @@ final class FilesTableView: NSTableView {
 
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
         MainActor.assumeIsolated { quickLookOwner?.quickLookEndControl(panel) }
+    }
+
+    // See the identical override + note on `TorrentTableView` in
+    // `MainWindowController.swift`: `setDraggingSourceOperationMask` alone was
+    // confirmed live to still leave Finder rejecting the drop.
+    override func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .copy
     }
 }
 

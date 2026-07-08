@@ -262,10 +262,11 @@ final class MainWindowController: NSWindowController {
             self.showToast(self.unavailableToastMessage(forRemotePath: self.remotePath(for: t)))
             return true
         }
-        // NSTableView's default outside-app drag mask is empty — without this,
-        // Finder shows the "no drop" cursor and drag-out silently does nothing.
-        tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
-        tableView.setDraggingSourceOperationMask(.copy, forLocal: true)
+        // Outside-app drag-out to Finder needs `.copy` granted via the
+        // `NSDraggingSource` delegate method `TorrentTableView` overrides below
+        // (`draggingSession(_:sourceOperationMaskFor:)`) — `setDraggingSourceOperationMask`
+        // alone was tried first and confirmed live (via a synthetic OS-level drag) to still
+        // leave Finder rejecting the drop with `NSDragOperation.none`.
 
         let scroll = NSScrollView()
         scroll.documentView = tableView
@@ -1051,6 +1052,16 @@ final class TorrentTableView: NSTableView {
 
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
         MainActor.assumeIsolated { quickLookOwner?.quickLookEndControl(panel) }
+    }
+
+    // `setDraggingSourceOperationMask(_:forLocal:)` alone does not reliably grant
+    // an outside-app drag operation: Finder's drop still comes back rejected
+    // (NSDragOperation.none) unless the NSDraggingSource delegate method itself
+    // answers .copy. Confirmed live with a synthetic OS-level drag: without this
+    // override, a real file never landed on the Desktop even though the drag
+    // session started; with it, the drop consistently completes as a copy.
+    override func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        .copy
     }
 }
 
