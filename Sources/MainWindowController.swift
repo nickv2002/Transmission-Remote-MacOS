@@ -258,8 +258,15 @@ final class MainWindowController: NSWindowController {
             self.removeSelected(nil)
         }
         tableView.onSpaceKey = { [weak self] in
-            guard let self, self.currentPreviewURL() != nil else { return false }
-            self.togglePreviewPanel()
+            guard let self else { return false }
+            if self.currentPreviewURL() != nil {
+                self.togglePreviewPanel()
+                return true
+            }
+            // A torrent is targeted but didn't resolve to a local file — say so
+            // instead of leaving Space looking like it did nothing.
+            guard self.selectedTorrents.count == 1, let t = self.selectedTorrents.first else { return false }
+            self.showToast(self.unavailableToastMessage(forRemotePath: self.remotePath(for: t)))
             return true
         }
 
@@ -1093,6 +1100,15 @@ extension MainWindowController {
         guard let local = refresh.activeServerConfig.mapRemoteToLocal(remotePath),
               FileManager.default.fileExists(atPath: local) else { return nil }
         return URL(fileURLWithPath: local)
+    }
+
+    /// Same "not available" wording `revealOrOpen` shows for double-click, so Space
+    /// always gives feedback on a real target instead of appearing to do nothing.
+    func unavailableToastMessage(forRemotePath remotePath: String) -> String {
+        if let local = refresh.activeServerConfig.mapRemoteToLocal(remotePath) {
+            return "Not available locally: \(local)"
+        }
+        return "Not available locally: \(remotePath)"
     }
 }
 

@@ -55,8 +55,15 @@ extension MainWindowController {
         filesTable.doubleAction = #selector(didDoubleClickFileRow)
         filesTable.menu = filesContextMenu()
         filesTable.onSpaceKey = { [weak self] in
-            guard let self, self.currentPreviewURL() != nil else { return false }
-            self.togglePreviewPanel()
+            guard let self else { return false }
+            if self.currentPreviewURL() != nil {
+                self.togglePreviewPanel()
+                return true
+            }
+            // A file is targeted but didn't resolve to a local file — say so
+            // instead of leaving Space looking like it did nothing.
+            guard let remote = self.targetedFileRemotePath() else { return false }
+            self.showToast(self.unavailableToastMessage(forRemotePath: remote))
             return true
         }
 
@@ -295,8 +302,8 @@ extension MainWindowController {
 
         if column == .wanted {
             let id = NSUserInterfaceItemIdentifier("FileWantedCell")
-            let check = (filesTable.makeView(withIdentifier: id, owner: self) as? NSButton) ?? {
-                let b = NSButton(checkboxWithTitle: "", target: self, action: #selector(toggleFileWanted(_:)))
+            let check = (filesTable.makeView(withIdentifier: id, owner: self) as? NonFocusableCheckbox) ?? {
+                let b = NonFocusableCheckbox(checkboxWithTitle: "", target: self, action: #selector(toggleFileWanted(_:)))
                 b.identifier = id
                 return b
             }()
@@ -382,4 +389,14 @@ final class FilesTableView: NSTableView {
         }
         super.keyDown(with: event)
     }
+}
+
+/// The per-row "wanted" checkbox. Plain `NSButton` grabs first responder on
+/// click (standard `NSControl` tracking behavior), which then swallows a
+/// later Space keystroke as "toggle checkbox" instead of letting it reach
+/// `FilesTableView.keyDown` for Quick Look — refusing first responder keeps
+/// keyboard focus on the table after a checkbox click, same as clicking
+/// anywhere else in the row.
+final class NonFocusableCheckbox: NSButton {
+    override var acceptsFirstResponder: Bool { false }
 }
