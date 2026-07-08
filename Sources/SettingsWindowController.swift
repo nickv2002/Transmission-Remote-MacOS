@@ -1,9 +1,10 @@
 import AppKit
 
 /// Native Settings window (⌘,) replacing the old hand-edited JSONC file. Two
-/// panes: **Servers** (a default-server picker, a list of connections with
-/// editable host/port/auth, plus Test Connection / Save) and **General** (poll
-/// interval).
+/// sections stacked vertically, always visible (no tab switching): **Servers**
+/// (a default-server picker, a list of connections with editable host/port/auth)
+/// and **General** (poll interval, auto-update check). Test Connection / Save
+/// sit in the bottom bar below both.
 ///
 /// Edits mutate an in-memory working copy of `AppConfig`. Nothing is persisted or
 /// applied to the live connection until the user presses **Save** — closing with
@@ -45,8 +46,8 @@ final class SettingsWindowController: NSWindowController {
     init(config: AppConfig) {
         self.editor = SettingsEditor(config)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 540),
-            styleMask: [.titled, .closable, .miniaturizable],
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 596),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = "Settings"
         super.init(window: window)
@@ -84,38 +85,56 @@ final class SettingsWindowController: NSWindowController {
     // MARK: - Layout
 
     private func buildContent() -> NSView {
-        let tabView = NSTabView()
-        tabView.translatesAutoresizingMaskIntoConstraints = false
-        tabView.delegate = self
+        // No tabs: both sections are always visible, stacked vertically —
+        // Servers on top, a labeled divider, then General below (the common
+        // System Settings idiom for grouped settings within one window).
+        let serversPane = buildServersPane()
+        serversPane.translatesAutoresizingMaskIntoConstraints = false
 
-        let serversItem = NSTabViewItem(identifier: "servers")
-        serversItem.label = "Servers"
-        serversItem.view = buildServersPane()
-        tabView.addTabViewItem(serversItem)
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
 
-        let generalItem = NSTabViewItem(identifier: "general")
-        generalItem.label = "General"
-        generalItem.view = buildGeneralPane()
-        tabView.addTabViewItem(generalItem)
+        let generalHeader = label("General")
+        generalHeader.font = .boldSystemFont(ofSize: 13)
+        generalHeader.translatesAutoresizingMaskIntoConstraints = false
+
+        let generalPane = buildGeneralPane()
+        generalPane.translatesAutoresizingMaskIntoConstraints = false
 
         setupBottomButtons()
 
-        // Place Test Connection + Save *inside* the tab view's content box
-        // (bottom-right), since they act on the settings shown in that box — not
-        // in the window chrome below it.
+        // Test Connection only applies to the Servers section, but with no tabs
+        // to hide it on it stays visible always, alongside Save at the bottom.
         let container = NSView()
-        container.addSubview(tabView)
+        container.addSubview(serversPane)
+        container.addSubview(separator)
+        container.addSubview(generalHeader)
+        container.addSubview(generalPane)
         container.addSubview(testSpinner)
         container.addSubview(testButton)
         container.addSubview(saveButton)
         NSLayoutConstraint.activate([
-            tabView.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
-            tabView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            tabView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            tabView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
+            serversPane.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            serversPane.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            serversPane.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
 
-            saveButton.trailingAnchor.constraint(equalTo: tabView.trailingAnchor, constant: -18),
-            saveButton.bottomAnchor.constraint(equalTo: tabView.bottomAnchor, constant: -16),
+            separator.topAnchor.constraint(equalTo: serversPane.bottomAnchor, constant: 12),
+            separator.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            separator.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+
+            generalHeader.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 12),
+            generalHeader.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+
+            generalPane.topAnchor.constraint(equalTo: generalHeader.bottomAnchor, constant: 4),
+            generalPane.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            generalPane.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            // Keep the bottom bar below the (content-sized) General pane, even if
+            // the window is resized taller than the natural content height.
+            generalPane.bottomAnchor.constraint(lessThanOrEqualTo: saveButton.topAnchor, constant: -20),
+
+            saveButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
+            saveButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
             saveButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
 
             testButton.trailingAnchor.constraint(equalTo: saveButton.leadingAnchor, constant: -10),
@@ -201,8 +220,12 @@ final class SettingsWindowController: NSWindowController {
             scroll.topAnchor.constraint(equalTo: defaultRow.bottomAnchor, constant: 14),
             scroll.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 16),
             scroll.widthAnchor.constraint(equalToConstant: 160),
-            scroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -4),
+            // Match the list's height to the detail form beside it (previously
+            // stretched all the way to the pane's bottom, making it much taller
+            // than the form) — then place add/remove directly below.
+            scroll.bottomAnchor.constraint(equalTo: form.bottomAnchor),
 
+            addButton.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 8),
             addButton.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             addButton.bottomAnchor.constraint(equalTo: pane.bottomAnchor, constant: -16),
             addButton.widthAnchor.constraint(equalToConstant: 24),
@@ -327,8 +350,11 @@ final class SettingsWindowController: NSWindowController {
 
         pane.addSubview(grid)
         NSLayoutConstraint.activate([
-            grid.topAnchor.constraint(equalTo: pane.topAnchor, constant: 24),
+            grid.topAnchor.constraint(equalTo: pane.topAnchor, constant: 8),
             grid.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 24),
+            // Size the pane to its content (no tab box to stretch it to fill
+            // anymore), so it doesn't leave a dead-space gap above the buttons.
+            pane.bottomAnchor.constraint(equalTo: grid.bottomAnchor, constant: 8),
         ])
         return pane
     }
@@ -684,16 +710,7 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
     }
 }
 
-// MARK: - Tab + window delegate
-
-extension SettingsWindowController: NSTabViewDelegate {
-    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
-        // Test Connection only applies to a server, so hide it off the Servers tab.
-        let onServers = (tabViewItem?.identifier as? String) == "servers"
-        testButton.isHidden = !onServers
-        testSpinner.isHidden = !onServers
-    }
-}
+// MARK: - Window delegate
 
 extension SettingsWindowController: NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
