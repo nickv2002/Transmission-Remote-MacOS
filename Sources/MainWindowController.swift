@@ -930,25 +930,76 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     // MARK: - Drag out to Finder
 
-    /// A row is draggable only when its remote path resolves (via the active
-    /// server's path mappings) to a local file that actually exists — the same
-    /// enablement condition Reveal in Finder already checks. Returning `nil`
-    /// excludes the row from the drag session entirely.
+    /// A row drags out a real file only when its remote path resolves (via the
+    /// active server's path mappings) to a local file that actually exists — the
+    /// same enablement condition Reveal in Finder already checks. A row that
+    /// doesn't resolve still returns a (harmless, fileless) placeholder rather
+    /// than `nil`: returning `nil` for every candidate row would suppress the
+    /// drag session entirely, and with it the one reliable hook
+    /// (`draggingSession(_:willBeginAt:forRowIndexes:)` below) available to warn
+    /// the user their drag won't produce anything — see that method's comment.
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         if tableView === filesTable {
             guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
             return resolvedLocalFileURL(forRemotePath: torrent.remotePath(fileName: files[row].name))
+                ?? Self.unresolvedDragPlaceholder()
         }
         guard displayed.indices.contains(row) else { return nil }
         return resolvedLocalFileURL(forRemotePath: remotePath(for: displayed[row]))
+            ?? Self.unresolvedDragPlaceholder()
     }
 
     /// Resolves a remote path to a local `NSURL` (an `NSPasteboardWriting`
     /// conformer suitable for a Finder drag) only if the mapped local file exists.
     private func resolvedLocalFileURL(forRemotePath remotePath: String) -> NSURL? {
-        guard let local = refresh.activeServerConfig.mapRemoteToLocal(remotePath),
-              FileManager.default.fileExists(atPath: local) else { return nil }
-        return URL(fileURLWithPath: local) as NSURL
+        resolvedExistingLocalURL(forRemotePath: remotePath) as NSURL?
+    }
+
+    /// A pasteboard item with no file/URL representation at all, so Finder has
+    /// nothing to write when the drop lands there — a row that can't resolve to a
+    /// local file still needs *some* non-nil writer to keep the drag session
+    /// alive (see the comment above), but must not let anything bogus land.
+    private static func unresolvedDragPlaceholder() -> NSPasteboardItem {
+        let item = NSPasteboardItem()
+        item.setData(Data(), forType: NSPasteboard.PasteboardType("com.nickvance.transmission-remote.unresolved-drag"))
+        return item
+    }
+
+    /// Whether the given row (main table or Files tab) resolves to something a
+    /// Finder drag actually carries — used by `draggingSession(_:willBeginAt:
+    /// forRowIndexes:)` below to decide whether to warn.
+    private func rowResolvesForDrag(_ tableView: NSTableView, row: Int) -> Bool {
+        if tableView === filesTable {
+            guard files.indices.contains(row), let torrent = selectedTorrents.first else { return false }
+            return resolvedExistingLocalURL(forRemotePath: torrent.remotePath(fileName: files[row].name)) != nil
+        }
+        guard displayed.indices.contains(row) else { return false }
+        return resolvedExistingLocalURL(forRemotePath: remotePath(for: displayed[row])) != nil
+    }
+
+    /// The "not available locally" message for whichever row didn't resolve, so
+    /// the drag-warning toast reuses the exact same wording (and no-mapping vs.
+    /// file-missing distinction) as Reveal/Open/Quick Look.
+    private func unresolvedDragMessage(_ tableView: NSTableView, row: Int) -> String? {
+        if tableView === filesTable {
+            guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
+            return unavailableToastMessage(forRemotePath: torrent.remotePath(fileName: files[row].name))
+        }
+        guard displayed.indices.contains(row) else { return nil }
+        return unavailableToastMessage(forRemotePath: remotePath(for: displayed[row]))
+    }
+
+    /// Called by AppKit right as a drag session visually begins — reliably, since
+    /// `pasteboardWriterForRow` above never returns `nil` for a row that's
+    /// actually being dragged, a session always starts. This is the hook that
+    /// lets a drag attempt on an unresolvable row/selection warn instead of
+    /// silently producing nothing when dropped: if *none* of the dragged rows
+    /// resolve to a real local file, show the same toast Reveal/Open would.
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
+                   willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
+        guard !rowIndexes.contains(where: { rowResolvesForDrag(tableView, row: $0) }),
+              let row = rowIndexes.first, let message = unresolvedDragMessage(tableView, row: row) else { return }
+        showToast(message)
     }
 }
 
@@ -1114,19 +1165,25 @@ extension MainWindowController {
         return resolvedExistingLocalURL(forRemotePath: remotePath(for: t))
     }
 
-    private func resolvedExistingLocalURL(forRemotePath remotePath: String) -> URL? {
-        guard let local = refresh.activeServerConfig.mapRemoteToLocal(remotePath),
-              FileManager.default.fileExists(atPath: local) else { return nil }
-        return URL(fileURLWithPath: local)
+    func resolvedExistingLocalURL(forRemotePath remotePath: String) -> URL? {
+        if case .available(let local) = refresh.activeServerConfig.resolveLocalPath(forRemotePath: remotePath) {
+            return URL(fileURLWithPath: local)
+        }
+        return nil
     }
 
     /// Same "not available" wording `revealOrOpen` shows for double-click, so Space
-    /// always gives feedback on a real target instead of appearing to do nothing.
+    /// (and now a failed drag-out attempt) always gives feedback on a real target
+    /// instead of appearing to do nothing.
     func unavailableToastMessage(forRemotePath remotePath: String) -> String {
-        if let local = refresh.activeServerConfig.mapRemoteToLocal(remotePath) {
+        switch refresh.activeServerConfig.resolveLocalPath(forRemotePath: remotePath) {
+        case .available:
+            return "" // callers only invoke this for a non-resolving path
+        case .notFound(let local):
             return "Not available locally: \(local)"
+        case .unmapped:
+            return "Not available locally: \(remotePath)"
         }
-        return "Not available locally: \(remotePath)"
     }
 }
 

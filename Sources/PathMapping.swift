@@ -90,4 +90,26 @@ extension ServerConfig {
         }
         return best?.remote
     }
+
+    /// The three ways a remote path can resolve to something usable on this Mac —
+    /// used by Reveal/Open, Quick Look, and drag-out-to-Finder, all of which need
+    /// to distinguish "no mapping configured" from "mapping resolved, but nothing
+    /// is there locally" (not mounted, wrong path, etc.) for their toast wording.
+    enum LocalPathResolution: Equatable {
+        /// A mapping matched and the local file/folder exists at `path`.
+        case available(path: String)
+        /// A mapping matched but nothing exists locally at `path` right now.
+        case notFound(path: String)
+        /// No mapping matched this remote path at all.
+        case unmapped
+    }
+
+    /// Resolve a remote path to a `LocalPathResolution`, checking existence via
+    /// `fileExists` (injectable so this is unit-testable without touching the real
+    /// filesystem; defaults to `FileManager.default.fileExists`).
+    func resolveLocalPath(forRemotePath remotePath: String,
+                           fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> LocalPathResolution {
+        guard let local = mapRemoteToLocal(remotePath) else { return .unmapped }
+        return fileExists(local) ? .available(path: local) : .notFound(path: local)
+    }
 }
