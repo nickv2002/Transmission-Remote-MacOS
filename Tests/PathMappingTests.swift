@@ -30,9 +30,39 @@ final class PathMappingTests: XCTestCase {
         XCTAssertNil(map("/video/x", []))
     }
 
-    func testFirstMatchWins() {
+    func testEqualLengthPrefixTiesFallBackToListOrder() {
+        // With no specificity difference between mappings, list order still
+        // decides ties (matches the pre-existing, non-overlapping-case behavior).
         let rules = [("/video", "/Volumes/First"), ("/video", "/Volumes/Second")]
         XCTAssertEqual(map("/video/x", rules), "/Volumes/First/x")
+    }
+
+    func testLongestPrefixWinsRegardlessOfListOrder_broaderFirst() {
+        // REPRODUCTION for the owner-reported bug: a broader first-line mapping
+        // must not swallow a path meant for a more specific second-line mapping.
+        let rules = [("/video", "/Volumes/Video"), ("/video/4k", "/Volumes/Video4K")]
+        XCTAssertEqual(map("/video/4k/movie.mp4", rules), "/Volumes/Video4K/movie.mp4")
+    }
+
+    func testLongestPrefixWinsRegardlessOfListOrder_broaderSecond() {
+        // Same overlap, mappings reversed — order must not matter.
+        let rules = [("/video/4k", "/Volumes/Video4K"), ("/video", "/Volumes/Video")]
+        XCTAssertEqual(map("/video/4k/movie.mp4", rules), "/Volumes/Video4K/movie.mp4")
+    }
+
+    func testExactMatchStillWinsOverLongerPrefixMapping() {
+        // An exact match on a mapping's remote side takes priority outright, even
+        // if another mapping's prefix is textually longer.
+        let rules = [("/video/4k", "/Volumes/Video4K"), ("/video", "/Volumes/Video")]
+        XCTAssertEqual(map("/video", rules), "/Volumes/Video")
+    }
+
+    func testDisjointMappingsUnaffectedByOrder() {
+        // Non-overlapping mappings still resolve correctly regardless of order —
+        // the original "first match wins" scenario had no specificity ambiguity.
+        let rules = [("/video", "/Volumes/Video"), ("/undupe", "/Volumes/undupe")]
+        XCTAssertEqual(map("/video/x", rules), "/Volumes/Video/x")
+        XCTAssertEqual(map("/undupe/y", rules), "/Volumes/undupe/y")
     }
 
     func testPrefixGuardedBySeparator() {
