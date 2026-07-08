@@ -42,6 +42,21 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(Torrent.normalizeDownloadDir("/a///b///c/"), "/a/b/c")
     }
 
+    /// The formula shared by Reveal in Finder, Open, and drag-out-to-Finder:
+    /// normalized download dir + the torrent's top-level name.
+    func testRemotePathForTorrent() {
+        let t = TorrentFactory.make(["name": "Example Torrent", "downloadDir": "/data//movies/"])
+        XCTAssertEqual(t.remotePath(), "/data/movies/Example Torrent")
+    }
+
+    /// Same formula, but for a file inside the torrent — the dir is normalized,
+    /// the file's relative name is not altered.
+    func testRemotePathForFileInTorrent() {
+        let t = TorrentFactory.make(["downloadDir": "/data/movies"])
+        XCTAssertEqual(t.remotePath(fileName: "Example Torrent/sub/episode01.mkv"),
+                       "/data/movies/Example Torrent/sub/episode01.mkv")
+    }
+
     func testTrackerHostStripsWww() {
         let t = TorrentFactory.make([
             "trackers": [["announce": "https://www.tracker.example.org:443/announce"]]])

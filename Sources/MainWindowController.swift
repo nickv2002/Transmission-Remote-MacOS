@@ -262,6 +262,10 @@ final class MainWindowController: NSWindowController {
             self.showToast(self.unavailableToastMessage(forRemotePath: self.remotePath(for: t)))
             return true
         }
+        // NSTableView's default outside-app drag mask is empty — without this,
+        // Finder shows the "no drop" cursor and drag-out silently does nothing.
+        tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
+        tableView.setDraggingSourceOperationMask(.copy, forLocal: true)
 
         let scroll = NSScrollView()
         scroll.documentView = tableView
@@ -932,18 +936,10 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         if tableView === filesTable {
             guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
-            let remote = torrent.normalizedDownloadDir + "/" + files[row].name
-            return resolvedLocalFileURL(forRemotePath: remote)
+            return resolvedLocalFileURL(forRemotePath: torrent.remotePath(fileName: files[row].name))
         }
         guard displayed.indices.contains(row) else { return nil }
         return resolvedLocalFileURL(forRemotePath: remotePath(for: displayed[row]))
-    }
-
-    /// Drag out is always a copy — moving the local file could confuse the
-    /// torrent app if it's still seeding/managing that path.
-    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
-                   sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        .copy
     }
 
     /// Resolves a remote path to a local `NSURL` (an `NSPasteboardWriting`

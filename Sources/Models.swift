@@ -228,6 +228,15 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         return result
     }
 
+    /// The remote path of the torrent itself, or (with `fileName`) a file inside
+    /// it: the normalized download dir + the torrent's name, or + the file's
+    /// relative name. This is the path fed to `ServerConfig.mapRemoteToLocal(_:)`
+    /// for Reveal in Finder / Open / drag-out-to-Finder — kept in one place so
+    /// those three call sites can't drift apart.
+    func remotePath(fileName: String? = nil) -> String {
+        normalizedDownloadDir + "/" + (fileName ?? name)
+    }
+
     /// Host of the torrent's primary tracker (e.g. `tracker.example.org`), or nil.
     /// Used to group torrents in the sidebar. Strips a leading `www.`.
     var trackerHost: String? {
