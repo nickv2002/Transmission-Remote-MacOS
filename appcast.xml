@@ -79,5 +79,17 @@
         length="3202340"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.07.08.1</title>
+      <sparkle:version>2026.07.08.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 08 Jul 2026 22:56:48 +0000</pubDate>
+      <description><![CDATA[<ul><li>Revert drag-out to plain file URLs, restoring Finder's native copy progress</li><li>Switch drag-out to a file promise, and warn when a file's own permissions will block it</li><li>Warn on drag-out attempts that would produce nothing, and unify remote-path resolution</li><li>Tighten Settings layout: smaller General/divider gap, flush-left auto-update checkbox, add/remove buttons bottom-aligned with Test/Save row</li><li>Fix path-mapping resolution to use longest prefix, not list order</li><li>Actually fix drag-out to Finder: override sourceOperationMaskFor, not just the setter</li><li>Reorder Settings window: General first, then a Server Settings section with Test/Save Server anchored below the form</li><li>Replace Settings tabs with always-visible Servers/General panes, right-size the server list to match the detail form</li><li>Fix drag-out to Finder: table views never granted an outside-app drag mask</li><li>Make Cancel the default button on the Remove confirmation sheet</li><li>Fix beachball on Space: Quick Look responder-chain splice caused an infinite loop</li><li>Fix Quick Look: checkbox stole Space in Files tab, silent no-op in list view</li><li>Add Quick Look (Space) for the resolved local file in both tables</li><li>Close three accessibility gaps: toast announcements, Reduce Motion, progress bar value</li><li>Persist Settings window position across opens</li><li>Add Copy Magnet Link to the torrent context menu</li><li>Support dragging a torrent/file row out to Finder as a copy</li><li>Bind Delete/Backspace to Remove in the torrent table</li><li>Fix make dev opening two app copies from stale DerivedData dirs</li><li>Add auto-check-for-updates preference with first-run prompt</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.07.08.1/Transmission.Remote-2026.07.08.1.zip"
+        sparkle:edSignature="8jUees+j2xJ6B5m9E+ewJ1JtTA7JWrAJsQqH0PcxHvFgCMcDEnO1SbofSC5Fc3QIm6ducrf65Ag7fnWYmBxSDg=="
+        length="3228361"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
