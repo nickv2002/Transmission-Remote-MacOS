@@ -1,10 +1,12 @@
 import AppKit
 
 /// Native Settings window (⌘,) replacing the old hand-edited JSONC file. Two
-/// sections stacked vertically, always visible (no tab switching): **Servers**
-/// (a default-server picker, a list of connections with editable host/port/auth)
-/// and **General** (poll interval, auto-update check). Test Connection / Save
-/// sit in the bottom bar below both.
+/// sections stacked vertically, always visible (no tab switching), top to
+/// bottom: **General** (poll interval, auto-update check), a divider, a
+/// "Server Settings" header, then **Servers** (a default-server picker, a list
+/// of connections with editable host/port/auth). Test Connection / Save Server
+/// sit directly below the server detail form, anchored to the Servers section
+/// rather than the window's outer edge.
 ///
 /// Edits mutate an in-memory working copy of `AppConfig`. Nothing is persisted or
 /// applied to the live connection until the user presses **Save** — closing with
@@ -46,7 +48,7 @@ final class SettingsWindowController: NSWindowController {
     init(config: AppConfig) {
         self.editor = SettingsEditor(config)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 596),
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 560),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = "Settings"
@@ -86,67 +88,51 @@ final class SettingsWindowController: NSWindowController {
 
     private func buildContent() -> NSView {
         // No tabs: both sections are always visible, stacked vertically —
-        // Servers on top, a labeled divider, then General below (the common
-        // System Settings idiom for grouped settings within one window).
-        let serversPane = buildServersPane()
-        serversPane.translatesAutoresizingMaskIntoConstraints = false
+        // General on top, a divider, a "Server Settings" header, then Servers
+        // below (default-server picker, list/form, and the Test Connection /
+        // Save Server row anchored to the bottom of the Servers content itself).
+        setupServerActionButtons()
+
+        let generalPane = buildGeneralPane()
+        generalPane.translatesAutoresizingMaskIntoConstraints = false
 
         let separator = NSBox()
         separator.boxType = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
 
-        let generalHeader = label("General")
-        generalHeader.font = .boldSystemFont(ofSize: 13)
-        generalHeader.translatesAutoresizingMaskIntoConstraints = false
+        let serverSettingsHeader = label("Server Settings")
+        serverSettingsHeader.font = .boldSystemFont(ofSize: 13)
+        serverSettingsHeader.translatesAutoresizingMaskIntoConstraints = false
 
-        let generalPane = buildGeneralPane()
-        generalPane.translatesAutoresizingMaskIntoConstraints = false
+        let serversPane = buildServersPane()
+        serversPane.translatesAutoresizingMaskIntoConstraints = false
 
-        setupBottomButtons()
-
-        // Test Connection only applies to the Servers section, but with no tabs
-        // to hide it on it stays visible always, alongside Save at the bottom.
         let container = NSView()
-        container.addSubview(serversPane)
-        container.addSubview(separator)
-        container.addSubview(generalHeader)
         container.addSubview(generalPane)
-        container.addSubview(testSpinner)
-        container.addSubview(testButton)
-        container.addSubview(saveButton)
+        container.addSubview(separator)
+        container.addSubview(serverSettingsHeader)
+        container.addSubview(serversPane)
         NSLayoutConstraint.activate([
-            serversPane.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
-            serversPane.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            serversPane.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            generalPane.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            generalPane.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            generalPane.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
 
-            separator.topAnchor.constraint(equalTo: serversPane.bottomAnchor, constant: 12),
+            separator.topAnchor.constraint(equalTo: generalPane.bottomAnchor, constant: 12),
             separator.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             separator.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
 
-            generalHeader.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 12),
-            generalHeader.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
+            serverSettingsHeader.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 12),
+            serverSettingsHeader.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
 
-            generalPane.topAnchor.constraint(equalTo: generalHeader.bottomAnchor, constant: 4),
-            generalPane.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            generalPane.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            // Keep the bottom bar below the (content-sized) General pane, even if
-            // the window is resized taller than the natural content height.
-            generalPane.bottomAnchor.constraint(lessThanOrEqualTo: saveButton.topAnchor, constant: -20),
-
-            saveButton.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -18),
-            saveButton.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
-            saveButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
-
-            testButton.trailingAnchor.constraint(equalTo: saveButton.leadingAnchor, constant: -10),
-            testButton.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
-
-            testSpinner.trailingAnchor.constraint(equalTo: testButton.leadingAnchor, constant: -8),
-            testSpinner.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
+            serversPane.topAnchor.constraint(equalTo: serverSettingsHeader.bottomAnchor, constant: 4),
+            serversPane.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            serversPane.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            serversPane.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
         ])
         return container
     }
 
-    private func setupBottomButtons() {
+    private func setupServerActionButtons() {
         testSpinner.translatesAutoresizingMaskIntoConstraints = false
         testSpinner.style = .spinning
         testSpinner.controlSize = .small
@@ -159,7 +145,7 @@ final class SettingsWindowController: NSWindowController {
         testButton.action = #selector(testConnection)
 
         saveButton.translatesAutoresizingMaskIntoConstraints = false
-        saveButton.title = "Save"
+        saveButton.title = "Save Server"
         saveButton.bezelStyle = .rounded
         // Deliberately NOT the default (Return) button: Return while editing a
         // field should commit that field, not save+apply the whole dialog. Save is
@@ -213,6 +199,9 @@ final class SettingsWindowController: NSWindowController {
         pane.addSubview(addButton)
         pane.addSubview(removeButton)
         pane.addSubview(form)
+        pane.addSubview(testSpinner)
+        pane.addSubview(testButton)
+        pane.addSubview(saveButton)
         NSLayoutConstraint.activate([
             defaultRow.topAnchor.constraint(equalTo: pane.topAnchor, constant: 16),
             defaultRow.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 16),
@@ -227,7 +216,6 @@ final class SettingsWindowController: NSWindowController {
 
             addButton.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 8),
             addButton.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
-            addButton.bottomAnchor.constraint(equalTo: pane.bottomAnchor, constant: -16),
             addButton.widthAnchor.constraint(equalToConstant: 24),
             removeButton.leadingAnchor.constraint(equalTo: addButton.trailingAnchor, constant: 4),
             removeButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
@@ -236,6 +224,20 @@ final class SettingsWindowController: NSWindowController {
             form.topAnchor.constraint(equalTo: scroll.topAnchor),
             form.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 16),
             form.trailingAnchor.constraint(equalTo: pane.trailingAnchor, constant: -16),
+
+            // Test Connection / Save Server sit directly below the form's
+            // path-mappings caption (the form's own bottom), right-aligned —
+            // anchored to the Servers content, not the window's outer edge.
+            saveButton.topAnchor.constraint(equalTo: form.bottomAnchor, constant: 16),
+            saveButton.trailingAnchor.constraint(equalTo: pane.trailingAnchor, constant: -16),
+            saveButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            saveButton.bottomAnchor.constraint(equalTo: pane.bottomAnchor, constant: -16),
+
+            testButton.trailingAnchor.constraint(equalTo: saveButton.leadingAnchor, constant: -10),
+            testButton.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
+
+            testSpinner.trailingAnchor.constraint(equalTo: testButton.leadingAnchor, constant: -8),
+            testSpinner.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
         ])
         return pane
     }
