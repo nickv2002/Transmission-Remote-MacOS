@@ -233,9 +233,11 @@ legacy app's per-connection `PathMap` (`main.pas` `MapRemoteToLocal`).
 
 - `ServerConfig.pathMappings: [PathMapping]` (`PathMapping.swift`), persisted in
   `preferences.json`. Backward-compatible: configs predating this decode to `[]`.
-- `ServerConfig.mapRemoteToLocal(_:)` — first match wins, case-sensitive; an exact
-  match returns the local path as-is, a prefix match (guarded by a trailing `/`, so
-  `/var` ≠ `/var2`) appends the remainder. Both sides are `/`-based on macOS.
+- `ServerConfig.mapRemoteToLocal(_:)` — longest matching prefix wins regardless of
+  list order (mirrors `mapLocalToRemote`'s tie-break), case-sensitive; an exact
+  match returns the local path as-is outright, a prefix match (guarded by a
+  trailing `/`, so `/var` ≠ `/var2`) appends the remainder. Both sides are
+  `/`-based on macOS.
 - **Settings UI** (`SettingsWindowController`): a multi-line `NSTextView` editor in
   the server form, one `remote=local` per line (mirrors the legacy `edPaths` memo),
   with an example caption. `PathMapping.parse`/`.format` bridge text ↔ array; it
@@ -269,7 +271,8 @@ refresh, name trim+dedupe, default-follows-rename, dirty detection, save, reset)
 and **`HostCandidates`/`ConnectionResolver`** (comma- and newline-list parsing
 incl. scheme/port/path/IPv6/inheritance + first-reachable failover selection),
 and **`PathMapping`** (remote→local exact/prefix mapping, separator guard,
-first-match-wins, case-sensitivity; `parse`/`format` round-trip).
+longest-prefix-wins regardless of list order, case-sensitivity; `parse`/`format`
+round-trip).
 A `TorrentFactory` helper builds `Torrent` values from a default JSON dict.
 
 ```sh

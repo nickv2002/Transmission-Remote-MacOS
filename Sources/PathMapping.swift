@@ -35,29 +35,35 @@ extension PathMapping {
 
 extension ServerConfig {
     /// Translate a remote absolute path to a local one using this server's
-    /// mappings, in order (first match wins). Returns `nil` when no mapping applies.
+    /// mappings. An exact match on a mapping's remote side wins outright;
+    /// otherwise the longest matching remote-side prefix wins (not list order),
+    /// so a more specific mapping (e.g. `/video/4k`) always beats a broader one
+    /// (e.g. `/video`) regardless of which line it's on. Returns `nil` when no
+    /// mapping applies.
     ///
-    /// Faithful port of `main.pas` `MapRemoteToLocal`: an exact match returns the
-    /// local path as-is; a prefix match (guarded by a trailing `/`, so `/var` does
-    /// not match `/var2`) appends the remainder of the remote path to the local
-    /// base. Case-sensitive. Both sides use `/` on macOS, so the Pascal
-    /// `FixSeparators` step reduces to a trim.
+    /// Ported from `main.pas` `MapRemoteToLocal`, but strengthened to match
+    /// `mapLocalToRemote`'s longest-prefix-wins tie-break below: the remainder of
+    /// the remote path is appended to the local base of the best (longest)
+    /// matching mapping. A prefix match is guarded by a trailing `/`, so `/var`
+    /// does not match `/var2`. Case-sensitive. Both sides use `/` on macOS, so
+    /// the Pascal `FixSeparators` step reduces to a trim.
     func mapRemoteToLocal(_ remotePath: String) -> String? {
         let fn = remotePath.trimmingCharacters(in: .whitespaces)
         guard !fn.isEmpty else { return nil }
+        var best: (prefixLength: Int, local: String)?
         for mapping in pathMappings {
             let remote = mapping.remote.trimmingCharacters(in: .whitespaces)
             guard !remote.isEmpty else { continue }
             let local = mapping.local.trimmingCharacters(in: .whitespaces)
             if remote == fn { return local }
             let remoteWithSlash = remote.hasSuffix("/") ? remote : remote + "/"
-            if fn.hasPrefix(remoteWithSlash) {
+            if fn.hasPrefix(remoteWithSlash), best == nil || remoteWithSlash.count > best!.prefixLength {
                 let remainder = fn.dropFirst(remoteWithSlash.count)
                 let base = local.hasSuffix("/") ? String(local.dropLast()) : local
-                return base + "/" + remainder
+                best = (remoteWithSlash.count, base + "/" + remainder)
             }
         }
-        return nil
+        return best?.local
     }
 
     /// Translate a local absolute path back to a remote one — the inverse of
