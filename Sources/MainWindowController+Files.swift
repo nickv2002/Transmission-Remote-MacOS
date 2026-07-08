@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 
 /// The Files tab of the detail pane: a per-file table with a "wanted" checkbox,
 /// size, progress, and priority (mutated via `files-wanted` / `priority-*`).
@@ -54,6 +55,7 @@ extension MainWindowController {
         filesTable.target = self
         filesTable.doubleAction = #selector(didDoubleClickFileRow)
         filesTable.menu = filesContextMenu()
+        filesTable.quickLookOwner = self
         filesTable.onSpaceKey = { [weak self] in
             guard let self else { return false }
             if self.currentPreviewURL() != nil {
@@ -376,6 +378,7 @@ extension MainWindowController: NSTabViewDelegate {
 /// returns `false` otherwise, so Space falls through instead of being swallowed).
 final class FilesTableView: NSTableView {
     var onSpaceKey: (() -> Bool)?
+    weak var quickLookOwner: MainWindowController?
 
     override func keyDown(with event: NSEvent) {
         let noMods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty
@@ -388,6 +391,22 @@ final class FilesTableView: NSTableView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    // See TorrentTableView's identical overrides: this table is already the
+    // first responder when Space is pressed, so it's naturally reachable by
+    // QLPreviewPanel's responder-chain search without splicing anything into
+    // `window.nextResponder`.
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    // See TorrentTableView's identical overrides for why `assumeIsolated` is safe
+    // here (AppKit only calls these on the main thread).
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { quickLookOwner?.quickLookBeginControl(panel) }
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { quickLookOwner?.quickLookEndControl(panel) }
     }
 }
 

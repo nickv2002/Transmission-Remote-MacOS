@@ -180,14 +180,6 @@ final class MainWindowController: NSWindowController {
         }
         super.init(window: window)
 
-        // Splice self into the window's responder chain so QLPreviewPanel (which
-        // walks the chain from the first responder looking for an object that
-        // implements the QLPreviewPanelController methods) finds this controller.
-        // A plain NSWindowController isn't in the chain by default.
-        let originalNextResponder = window.nextResponder
-        window.nextResponder = self
-        self.nextResponder = originalNextResponder
-
         buildToolbar()
         buildLayout()
         wireRefresh()
@@ -257,6 +249,7 @@ final class MainWindowController: NSWindowController {
             guard let self, !self.selectedTorrents.isEmpty else { return }
             self.removeSelected(nil)
         }
+        tableView.quickLookOwner = self
         tableView.onSpaceKey = { [weak self] in
             guard let self else { return false }
             if self.currentPreviewURL() != nil {
@@ -1032,6 +1025,7 @@ final class TorrentTableView: NSTableView {
     var onReturnKey: (() -> Void)?
     var onDeleteKey: (() -> Void)?
     var onSpaceKey: (() -> Bool)?
+    weak var quickLookOwner: MainWindowController?
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
@@ -1044,6 +1038,23 @@ final class TorrentTableView: NSTableView {
         default:
             super.keyDown(with: event)
         }
+    }
+
+    // This table view is already the first responder when Space is pressed, so
+    // it's naturally on the responder chain QLPreviewPanel searches — no need to
+    // splice anything into `window.nextResponder` (see the comment on
+    // `MainWindowController.quickLookBeginControl`).
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+
+    // These override an un-isolated NSResponder category method, but AppKit only
+    // ever calls them on the main thread (Quick Look UI); `assumeIsolated` bridges
+    // to the main-actor-isolated owner without an async hop.
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { quickLookOwner?.quickLookBeginControl(panel) }
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        MainActor.assumeIsolated { quickLookOwner?.quickLookEndControl(panel) }
     }
 }
 
@@ -1113,17 +1124,21 @@ extension MainWindowController {
 }
 
 extension MainWindowController: @preconcurrency QLPreviewPanelDataSource {
-    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
-
-    // These override an un-isolated NSResponder category method, but AppKit only
-    // ever calls them on the main thread (Quick Look UI); `assumeIsolated` bridges
-    // to the main-actor-isolated `panel.dataSource` setter without an async hop.
-    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        MainActor.assumeIsolated { panel.dataSource = self }
+    /// Claims control of the shared panel on behalf of whichever table view is
+    /// first responder — called from `TorrentTableView`/`FilesTableView`'s own
+    /// `acceptsPreviewPanelControl`/`beginPreviewPanelControl`/`endPreviewPanelControl`
+    /// overrides, NOT from here. Those methods must be implemented on an object
+    /// that's *already* in the responder chain when Quick Look searches it (the
+    /// table view itself, since it's the current first responder); splicing this
+    /// window controller into `window.nextResponder` to reach them was tried
+    /// first and caused AppKit's key-event routing to loop forever (a genuine
+    /// hang, not a slow network mount) — see git history for the revert.
+    func quickLookBeginControl(_ panel: QLPreviewPanel) {
+        panel.dataSource = self
     }
 
-    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        MainActor.assumeIsolated { panel.dataSource = nil }
+    func quickLookEndControl(_ panel: QLPreviewPanel) {
+        panel.dataSource = nil
     }
 
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
