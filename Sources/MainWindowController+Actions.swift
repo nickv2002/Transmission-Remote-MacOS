@@ -447,22 +447,21 @@ extension MainWindowController: NSToolbarDelegate {
     /// Callers should only invoke this when a mapping exists (the menu items are
     /// disabled otherwise).
     func revealOrOpen(remotePath: String, open: Bool, warnIfUnmapped: Bool = false) {
-        guard let local = refresh.activeServerConfig.mapRemoteToLocal(remotePath) else {
+        switch refresh.activeServerConfig.resolveLocalPath(forRemotePath: remotePath) {
+        case .unmapped:
             // Double-click (warnIfUnmapped) gets the same "not available" toast the
             // context-menu Open shows; the menu items themselves stay disabled when
             // unmapped, so they pass warnIfUnmapped = false and just no-op.
             if warnIfUnmapped { showToast("Not available locally: \(remotePath)") }
-            return
-        }
-        guard FileManager.default.fileExists(atPath: local) else {
+        case .notFound(let local):
             showToast("Not available locally: \(local)")
-            return
-        }
-        let url = URL(fileURLWithPath: local)
-        if open {
-            NSWorkspace.shared.open(url)
-        } else {
-            NSWorkspace.shared.activateFileViewerSelecting([url])
+        case .available(let local):
+            let url = URL(fileURLWithPath: local)
+            if open {
+                NSWorkspace.shared.open(url)
+            } else {
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            }
         }
     }
 

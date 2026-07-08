@@ -170,4 +170,74 @@ final class PathMappingTests: XCTestCase {
         ]
         XCTAssertEqual(PathMapping.parse(PathMapping.format(mappings)), mappings)
     }
+
+    // MARK: - resolveLocalPath (drives Reveal/Open/Quick Look/drag-out toasts)
+
+    func testResolveLocalPathUnmappedWhenNoMappingMatches() {
+        let s = server([PathMapping(remote: "/video", local: "/Volumes/Video")])
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/music/x.flac", fileExists: { _ in true }), .unmapped)
+    }
+
+    func testResolveLocalPathNotFoundWhenMappedButMissing() {
+        let s = server([PathMapping(remote: "/video", local: "/Volumes/Video")])
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/video/x.mkv", fileExists: { _ in false }),
+                       .notFound(path: "/Volumes/Video/x.mkv"))
+    }
+
+    func testResolveLocalPathAvailableWhenMappedAndPresent() {
+        let s = server([PathMapping(remote: "/video", local: "/Volumes/Video")])
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/video/x.mkv", fileExists: { _ in true }),
+                       .available(path: "/Volumes/Video/x.mkv"))
+    }
+
+    /// The owner's reported scenario: two genuinely disjoint mappings. Both lines
+    /// must resolve — and report "available" when their file actually exists —
+    /// identically, regardless of which line matched. This is the synthetic
+    /// reproduction attempt for the "drag out only works for line 1" bug: if this
+    /// passes, the resolution layer itself has no line-1-vs-line-2 asymmetry.
+    func testResolveLocalPathBothDisjointLinesResolveAndReportAvailableIdentically() {
+        let s = server([
+            PathMapping(remote: "/video", local: "/Volumes/Video"),
+            PathMapping(remote: "/undupe", local: "/Volumes/undupe"),
+        ])
+        // Simulate: files exist under Video, don't exist under undupe.
+        let existing: Set<String> = ["/Volumes/Video/Show/ep.mkv"]
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/video/Show/ep.mkv", fileExists: { existing.contains($0) }),
+                       .available(path: "/Volumes/Video/Show/ep.mkv"))
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/undupe/Show/ep.mkv", fileExists: { existing.contains($0) }),
+                       .notFound(path: "/Volumes/undupe/Show/ep.mkv"))
+        // Now simulate both actually existing (real synthetic-directory setup) —
+        // both lines must report .available, with no special-casing of line order.
+        let bothExisting: Set<String> = ["/Volumes/Video/Show/ep.mkv", "/Volumes/undupe/Show/ep.mkv"]
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/video/Show/ep.mkv", fileExists: { bothExisting.contains($0) }),
+                       .available(path: "/Volumes/Video/Show/ep.mkv"))
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/undupe/Show/ep.mkv", fileExists: { bothExisting.contains($0) }),
+                       .available(path: "/Volumes/undupe/Show/ep.mkv"))
+    }
+
+    /// Same reproduction against the REAL filesystem (not an injected closure) —
+    /// creates real files under two disjoint scratch directories and confirms
+    /// `resolveLocalPath` treats both identically end-to-end, using the default
+    /// `FileManager.default.fileExists` path (the exact code path drag-out and
+    /// Reveal/Open actually use live).
+    func testResolveLocalPathBothDisjointLinesAgainstRealFilesystem() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("transgui-pathmap-\(UUID().uuidString)")
+        let videoDir = root.appendingPathComponent("Video")
+        let undupeDir = root.appendingPathComponent("undupe")
+        try FileManager.default.createDirectory(at: videoDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: undupeDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let videoFile = videoDir.appendingPathComponent("ep.mkv")
+        let undupeFile = undupeDir.appendingPathComponent("ep2.mkv")
+        FileManager.default.createFile(atPath: videoFile.path, contents: Data())
+        FileManager.default.createFile(atPath: undupeFile.path, contents: Data())
+
+        let s = server([
+            PathMapping(remote: "/video", local: videoDir.path),
+            PathMapping(remote: "/undupe", local: undupeDir.path),
+        ])
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/video/ep.mkv"), .available(path: videoFile.path))
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/undupe/ep2.mkv"), .available(path: undupeFile.path))
+    }
 }
