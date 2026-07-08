@@ -52,6 +52,10 @@ extension MainWindowController {
         filesTable.rowHeight = 20
         filesTable.dataSource = self
         filesTable.delegate = self
+        // NSTableView's default outside-app drag mask is empty — without this,
+        // Finder shows the "no drop" cursor and drag-out silently does nothing.
+        filesTable.setDraggingSourceOperationMask(.copy, forLocal: false)
+        filesTable.setDraggingSourceOperationMask(.copy, forLocal: true)
         filesTable.target = self
         filesTable.doubleAction = #selector(didDoubleClickFileRow)
         filesTable.menu = filesContextMenu()
@@ -157,7 +161,7 @@ extension MainWindowController {
     /// `nil` when no single file is targeted.
     func targetedFileRemotePath() -> String? {
         guard let torrent = selectedTorrents.first, let file = targetedSingleFile() else { return nil }
-        return torrent.normalizedDownloadDir + "/" + file.name
+        return torrent.remotePath(fileName: file.name)
     }
 
     func targetedSingleFile() -> TorrentFile? {

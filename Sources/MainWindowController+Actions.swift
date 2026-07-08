@@ -438,7 +438,7 @@ extension MainWindowController: NSToolbarDelegate {
     /// A torrent's remote path: its (normalized) download dir plus the top-level
     /// file/folder name the daemon reports.
     func remotePath(for t: Torrent) -> String {
-        t.normalizedDownloadDir + "/" + t.name
+        t.remotePath()
     }
 
     /// Translate `remotePath` to a local one via the active server's mappings, then
