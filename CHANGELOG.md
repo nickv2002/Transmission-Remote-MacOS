@@ -2,26 +2,14 @@
 
 ## 2026.07.08.1 — 2026-07-08
 
-- Revert drag-out to plain file URLs, restoring Finder's native copy progress
-- Switch drag-out to a file promise, and warn when a file's own permissions will block it
-- Warn on drag-out attempts that would produce nothing, and unify remote-path resolution
-- Tighten Settings layout: smaller General/divider gap, flush-left auto-update checkbox, add/remove buttons bottom-aligned with Test/Save row
-- Fix path-mapping resolution to use longest prefix, not list order
-- Actually fix drag-out to Finder: override sourceOperationMaskFor, not just the setter
-- Reorder Settings window: General first, then a Server Settings section with Test/Save Server anchored below the form
-- Replace Settings tabs with always-visible Servers/General panes, right-size the server list to match the detail form
-- Fix drag-out to Finder: table views never granted an outside-app drag mask
-- Make Cancel the default button on the Remove confirmation sheet
-- Fix beachball on Space: Quick Look responder-chain splice caused an infinite loop
-- Fix Quick Look: checkbox stole Space in Files tab, silent no-op in list view
-- Add Quick Look (Space) for the resolved local file in both tables
-- Close three accessibility gaps: toast announcements, Reduce Motion, progress bar value
-- Persist Settings window position across opens
-- Add Copy Magnet Link to the torrent context menu
-- Support dragging a torrent/file row out to Finder as a copy
-- Bind Delete/Backspace to Remove in the torrent table
-- Fix make dev opening two app copies from stale DerivedData dirs
-- Add auto-check-for-updates preference with first-run prompt
+- Drag a torrent (or a file in the Files tab) straight out to Finder to copy it locally — shows Finder's native copy progress, and warns you if a file can't be dragged (no path mapping configured, not mounted, or blocked by its own file permissions).
+- Delete/⌫ now removes the selected torrent(s), with the same confirmation as the toolbar Remove button — Cancel is the default so a stray Return never removes anything.
+- Quick Look (Space) previews the selected file without leaving the app, from both the torrent list and the Files tab.
+- Added "Copy Magnet Link" to the torrent context menu.
+- Settings window redesigned: no more tabs — General and Server Settings are both visible at once, with Test Connection/Save Server anchored under the server form, and the window now remembers its position between opens.
+- Accessibility: VoiceOver now announces toast messages, respects Reduce Motion, and reads torrent progress bars as progress indicators.
+- Added an auto-check-for-updates preference, with a first-run prompt.
+- Fixed a path-mapping bug that could resolve a remote path to the wrong local folder when two mappings overlapped.
 
 ## 2026.07.06.1 — 2026-07-06
 
