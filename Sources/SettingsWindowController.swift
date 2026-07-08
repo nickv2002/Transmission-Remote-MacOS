@@ -117,7 +117,7 @@ final class SettingsWindowController: NSWindowController {
             generalPane.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             generalPane.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
 
-            separator.topAnchor.constraint(equalTo: generalPane.bottomAnchor, constant: 12),
+            separator.topAnchor.constraint(equalTo: generalPane.bottomAnchor, constant: 6),
             separator.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             separator.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
 
@@ -214,9 +214,12 @@ final class SettingsWindowController: NSWindowController {
             // than the form) — then place add/remove directly below.
             scroll.bottomAnchor.constraint(equalTo: form.bottomAnchor),
 
-            addButton.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 8),
+            addButton.topAnchor.constraint(greaterThanOrEqualTo: scroll.bottomAnchor, constant: 8),
             addButton.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             addButton.widthAnchor.constraint(equalToConstant: 24),
+            // Bottom-align add/remove with the Test Connection / Save Server row
+            // below, rather than floating on intrinsic content height alone.
+            addButton.bottomAnchor.constraint(equalTo: saveButton.bottomAnchor),
             removeButton.leadingAnchor.constraint(equalTo: addButton.trailingAnchor, constant: 4),
             removeButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
             removeButton.widthAnchor.constraint(equalToConstant: 24),
@@ -349,6 +352,12 @@ final class SettingsWindowController: NSWindowController {
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
+        // The checkbox's own cell spans both columns and is left-placed, so its
+        // leading edge lands at the grid's leading edge — flush with the "R" in
+        // "Refresh every:" above, rather than indented under the value column
+        // (per-cell xPlacement overrides the column-level .trailing above).
+        grid.mergeCells(inHorizontalRange: NSRange(location: 0, length: 2), verticalRange: NSRange(location: 1, length: 1))
+        grid.cell(atColumnIndex: 0, rowIndex: 1).xPlacement = .leading
 
         pane.addSubview(grid)
         NSLayoutConstraint.activate([
@@ -356,7 +365,7 @@ final class SettingsWindowController: NSWindowController {
             grid.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 24),
             // Size the pane to its content (no tab box to stretch it to fill
             // anymore), so it doesn't leave a dead-space gap above the buttons.
-            pane.bottomAnchor.constraint(equalTo: grid.bottomAnchor, constant: 8),
+            pane.bottomAnchor.constraint(equalTo: grid.bottomAnchor, constant: 2),
         ])
         return pane
     }
