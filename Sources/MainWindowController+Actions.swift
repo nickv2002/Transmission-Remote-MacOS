@@ -333,17 +333,18 @@ extension MainWindowController: NSToolbarDelegate {
             ? "Remove “\(targets[0].name)”?"
             : "Remove \(targets.count) torrents?"
         alert.informativeText = "This removes the torrent from Transmission. Choose “Remove + Data” to also delete the downloaded files from the server — this cannot be undone."
-        // Default (leftmost, also the Return key) is the non-destructive choice.
+        // Cancel is added first (rightmost, and the default/Return-key button) so a
+        // stray Return on this sheet doesn't remove anything.
+        alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Remove")
         let deleteButton = alert.addButton(withTitle: "Remove + Data")
-        alert.addButton(withTitle: "Cancel")
         if #available(macOS 11.0, *) { deleteButton.hasDestructiveAction = true }
 
         alert.beginSheetModal(for: window) { [weak self] response in
             switch response {
-            case .alertFirstButtonReturn:
-                self?.runRPC { try await $0.remove(ids: ids, deleteLocalData: false) }
             case .alertSecondButtonReturn:
+                self?.runRPC { try await $0.remove(ids: ids, deleteLocalData: false) }
+            case .alertThirdButtonReturn:
                 self?.confirmDeleteWithData(ids: ids, count: targets.count)
             default:
                 break   // Cancel
