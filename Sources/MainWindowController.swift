@@ -1,5 +1,6 @@
 import AppKit
 import Quartz
+import UniformTypeIdentifiers
 
 /// Top-level window: a torrent table, a detail pane, a toolbar of actions, and a
 /// status bar. Owns the `RefreshController` that drives live updates.
@@ -938,21 +939,39 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     /// drag session entirely, and with it the one reliable hook
     /// (`draggingSession(_:willBeginAt:forRowIndexes:)` below) available to warn
     /// the user their drag won't produce anything — see that method's comment.
+    ///
+    /// Uses `NSFilePromiseProvider`, not a plain file `NSURL`, so *this process*
+    /// reads the source bytes and writes them to wherever Finder drops the file.
+    /// A plain-URL drag instead hands Finder the path directly and relies on
+    /// macOS's Pasteboard server to vend Finder a "sandbox extension" to read it
+    /// itself — which silently fails for owner-only (mode 600) files on at least
+    /// one real network share tested live, since this app carries no sandbox
+    /// entitlements to vend with (Console: "Sandbox extension creation failed:
+    /// client lacks entitlements?" / "Failed to get a sandbox extension (-9)").
+    /// The promise sidesteps that entirely: no cross-process read hand-off needed.
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         if tableView === filesTable {
             guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
-            return resolvedLocalFileURL(forRemotePath: torrent.remotePath(fileName: files[row].name))
-                ?? Self.unresolvedDragPlaceholder()
+            return resolvedDragWriter(forRemotePath: torrent.remotePath(fileName: files[row].name))
         }
         guard displayed.indices.contains(row) else { return nil }
-        return resolvedLocalFileURL(forRemotePath: remotePath(for: displayed[row]))
-            ?? Self.unresolvedDragPlaceholder()
+        return resolvedDragWriter(forRemotePath: remotePath(for: displayed[row]))
     }
 
-    /// Resolves a remote path to a local `NSURL` (an `NSPasteboardWriting`
-    /// conformer suitable for a Finder drag) only if the mapped local file exists.
-    private func resolvedLocalFileURL(forRemotePath remotePath: String) -> NSURL? {
-        resolvedExistingLocalURL(forRemotePath: remotePath) as NSURL?
+    /// The pasteboard writer for a row's remote path: a file-promise wrapping the
+    /// resolved local file if it exists, else the unresolved placeholder.
+    private func resolvedDragWriter(forRemotePath remotePath: String) -> NSPasteboardWriting {
+        guard let local = resolvedExistingLocalURL(forRemotePath: remotePath) else {
+            return Self.unresolvedDragPlaceholder()
+        }
+        let fileType = UTType(filenameExtension: local.pathExtension)?.identifier ?? UTType.data.identifier
+        let delegate = FilePromiseDragDelegate(sourceURL: local)
+        let provider = NSFilePromiseProvider(fileType: fileType, delegate: delegate)
+        // NSFilePromiseProvider.delegate is unowned/weak — userInfo is the only
+        // strong reference AppKit holds for the life of the drag, so stash the
+        // delegate there to keep it alive until the promise is fulfilled.
+        provider.userInfo = delegate
+        return provider
     }
 
     /// A pasteboard item with no file/URL representation at all, so Finder has
@@ -967,20 +986,33 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     /// Whether the given row (main table or Files tab) resolves to something a
     /// Finder drag actually carries — used by `draggingSession(_:willBeginAt:
-    /// forRowIndexes:)` below to decide whether to warn.
+    /// forRowIndexes:)` below to decide whether to warn. A file that exists but
+    /// isn't group/other-readable still fails here: see
+    /// `Self.blocksCrossProcessDrag(atPath:)`.
     private func rowResolvesForDrag(_ tableView: NSTableView, row: Int) -> Bool {
-        if tableView === filesTable {
-            guard files.indices.contains(row), let torrent = selectedTorrents.first else { return false }
-            return resolvedExistingLocalURL(forRemotePath: torrent.remotePath(fileName: files[row].name)) != nil
-        }
-        guard displayed.indices.contains(row) else { return false }
-        return resolvedExistingLocalURL(forRemotePath: remotePath(for: displayed[row])) != nil
+        guard let url = resolvedURL(tableView, row: row) else { return false }
+        return !PathPermissions.blocksCrossProcessDrag(atPath: url.path)
     }
 
-    /// The "not available locally" message for whichever row didn't resolve, so
-    /// the drag-warning toast reuses the exact same wording (and no-mapping vs.
-    /// file-missing distinction) as Reveal/Open/Quick Look.
+    private func resolvedURL(_ tableView: NSTableView, row: Int) -> URL? {
+        if tableView === filesTable {
+            guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
+            return resolvedExistingLocalURL(forRemotePath: torrent.remotePath(fileName: files[row].name))
+        }
+        guard displayed.indices.contains(row) else { return nil }
+        return resolvedExistingLocalURL(forRemotePath: remotePath(for: displayed[row]))
+    }
+
+    /// The message for whichever row didn't resolve for drag — either the same
+    /// "not available locally" wording Reveal/Open/Quick Look use (no mapping, or
+    /// mapped but genuinely missing), or, for a file that exists but is
+    /// owner-only, a distinct explanation of why the drag itself still can't work
+    /// (see `PathPermissions.blocksCrossProcessDrag`).
     private func unresolvedDragMessage(_ tableView: NSTableView, row: Int) -> String? {
+        if let url = resolvedURL(tableView, row: row) {
+            guard PathPermissions.blocksCrossProcessDrag(atPath: url.path) else { return nil }
+            return "Can't drag out — restrictive permissions on \(url.path): try Reveal in Finder instead"
+        }
         if tableView === filesTable {
             guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
             return unavailableToastMessage(forRemotePath: torrent.remotePath(fileName: files[row].name))
@@ -1211,5 +1243,39 @@ extension MainWindowController: @preconcurrency QLPreviewPanelDataSource {
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
         currentPreviewURL() as NSURL?
+    }
+}
+
+/// Fulfills a drag-out file promise by copying the already-resolved local file
+/// itself, in this process, to wherever Finder asks — see the comment on
+/// `pasteboardWriterForRow` for why this replaced a plain-`NSURL` pasteboard
+/// writer.
+private final class FilePromiseDragDelegate: NSObject, NSFilePromiseProviderDelegate {
+    private let sourceURL: URL
+    private let queue = OperationQueue()
+
+    init(sourceURL: URL) {
+        self.sourceURL = sourceURL
+    }
+
+    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
+        sourceURL.lastPathComponent
+    }
+
+    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL,
+                              completionHandler: @escaping (Error?) -> Void) {
+        do {
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+            try FileManager.default.copyItem(at: sourceURL, to: url)
+            completionHandler(nil)
+        } catch {
+            completionHandler(error)
+        }
+    }
+
+    func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue {
+        queue
     }
 }

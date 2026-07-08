@@ -240,4 +240,41 @@ final class PathMappingTests: XCTestCase {
         XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/video/ep.mkv"), .available(path: videoFile.path))
         XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/undupe/ep2.mkv"), .available(path: undupeFile.path))
     }
+
+    // MARK: - PathPermissions.blocksCrossProcessDrag
+
+    func testBlocksCrossProcessDragForOwnerOnlyMode() {
+        XCTAssertTrue(PathPermissions.blocksCrossProcessDrag(posixPermissions: 0o600))
+        XCTAssertTrue(PathPermissions.blocksCrossProcessDrag(posixPermissions: 0o700))
+    }
+
+    func testDoesNotBlockCrossProcessDragWhenGroupOrOtherReadable() {
+        XCTAssertFalse(PathPermissions.blocksCrossProcessDrag(posixPermissions: 0o644))
+        XCTAssertFalse(PathPermissions.blocksCrossProcessDrag(posixPermissions: 0o664))
+        XCTAssertFalse(PathPermissions.blocksCrossProcessDrag(posixPermissions: 0o604))
+        XCTAssertFalse(PathPermissions.blocksCrossProcessDrag(posixPermissions: 0o640))
+    }
+
+    /// Same check against the real filesystem: an owner-only (600) real file
+    /// blocks, a group/other-readable (644) real file doesn't — the exact
+    /// distinction observed live between a real server's two shares.
+    func testBlocksCrossProcessDragAtPathAgainstRealFilesystem() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("transgui-permcheck-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let restricted = dir.appendingPathComponent("owner-only.mp4")
+        let readable = dir.appendingPathComponent("group-readable.mp4")
+        FileManager.default.createFile(atPath: restricted.path, contents: Data(),
+                                        attributes: [.posixPermissions: 0o600])
+        FileManager.default.createFile(atPath: readable.path, contents: Data(),
+                                        attributes: [.posixPermissions: 0o644])
+
+        XCTAssertTrue(PathPermissions.blocksCrossProcessDrag(atPath: restricted.path))
+        XCTAssertFalse(PathPermissions.blocksCrossProcessDrag(atPath: readable.path))
+    }
+
+    func testBlocksCrossProcessDragAtPathMissingFileDoesNotBlock() {
+        XCTAssertFalse(PathPermissions.blocksCrossProcessDrag(atPath: "/nonexistent/path/\(UUID().uuidString)"))
+    }
 }
