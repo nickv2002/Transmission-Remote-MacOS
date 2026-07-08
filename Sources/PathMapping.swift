@@ -113,3 +113,30 @@ extension ServerConfig {
         return fileExists(local) ? .available(path: local) : .notFound(path: local)
     }
 }
+
+/// Whether a file's own POSIX permission bits will make macOS refuse to hand it
+/// to another process via the pasteboard — confirmed live against a real network
+/// share: an owner-only file (mode 600) fails to drag out to Finder (Console:
+/// "Sandbox extension creation failed: client lacks entitlements?" / "Failed to
+/// get a sandbox extension"), tried both as a plain file `NSURL` and as an
+/// `NSFilePromiseProvider`, while a group/other-readable file (664) on the same
+/// server drags out fine. This app carries no sandbox entitlements to satisfy
+/// whatever extension macOS wants to vend for a restricted-permission file in
+/// either direction, so no drag technique available to a plain, non-sandboxed
+/// AppKit app gets around it — the fix has to be the file's own permissions
+/// (e.g. on whatever server/share populated it), not this app's code.
+enum PathPermissions {
+    /// Whether this POSIX mode lacks group AND other read bits (owner-only).
+    static func blocksCrossProcessDrag(posixPermissions mode: Int) -> Bool {
+        (mode & 0o044) == 0
+    }
+
+    /// Reads the real file's mode; `nil` (can't stat it) is treated as
+    /// non-blocking, since the file-existence check upstream already handles
+    /// "missing" as its own case.
+    static func blocksCrossProcessDrag(atPath path: String) -> Bool {
+        guard let mode = (try? FileManager.default.attributesOfItem(atPath: path))?[.posixPermissions] as? Int
+        else { return false }
+        return blocksCrossProcessDrag(posixPermissions: mode)
+    }
+}
