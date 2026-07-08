@@ -1,6 +1,5 @@
 import AppKit
 import Quartz
-import UniformTypeIdentifiers
 
 /// Top-level window: a torrent table, a detail pane, a toolbar of actions, and a
 /// status bar. Owns the `RefreshController` that drives live updates.
@@ -940,15 +939,18 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     /// (`draggingSession(_:willBeginAt:forRowIndexes:)` below) available to warn
     /// the user their drag won't produce anything — see that method's comment.
     ///
-    /// Uses `NSFilePromiseProvider`, not a plain file `NSURL`, so *this process*
-    /// reads the source bytes and writes them to wherever Finder drops the file.
-    /// A plain-URL drag instead hands Finder the path directly and relies on
-    /// macOS's Pasteboard server to vend Finder a "sandbox extension" to read it
-    /// itself — which silently fails for owner-only (mode 600) files on at least
-    /// one real network share tested live, since this app carries no sandbox
-    /// entitlements to vend with (Console: "Sandbox extension creation failed:
-    /// client lacks entitlements?" / "Failed to get a sandbox extension (-9)").
-    /// The promise sidesteps that entirely: no cross-process read hand-off needed.
+    /// A plain file `NSURL` — never a file-promise. Finder performs the copy
+    /// itself against a real file URL, which is what gives the drop its native
+    /// progress bar, cancel button, and "incomplete file" treatment while a large
+    /// copy is still running. `NSFilePromiseProvider` looks like the fix for the
+    /// permission-restricted case below, but was tried live and confirmed NOT to
+    /// help: Finder's own attempt to vend *this app* a "com.apple.pastelocation"
+    /// sandbox extension for the promise's destination folder fails with the
+    /// exact same class of error as the plain-URL path's failure — this app has
+    /// no sandbox entitlements to satisfy either direction of that hand-off, so
+    /// there's no working drag technique for these files at all, and a promise
+    /// would only cost the progress UI for the (large) majority of files that
+    /// work fine while gaining nothing for the ones that don't.
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
         if tableView === filesTable {
             guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
@@ -958,20 +960,17 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         return resolvedDragWriter(forRemotePath: remotePath(for: displayed[row]))
     }
 
-    /// The pasteboard writer for a row's remote path: a file-promise wrapping the
-    /// resolved local file if it exists, else the unresolved placeholder.
+    /// The pasteboard writer for a row's remote path: the resolved local file's
+    /// plain URL, or the unresolved placeholder when there's no local file at all
+    /// or its own permissions would block the cross-process drag anyway (see
+    /// `PathPermissions.blocksCrossProcessDrag` — this is a real macOS
+    /// restriction, not something a different pasteboard technique gets around).
     private func resolvedDragWriter(forRemotePath remotePath: String) -> NSPasteboardWriting {
-        guard let local = resolvedExistingLocalURL(forRemotePath: remotePath) else {
+        guard let local = resolvedExistingLocalURL(forRemotePath: remotePath),
+              !PathPermissions.blocksCrossProcessDrag(atPath: local.path) else {
             return Self.unresolvedDragPlaceholder()
         }
-        let fileType = UTType(filenameExtension: local.pathExtension)?.identifier ?? UTType.data.identifier
-        let delegate = FilePromiseDragDelegate(sourceURL: local)
-        let provider = NSFilePromiseProvider(fileType: fileType, delegate: delegate)
-        // NSFilePromiseProvider.delegate is unowned/weak — userInfo is the only
-        // strong reference AppKit holds for the life of the drag, so stash the
-        // delegate there to keep it alive until the promise is fulfilled.
-        provider.userInfo = delegate
-        return provider
+        return local as NSURL
     }
 
     /// A pasteboard item with no file/URL representation at all, so Finder has
@@ -1243,39 +1242,5 @@ extension MainWindowController: @preconcurrency QLPreviewPanelDataSource {
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
         currentPreviewURL() as NSURL?
-    }
-}
-
-/// Fulfills a drag-out file promise by copying the already-resolved local file
-/// itself, in this process, to wherever Finder asks — see the comment on
-/// `pasteboardWriterForRow` for why this replaced a plain-`NSURL` pasteboard
-/// writer.
-private final class FilePromiseDragDelegate: NSObject, NSFilePromiseProviderDelegate {
-    private let sourceURL: URL
-    private let queue = OperationQueue()
-
-    init(sourceURL: URL) {
-        self.sourceURL = sourceURL
-    }
-
-    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, fileNameForType fileType: String) -> String {
-        sourceURL.lastPathComponent
-    }
-
-    func filePromiseProvider(_ filePromiseProvider: NSFilePromiseProvider, writePromiseTo url: URL,
-                              completionHandler: @escaping (Error?) -> Void) {
-        do {
-            if FileManager.default.fileExists(atPath: url.path) {
-                try FileManager.default.removeItem(at: url)
-            }
-            try FileManager.default.copyItem(at: sourceURL, to: url)
-            completionHandler(nil)
-        } catch {
-            completionHandler(error)
-        }
-    }
-
-    func operationQueue(for filePromiseProvider: NSFilePromiseProvider) -> OperationQueue {
-        queue
     }
 }
