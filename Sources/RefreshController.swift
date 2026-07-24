@@ -143,6 +143,14 @@ final class RefreshController {
     /// that has since become unreachable doesn't delay falling back to racing.
     private let fastPathTimeout: TimeInterval = 1.5
 
+    /// Timeout for the adopted operational client (polling + one-shot actions),
+    /// as distinct from the short probe timeouts above. `timeoutIntervalForRequest`
+    /// is an inactivity timeout, not a total deadline, but some RPCs (e.g.
+    /// `torrent-remove` with delete-local-data on large torrents, or `torrent-verify`)
+    /// can leave the daemon silent for a while doing synchronous disk I/O —
+    /// especially on underpowered hardware — so this needs real headroom.
+    private let operationalTimeout: TimeInterval = 30
+
     /// Set once the first torrent list has been fetched. The very first poll after
     /// a fresh connect requests a slim field set (`Torrent.firstFetchFields`) for a
     /// faster cold paint; subsequent polls request the full set.
@@ -245,8 +253,16 @@ final class RefreshController {
     }
 
     /// Adopt a resolved connection as the live client and publish connected state.
+    ///
+    /// `resolved.client` was built with a short probe timeout purely for fast host
+    /// failover — it must not become the client polling and one-shot actions run
+    /// on for the rest of the connection's life, or a slow RPC (large delete,
+    /// verify, a laggy poll on weak hardware) trips that short timeout and looks
+    /// like a dropped connection even though the daemon is still working. Rebuild
+    /// at the operational timeout instead; the one extra 409/session-id round trip
+    /// this costs on the first request is a fine trade.
     private func adopt(_ resolved: ResolvedConnection) {
-        client = resolved.client
+        client = (try? TransmissionClient(server: resolved.server, timeout: operationalTimeout)) ?? resolved.client
         resolvedServer = resolved.server
         defaultDownloadDir = resolved.info.downloadDir
         hasConnectedOnce = true
