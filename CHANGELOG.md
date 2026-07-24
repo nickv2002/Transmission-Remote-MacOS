@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.07.24.1 — 2026-07-24
+
+- Give the live client a real operational timeout instead of the probe timeout
+- Rewrite the 2026.07.08.1 changelog section as user-facing feature bullets
+
 ## 2026.07.08.1 — 2026-07-08
 
 - Drag a torrent (or a file in the Files tab) straight out to Finder to copy it locally — shows Finder's native copy progress, and warns you if a file can't be dragged (no path mapping configured, not mounted, or blocked by its own file permissions).

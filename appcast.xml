@@ -91,5 +91,17 @@
         length="3228361"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.07.24.1</title>
+      <sparkle:version>2026.07.24.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 24 Jul 2026 22:23:13 +0000</pubDate>
+      <description><![CDATA[<ul><li>Give the live client a real operational timeout instead of the probe timeout</li><li>Rewrite the 2026.07.08.1 changelog section as user-facing feature bullets</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.07.24.1/Transmission.Remote-2026.07.24.1.zip"
+        sparkle:edSignature="1N+Z58zXJ3lvCnTVMFxe4rVshgJrQYCmyffwrKGDNpyuT/iDxUBFxDcIxPbjDKJ3BPxTwGC4cRcEgu7KSxQdBw=="
+        length="3228347"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
