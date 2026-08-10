@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.08.10.1 — 2026-08-10
+
+- Add a "move data" checkbox to the Move Torrent sheet
+
 ## 2026.07.24.1 — 2026-07-24
 
 - Give the live client a real operational timeout instead of the probe timeout
