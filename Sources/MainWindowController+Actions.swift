@@ -285,15 +285,15 @@ extension MainWindowController: NSToolbarDelegate {
     @objc func moveSelected(_ sender: Any?) {
         guard let t = selectionForAction().first else { return }
         promptLocation(
-            title: "Move Torrent Data",
+            title: "Set Torrent Location",
             message: "New location on the server for “\(t.name)”:",
             defaultValue: t.downloadDir
-        ) { [weak self] location in
+        ) { [weak self] location, moveData in
             guard let self else { return }
             guard let location, !location.isEmpty,
                   Torrent.normalizeDownloadDir(location) != t.normalizedDownloadDir else { return }
             recordMoveDir(location)
-            runRPC { try await $0.setLocation(ids: [t.id], location: location, move: true) }
+            runRPC { try await $0.setLocation(ids: [t.id], location: location, move: moveData) }
         }
     }
 
@@ -495,7 +495,7 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     private func promptLocation(title: String, message: String, defaultValue: String,
-                                completion: @escaping (String?) -> Void) {
+                                completion: @escaping (String?, Bool) -> Void) {
         guard let window else { return }
 
         let recentKey = "RecentMoveDirs"
@@ -515,37 +515,71 @@ extension MainWindowController: NSToolbarDelegate {
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
 
-        let combo = NSComboBox(frame: NSRect(x: 0, y: 0, width: 250, height: 26))
+        let combo = NSComboBox()
         combo.stringValue = defaultValue
         combo.lineBreakMode = .byTruncatingHead
         combo.addItems(withObjectValues: allDirs)
         combo.completes = true
         combo.numberOfVisibleItems = 10
+        combo.translatesAutoresizingMaskIntoConstraints = false
+
+        let width: CGFloat = 350
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.translatesAutoresizingMaskIntoConstraints = false
 
         let hasPathMappings = !refresh.activeServerConfig.pathMappings.isEmpty
-        let accessory: NSView
         if hasPathMappings {
             let browse = NSButton(title: "Browse…", target: self, action: #selector(browseForRemoteLocation(_:)))
             browse.bezelStyle = .rounded
-            browse.frame = NSRect(x: 260, y: 0, width: 90, height: 26)
             pendingMoveCombo = combo
 
-            let container = NSView(frame: NSRect(x: 0, y: 0, width: 350, height: 26))
-            container.addSubview(combo)
-            container.addSubview(browse)
-            accessory = container
+            let row = NSStackView(views: [combo, browse])
+            row.orientation = .horizontal
+            row.spacing = 10
+            combo.widthAnchor.constraint(equalToConstant: 250).isActive = true
+            stack.addArrangedSubview(row)
         } else {
-            combo.frame = NSRect(x: 0, y: 0, width: 320, height: 26)
-            accessory = combo
+            combo.widthAnchor.constraint(equalToConstant: width).isActive = true
+            stack.addArrangedSubview(combo)
         }
 
-        alert.accessoryView = accessory
+        let moveCheck = NSButton(checkboxWithTitle: "Move data to new location", target: nil, action: nil)
+        moveCheck.state = .on
+        stack.addArrangedSubview(moveCheck)
+
+        let explanation = NSTextField(wrappingLabelWithString:
+            "Unchecking only updates Transmission’s records — the data must already exist at the new path.")
+        explanation.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        explanation.textColor = .secondaryLabelColor
+        explanation.isSelectable = false
+        explanation.widthAnchor.constraint(equalToConstant: width).isActive = true
+        stack.addArrangedSubview(explanation)
+
+        let container = NSView()
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.widthAnchor.constraint(equalToConstant: width).isActive = true
+        container.layoutSubtreeIfNeeded()
+        container.frame = NSRect(x: 0, y: 0, width: width, height: stack.fittingSize.height)
+
+        alert.accessoryView = container
         alert.window.initialFirstResponder = combo
 
         alert.beginSheetModal(for: window) { [weak self] response in
             combo.validateEditing()
             self?.pendingMoveCombo = nil
-            completion(response == .alertFirstButtonReturn ? combo.stringValue : nil)
+            let moveData = moveCheck.state == .on
+            completion(response == .alertFirstButtonReturn ? combo.stringValue : nil, moveData)
         }
     }
 
