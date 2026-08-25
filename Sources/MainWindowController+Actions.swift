@@ -126,6 +126,7 @@ extension MainWindowController: NSToolbarDelegate {
             .keyEquivalentModifierMask = [.command, .option]
         menu.addItem(.separator())
         menu.addItem(withTitle: "Verify", action: #selector(verifySelected(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Reannounce", action: #selector(reannounceSelected(_:)), keyEquivalent: "")
 
         // Queue submenu.
         let queueItem = menu.addItem(withTitle: "Queue", action: nil, keyEquivalent: "")
@@ -233,7 +234,8 @@ extension MainWindowController: NSToolbarDelegate {
             return true
         case #selector(renameSelected(_:)), #selector(moveSelected(_:)):
             return selection.count == 1
-        case #selector(verifySelected(_:)), #selector(removeSelected(_:)),
+        case #selector(verifySelected(_:)), #selector(reannounceSelected(_:)),
+             #selector(removeSelected(_:)),
              #selector(removeTorrentDirectly(_:)),
              #selector(removeTorrentWithDataConfirm(_:)),
              #selector(removeTorrentWithDataDirectly(_:)),
@@ -257,19 +259,24 @@ extension MainWindowController: NSToolbarDelegate {
 
     // MARK: - Actions
 
-    @objc func startSelected(_ sender: Any?) {
+    /// Runs a simple "batch of selected torrent ids" RPC action, skipping it
+    /// entirely when there's nothing selected.
+    private func performOnSelection(_ operation: @escaping (TransmissionClient, [Int]) async throws -> Void) {
         let ids = selectionForAction().map(\.id)
-        runRPC { try await $0.start(ids: ids) }
+        guard !ids.isEmpty else { return }
+        runRPC { try await operation($0, ids) }
+    }
+
+    @objc func startSelected(_ sender: Any?) {
+        performOnSelection { try await $0.start(ids: $1) }
     }
 
     @objc func stopSelected(_ sender: Any?) {
-        let ids = selectionForAction().map(\.id)
-        runRPC { try await $0.stop(ids: ids) }
+        performOnSelection { try await $0.stop(ids: $1) }
     }
 
     @objc func forceStartSelected(_ sender: Any?) {
-        let ids = selectionForAction().map(\.id)
-        runRPC { try await $0.startNow(ids: ids) }
+        performOnSelection { try await $0.startNow(ids: $1) }
     }
 
     @objc func renameSelected(_ sender: Any?) {
@@ -302,9 +309,11 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     @objc func verifySelected(_ sender: Any?) {
-        let ids = selectionForAction().map(\.id)
-        guard !ids.isEmpty else { return }
-        runRPC { try await $0.verify(ids: ids) }
+        performOnSelection { try await $0.verify(ids: $1) }
+    }
+
+    @objc func reannounceSelected(_ sender: Any?) {
+        performOnSelection { try await $0.reannounce(ids: $1) }
     }
 
     @objc func queueMoveSelected(_ sender: NSMenuItem) {
