@@ -283,17 +283,21 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     @objc func moveSelected(_ sender: Any?) {
-        guard let t = selectionForAction().first else { return }
+        let targets = selectionForAction()
+        guard !targets.isEmpty else { return }
+        let message = targets.count == 1
+            ? "New location on the server for “\(targets[0].name)”:"
+            : "New location on the server for \(targets.count) torrents:"
         promptLocation(
             title: "Set Torrent Location",
-            message: "New location on the server for “\(t.name)”:",
-            defaultValue: t.downloadDir
+            message: message,
+            defaultValue: targets[0].downloadDir
         ) { [weak self] location, moveData in
             guard let self else { return }
-            guard let location, !location.isEmpty,
-                  Torrent.normalizeDownloadDir(location) != t.normalizedDownloadDir else { return }
+            guard let location, !location.isEmpty else { return }
             recordMoveDir(location)
-            runRPC { try await $0.setLocation(ids: [t.id], location: location, move: moveData) }
+            let ids = targets.map(\.id)
+            runRPC { try await $0.setLocation(ids: ids, location: location, move: moveData) }
         }
     }
 
