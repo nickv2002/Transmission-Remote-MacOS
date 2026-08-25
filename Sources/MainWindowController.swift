@@ -217,13 +217,9 @@ final class MainWindowController: NSWindowController {
         updateWindowTitle()
     }
 
-    /// Reflect the active server in the window title when more than one is configured.
+    /// Reflect the active server in the window title.
     func updateWindowTitle() {
-        if refresh.availableServerNames.count > 1 {
-            window?.title = "Transmission Remote — \(refresh.currentServerName)"
-        } else {
-            window?.title = "Transmission Remote"
-        }
+        window?.title = "Transmission Remote: \(refresh.currentServerName)"
     }
 
     // MARK: - Layout
