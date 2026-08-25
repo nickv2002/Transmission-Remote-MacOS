@@ -340,7 +340,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         serverMenu.autoenablesItems = false
         serverMenuItem.submenu = serverMenu
 
+        // Help menu — assigning it to NSApp.helpMenu gets the system's
+        // built-in "Search" field for menu items for free.
+        let helpMenuItem = NSMenuItem()
+        mainMenu.addItem(helpMenuItem)
+        let helpMenu = NSMenu(title: "Help")
+        let projectHome = helpMenu.addItem(withTitle: "\(appName) on GitHub",
+                                            action: #selector(openProjectHome), keyEquivalent: "")
+        projectHome.target = self
+        helpMenuItem.submenu = helpMenu
+
         NSApp.mainMenu = mainMenu
+        NSApp.helpMenu = helpMenu
+    }
+
+    @objc private func openProjectHome(_ sender: Any?) {
+        guard let url = URL(string: "https://github.com/nickv2002/Transmission-Remote-MacOS") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     /// Rebuild the Server submenu from the controller's configured servers, with a
