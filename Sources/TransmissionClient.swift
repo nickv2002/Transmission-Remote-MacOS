@@ -86,16 +86,21 @@ actor TransmissionClient {
         return response.arguments?.torrents ?? []
     }
 
+    /// An RPC call that just takes a list of torrent ids and returns nothing.
+    private func idsAction(_ method: String, ids: [Int]) async throws {
+        try await sendIgnoringResult(method: method, arguments: ["ids": ids])
+    }
+
     func start(ids: [Int]) async throws {
-        try await sendIgnoringResult(method: "torrent-start", arguments: ["ids": ids])
+        try await idsAction("torrent-start", ids: ids)
     }
 
     func stop(ids: [Int]) async throws {
-        try await sendIgnoringResult(method: "torrent-stop", arguments: ["ids": ids])
+        try await idsAction("torrent-stop", ids: ids)
     }
 
     func startNow(ids: [Int]) async throws {
-        try await sendIgnoringResult(method: "torrent-start-now", arguments: ["ids": ids])
+        try await idsAction("torrent-start-now", ids: ids)
     }
 
     func rename(id: Int, path: String, name: String) async throws {
@@ -113,7 +118,11 @@ actor TransmissionClient {
     }
 
     func verify(ids: [Int]) async throws {
-        try await sendIgnoringResult(method: "torrent-verify", arguments: ["ids": ids])
+        try await idsAction("torrent-verify", ids: ids)
+    }
+
+    func reannounce(ids: [Int]) async throws {
+        try await idsAction("torrent-reannounce", ids: ids)
     }
 
     /// Where in the queue to move the given torrents.

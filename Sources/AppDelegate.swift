@@ -266,6 +266,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         torrentMenu.addItem(withTitle: "Verify",
                             action: #selector(MainWindowController.verifySelected(_:)),
                             keyEquivalent: "")
+        torrentMenu.addItem(withTitle: "Reannounce",
+                            action: #selector(MainWindowController.reannounceSelected(_:)),
+                            keyEquivalent: "")
 
         let queueSub = NSMenu(title: "Queue")
         for (title, tag) in [("Move to Top", 0), ("Move Up", 1),
