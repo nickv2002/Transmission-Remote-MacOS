@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.08.25.1 — 2026-08-25
+
+- Always show the active server name in the window title
+- Add Help menu with searchable menu items and GitHub link
+- Add Reannounce action and DRY up simple per-selection RPC actions
+- Fix Move Torrent to move all selected torrents, not just the first
+
 ## 2026.08.10.1 — 2026-08-10
 
 - Add a "move data" checkbox to the Move Torrent sheet

@@ -115,5 +115,17 @@
         length="3230436"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.08.25.1</title>
+      <sparkle:version>2026.08.25.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 25 Aug 2026 23:22:22 +0000</pubDate>
+      <description><![CDATA[<ul><li>Always show the active server name in the window title</li><li>Add Help menu with searchable menu items and GitHub link</li><li>Add Reannounce action and DRY up simple per-selection RPC actions</li><li>Fix Move Torrent to move all selected torrents, not just the first</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.08.25.1/Transmission.Remote-2026.08.25.1.zip"
+        sparkle:edSignature="pzlrNbVvATyvHQzwX5t0leA5AdHsl59bHnV4ZoaIHYsPqYpFXqAd+SNyg6s1O3PAnnWGBFrjxzI1KatqqxCDCg=="
+        length="3229931"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
