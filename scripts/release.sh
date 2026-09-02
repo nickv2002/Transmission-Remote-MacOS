@@ -31,6 +31,7 @@ sed -i '' -E "s/CURRENT_PROJECT_VERSION: \"[^\"]*\"/CURRENT_PROJECT_VERSION: \"$
 scripts/build_release.sh
 scripts/notarize.sh "$version"
 scripts/changelog.sh "$version" "$prev_tag"
+scripts/verification_notes.sh "$version"
 
 echo "==> signing update for Sparkle"
 # GitHub replaces spaces with dots in asset filenames, so use dots here to match.
