@@ -28,6 +28,7 @@ enum TorrentFactory {
             "queuePosition": 0,
             "bandwidthPriority": 0,
             "trackers": [] as [[String: Any]],
+            "trackerStats": [] as [[String: Any]],
             "comment": "",
             "error": 0,
             "doneDate": 0,

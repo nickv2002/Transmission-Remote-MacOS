@@ -112,7 +112,7 @@ final class MainWindowController: NSWindowController {
 
     // Column identifiers double as sort keys.
     private enum Column: String, CaseIterable {
-        case queue, name, size, status, progress, down, up, eta, ratio, ratioLimit, added, tracker
+        case queue, name, size, status, progress, down, up, eta, ratio, ratioLimit, added, tracker, seeds, peers
 
         var title: String {
             switch self {
@@ -128,6 +128,8 @@ final class MainWindowController: NSWindowController {
             case .ratioLimit: return "Ratio Limit"
             case .added: return "Added"
             case .tracker: return "Tracker"
+            case .seeds: return "Seeds"
+            case .peers: return "Peers"
             }
         }
 
@@ -144,13 +146,14 @@ final class MainWindowController: NSWindowController {
             case .ratioLimit: return 80
             case .added: return 130
             case .tracker: return 150
+            case .seeds, .peers: return 70
             }
         }
 
         /// Columns hidden by default (still toggleable from the header menu).
         var hiddenByDefault: Bool {
             switch self {
-            case .size, .ratioLimit, .added, .tracker: return true
+            case .size, .ratioLimit, .added, .tracker, .seeds, .peers: return true
             default: return false
             }
         }
@@ -682,6 +685,8 @@ final class MainWindowController: NSWindowController {
             case .ratioLimit: result = a.effectiveRatioLimit < b.effectiveRatioLimit
             case .added: result = a.addedDate < b.addedDate
             case .tracker: result = (a.trackerHost ?? "").localizedCaseInsensitiveCompare(b.trackerHost ?? "") == .orderedAscending
+            case .seeds: result = a.seedsConnected < b.seedsConnected
+            case .peers: result = a.peersConnectedForUpload < b.peersConnectedForUpload
             }
             return ascending ? result : !result
         }
@@ -790,6 +795,8 @@ final class MainWindowController: NSWindowController {
         case .ratioLimit: return t.seedRatioDisplay
         case .added: return Formatters.date(t.addedDate)
         case .tracker: return t.trackerHost ?? "—"
+        case .seeds: return Formatters.peerCount(connected: t.seedsConnected, total: t.seedsTotal)
+        case .peers: return Formatters.peerCount(connected: t.peersConnectedForUpload, total: t.leechersTotal)
         }
     }
 

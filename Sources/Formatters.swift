@@ -29,6 +29,12 @@ enum Formatters {
         return String(format: "%.2f", value)
     }
 
+    /// Connected-vs-swarm-total peer count, e.g. "3/12", or just "3" when the
+    /// total is unknown (`-1` — no tracker stats reported yet).
+    static func peerCount(connected: Int, total: Int) -> String {
+        total == -1 ? "\(connected)" : "\(connected)/\(total)"
+    }
+
     /// Transmission ETA: -1 unknown, -2 not applicable, else seconds remaining.
     static func eta(_ seconds: Int) -> String {
         switch seconds {
