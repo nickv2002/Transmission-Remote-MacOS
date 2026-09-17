@@ -28,10 +28,21 @@ final class RefreshController {
     /// UserDefaults key persisting the user's server selection across launches.
     private static let selectedServerKey = "SelectedServerName"
 
-    /// Whether a poll is currently in flight (drives the bottom-left spinner).
-    private var isFetching = false {
-        didSet { if oldValue != isFetching { onFetchingChanged?(isFetching) } }
+    /// Count of fetch spans currently in flight (drives the bottom-left spinner).
+    /// A count, not a Bool, because refreshNow() and the scheduled poll loop can
+    /// overlap — the spinner must stay on until the *last* one finishes, not
+    /// whichever finishes first.
+    private var fetchSpanCount = 0 {
+        didSet {
+            let isFetching = fetchSpanCount > 0
+            let wasFetching = oldValue > 0
+            if wasFetching != isFetching { onFetchingChanged?(isFetching) }
+        }
     }
+
+    /// True while a poll (resolve+fetch) is in progress — guards refreshNow()
+    /// from racing the scheduled poll loop's own poll(client:) call.
+    private var isPolling = false
 
     /// The live client, if connected — used by one-shot actions (start/stop/etc.).
     var activeClient: TransmissionClient? { client }
@@ -124,9 +135,11 @@ final class RefreshController {
     /// Force an immediate refresh (e.g. right after an action). If the poll fails,
     /// drop the client so the loop re-resolves a reachable host next tick.
     func refreshNow() {
-        guard let client else { return }
+        guard let client, !isPolling else { return }
         Task {
             await self.withFetchingSpan {
+                self.isPolling = true
+                defer { self.isPolling = false }
                 if !(await self.poll(client: client)) { self.client = nil }
             }
         }
@@ -189,7 +202,9 @@ final class RefreshController {
                     if client == nil {
                         await resolveReachableClient()
                     }
-                    if let client, !paused {
+                    if let client, !paused, !isPolling {
+                        isPolling = true
+                        defer { isPolling = false }
                         if !(await poll(client: client)) {
                             // Lost the connection — re-resolve (the network may
                             // have changed, e.g. left the tailnet) next iteration.
@@ -207,9 +222,9 @@ final class RefreshController {
     /// in, a single transition out, even if `body` performs multiple sequential
     /// network steps (e.g. resolve then poll).
     private func withFetchingSpan(_ body: () async -> Void) async {
-        isFetching = true
+        fetchSpanCount += 1
         await body()
-        isFetching = false
+        fetchSpanCount -= 1
     }
 
     /// Probe the active server's host candidates in order and adopt the first that

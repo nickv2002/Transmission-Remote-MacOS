@@ -1,0 +1,19 @@
+services:
+  transmission-fixture:
+    image: lscr.io/linuxserver/transmission:latest
+    container_name: transgui-fixture-transmission
+    environment:
+      - PUID=${PUID:-502}
+      - PGID=${PGID:-20}
+      - TZ=Etc/UTC
+      - USER=fixture
+      - PASS=fixture-pass
+    volumes:
+      - ./.data/config:/config
+      - ./.data/downloads:/downloads
+    ports:
+      # RPC port 19091 on the host maps to the container's internal 9091.
+      # NEVER change the host side to 9091 — that is the owner's real
+      # production Transmission server's port.
+      - "19091:9091"
+    restart: "no"

@@ -84,6 +84,7 @@ targets:
       - path: Sources/PathMapping.swift
       - path: Sources/InfoGridView.swift
       - path: Sources/RecentFolders.swift
+      - path: Sources/RefreshController.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nickvance.transmission-remote-mac.tests

@@ -7,3 +7,4 @@ DerivedData/
 .DS_Store
 
 .context/
+scripts/fixture/.data/
