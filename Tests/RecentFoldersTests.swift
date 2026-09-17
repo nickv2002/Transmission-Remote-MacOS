@@ -67,4 +67,39 @@ final class RecentFoldersTests: XCTestCase {
         let candidates = RecentFolders.candidates(extra: ["/downloads/tv"], from: defaults)
         XCTAssertEqual(candidates, ["/downloads/tv"])
     }
+
+    func testCandidatesWithNoHistoryOrExtraIsEmpty() {
+        XCTAssertEqual(RecentFolders.candidates(from: defaults), [])
+    }
+
+    func testCandidatesDedupesWithinExtraItself() {
+        let candidates = RecentFolders.candidates(
+            extra: ["/downloads/tv", "/downloads/tv"], from: defaults)
+        XCTAssertEqual(candidates, ["/downloads/tv"])
+    }
+
+    func testCandidatesNormalizesExtraEntriesBeforeDeduping() {
+        RecentFolders.record("/downloads/movies", in: defaults)
+        let candidates = RecentFolders.candidates(extra: ["/downloads//movies/"], from: defaults)
+        XCTAssertEqual(candidates, ["/downloads/movies"])
+    }
+
+    func testCandidatesIgnoresBlankExtraEntries() {
+        let candidates = RecentFolders.candidates(extra: ["", "   ", "/downloads/tv"], from: defaults)
+        XCTAssertEqual(candidates, ["/downloads/tv"])
+    }
+
+    func testRecordDoesNotGrowListWhenReRecordingSameFolderRepeatedly() {
+        for _ in 0..<(RecentFolders.maxEntries + 5) {
+            RecentFolders.record("/downloads/a", in: defaults)
+        }
+        XCTAssertEqual(RecentFolders.load(from: defaults), ["/downloads/a"])
+    }
+
+    func testRecordCapAtExactlyMaxEntriesKeepsAllOfThem() {
+        for i in 0..<RecentFolders.maxEntries {
+            RecentFolders.record("/downloads/\(i)", in: defaults)
+        }
+        XCTAssertEqual(RecentFolders.load(from: defaults).count, RecentFolders.maxEntries)
+    }
 }
