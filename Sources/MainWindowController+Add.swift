@@ -87,12 +87,15 @@ extension MainWindowController {
         }
 
         stack.addArrangedSubview(makeLabel("Destination folder on the server:"))
-        let recentDirs = RecentFolders.load()
+        // Same folder history the Move dialog reads/writes (`RecentFolders`),
+        // plus every folder a current torrent already lives in — so the list is
+        // useful the first time, not just after using Add once.
+        let candidates = RecentFolders.candidates(extra: torrents.map(\.normalizedDownloadDir))
         let destField = NSComboBox()
-        destField.stringValue = recentDirs.first ?? refresh.defaultDownloadDir ?? ""
+        destField.stringValue = refresh.defaultDownloadDir ?? candidates.first ?? ""
         destField.placeholderString = "Server download directory"
         destField.lineBreakMode = .byTruncatingHead
-        destField.addItems(withObjectValues: recentDirs)
+        destField.addItems(withObjectValues: candidates)
         destField.completes = true
         destField.numberOfVisibleItems = 10
         destField.widthAnchor.constraint(equalToConstant: 460).isActive = true
