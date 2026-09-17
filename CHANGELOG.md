@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.09.17.2 — 2026-09-17
+
+- Fix concurrency/correctness bugs; add Docker Transmission test fixture
+
 ## 2026.09.17.1 — 2026-09-17
 
 - Broaden RecentFolders test coverage; fix whitespace-only entry leak
