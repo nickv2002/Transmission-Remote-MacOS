@@ -113,6 +113,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     let uploadedEver: Int64
     let seedRatioLimit: Double
     let seedRatioModeRaw: Int
+    let recheckProgress: Double
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -144,6 +145,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         case uploadedEver
         case seedRatioLimit
         case seedRatioModeRaw = "seedRatioMode"
+        case recheckProgress
     }
 
     /// Tolerant decode: identity/display fields are required, but the heavier or
@@ -184,9 +186,15 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         uploadedEver = try c.decodeIfPresent(Int64.self, forKey: .uploadedEver) ?? 0
         seedRatioLimit = try c.decodeIfPresent(Double.self, forKey: .seedRatioLimit) ?? 0
         seedRatioModeRaw = try c.decodeIfPresent(Int.self, forKey: .seedRatioModeRaw) ?? 0
+        recheckProgress = try c.decodeIfPresent(Double.self, forKey: .recheckProgress) ?? 0
     }
 
     var status: TorrentStatus { TorrentStatus(rawValue: statusRaw) ?? .stopped }
+
+    /// The fraction to show in the progress bar: verify progress while checking,
+    /// download progress otherwise (`percentDone` reflects download completion and
+    /// is stale/misleading during a recheck).
+    var displayProgress: Double { status == .checking ? recheckProgress : percentDone }
 
     /// True while the torrent is actually transferring (has up/down throughput).
     var isTransferring: Bool { rateDownload > 0 || rateUpload > 0 }
@@ -310,7 +318,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         "peersGettingFromUs", "addedDate", "hashString", "queuePosition",
         "bandwidthPriority", "trackers", "comment", "error", "doneDate",
         "activityDate", "downloadedEver", "uploadedEver", "seedRatioLimit",
-        "seedRatioMode",
+        "seedRatioMode", "recheckProgress",
     ]
 
     /// A slimmer field set for the very first poll after a fresh connect, so the
@@ -323,7 +331,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
         "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
         "downloadDir", "error", "errorString", "addedDate", "hashString",
-        "queuePosition", "bandwidthPriority",
+        "queuePosition", "bandwidthPriority", "recheckProgress",
     ]
 }
 
