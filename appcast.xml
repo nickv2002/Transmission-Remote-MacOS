@@ -139,5 +139,17 @@
         length="3230388"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.09.17.2</title>
+      <sparkle:version>2026.09.17.2</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 17 Sep 2026 23:07:12 +0000</pubDate>
+      <description><![CDATA[<ul><li>Fix concurrency/correctness bugs; add Docker Transmission test fixture</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.17.2/Transmission.Remote-2026.09.17.2.zip"
+        sparkle:edSignature="SUULXCjtgrQ6J2DmyHDB3QSnYLgiYcZ6K8jTj3IuPvdtznzo0adCM1SD/MT4ukB8OIctvJYAfBkMbChzOGTTBQ=="
+        length="3237363"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
