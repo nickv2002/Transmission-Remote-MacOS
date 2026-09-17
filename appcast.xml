@@ -127,5 +127,17 @@
         length="3229931"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.09.17.1</title>
+      <sparkle:version>2026.09.17.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Thu, 17 Sep 2026 19:09:59 +0000</pubDate>
+      <description><![CDATA[<ul><li>Broaden RecentFolders test coverage; fix whitespace-only entry leak</li><li>Share destination-folder history between Add and Move dialogs</li><li>Remember recently-used destination folders when adding torrents</li><li>Add Seeds and Peers columns to the main torrent list</li><li>Show real recheck progress instead of stale percentDone while checking</li><li>Refactor README.md for improved formatting</li><li>Auto-document zip SHA256 and code signature in release notes</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.17.1/Transmission.Remote-2026.09.17.1.zip"
+        sparkle:edSignature="ShsbUvOSiaS8SYCpsM424rbc5Tyg0LDVSBqa/NQr3kAiYQL1ABpJqvibYPJuNF33HH3EODoLxWJJ5sVGy4tFAw=="
+        length="3230388"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>

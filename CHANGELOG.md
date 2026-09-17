@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.09.17.1 — 2026-09-17
+
+- Broaden RecentFolders test coverage; fix whitespace-only entry leak
+- Share destination-folder history between Add and Move dialogs
+- Remember recently-used destination folders when adding torrents
+- Add Seeds and Peers columns to the main torrent list
+- Show real recheck progress instead of stale percentDone while checking
+- Refactor README.md for improved formatting
+- Auto-document zip SHA256 and code signature in release notes
+
 ## 2026.08.25.1 — 2026-08-25
 
 - Always show the active server name in the window title
