@@ -87,9 +87,14 @@ extension MainWindowController {
         }
 
         stack.addArrangedSubview(makeLabel("Destination folder on the server:"))
-        let destField = NSTextField(string: refresh.defaultDownloadDir ?? "")
+        let recentDirs = RecentFolders.load()
+        let destField = NSComboBox()
+        destField.stringValue = recentDirs.first ?? refresh.defaultDownloadDir ?? ""
         destField.placeholderString = "Server download directory"
         destField.lineBreakMode = .byTruncatingHead
+        destField.addItems(withObjectValues: recentDirs)
+        destField.completes = true
+        destField.numberOfVisibleItems = 10
         destField.widthAnchor.constraint(equalToConstant: 460).isActive = true
         stack.addArrangedSubview(destField)
 
@@ -123,6 +128,7 @@ extension MainWindowController {
         alert.window.initialFirstResponder = linkField ?? destField
 
         alert.beginSheetModal(for: window) { [weak self] response in
+            destField.validateEditing()
             guard response == .alertFirstButtonReturn else { return }
             let dest = destField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let paused = startCheck.state != .on
@@ -163,6 +169,7 @@ extension MainWindowController {
                 let outcome = try await client.addTorrent(
                     metainfoBase64: metainfo, filename: filename,
                     downloadDir: downloadDir, paused: paused)
+                RecentFolders.record(downloadDir)
                 refresh.refreshNow()
                 if outcome.duplicate { self.showDuplicate(name: outcome.name) }
             } catch {
