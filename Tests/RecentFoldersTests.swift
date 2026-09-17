@@ -48,4 +48,23 @@ final class RecentFoldersTests: XCTestCase {
         RecentFolders.record("  /downloads/a  ", in: defaults)
         XCTAssertEqual(RecentFolders.load(from: defaults), ["/downloads/a"])
     }
+
+    func testRecordNormalizesDuplicateSlashesAsTheSameEntry() {
+        RecentFolders.record("/downloads/a", in: defaults)
+        RecentFolders.record("/downloads//a/", in: defaults)
+        XCTAssertEqual(RecentFolders.load(from: defaults), ["/downloads/a"])
+    }
+
+    func testCandidatesMergesHistoryAndExtraSortedAndDeduped() {
+        RecentFolders.record("/downloads/movies", in: defaults)
+        RecentFolders.record("/downloads/books", in: defaults)
+        let candidates = RecentFolders.candidates(
+            extra: ["/downloads/tv", "/downloads/movies"], from: defaults)
+        XCTAssertEqual(candidates, ["/downloads/books", "/downloads/movies", "/downloads/tv"])
+    }
+
+    func testCandidatesWithNoHistoryReturnsJustExtra() {
+        let candidates = RecentFolders.candidates(extra: ["/downloads/tv"], from: defaults)
+        XCTAssertEqual(candidates, ["/downloads/tv"])
+    }
 }
