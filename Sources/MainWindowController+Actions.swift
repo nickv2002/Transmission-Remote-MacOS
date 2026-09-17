@@ -499,28 +499,15 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     private func recordMoveDir(_ dir: String) {
-        let key = "RecentMoveDirs"
-        let normalized = Torrent.normalizeDownloadDir(dir)
-        var list = UserDefaults.standard.stringArray(forKey: key) ?? []
-        list.removeAll { Torrent.normalizeDownloadDir($0) == normalized }
-        list.insert(normalized, at: 0)
-        UserDefaults.standard.set(Array(list.prefix(20)), forKey: key)
+        RecentFolders.record(dir)
     }
 
     private func promptLocation(title: String, message: String, defaultValue: String,
                                 completion: @escaping (String?, Bool) -> Void) {
         guard let window else { return }
 
-        let recentKey = "RecentMoveDirs"
-        let recent = UserDefaults.standard.stringArray(forKey: recentKey) ?? []
-
-        var seen = Set<String>()
-        let allDirs: [String] = (recent + torrents.map(\.normalizedDownloadDir))
-            .compactMap { dir -> String? in
-                let normalized = Torrent.normalizeDownloadDir(dir)
-                return seen.insert(normalized).inserted ? normalized : nil
-            }
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        // Same shared history the Add-torrent sheet reads/writes.
+        let allDirs = RecentFolders.candidates(extra: torrents.map(\.normalizedDownloadDir))
 
         let alert = NSAlert()
         alert.messageText = title

@@ -87,9 +87,17 @@ extension MainWindowController {
         }
 
         stack.addArrangedSubview(makeLabel("Destination folder on the server:"))
-        let destField = NSTextField(string: refresh.defaultDownloadDir ?? "")
+        // Same folder history the Move dialog reads/writes (`RecentFolders`),
+        // plus every folder a current torrent already lives in — so the list is
+        // useful the first time, not just after using Add once.
+        let candidates = RecentFolders.candidates(extra: torrents.map(\.normalizedDownloadDir))
+        let destField = NSComboBox()
+        destField.stringValue = refresh.defaultDownloadDir ?? candidates.first ?? ""
         destField.placeholderString = "Server download directory"
         destField.lineBreakMode = .byTruncatingHead
+        destField.addItems(withObjectValues: candidates)
+        destField.completes = true
+        destField.numberOfVisibleItems = 10
         destField.widthAnchor.constraint(equalToConstant: 460).isActive = true
         stack.addArrangedSubview(destField)
 
@@ -123,6 +131,7 @@ extension MainWindowController {
         alert.window.initialFirstResponder = linkField ?? destField
 
         alert.beginSheetModal(for: window) { [weak self] response in
+            destField.validateEditing()
             guard response == .alertFirstButtonReturn else { return }
             let dest = destField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let paused = startCheck.state != .on
@@ -163,6 +172,7 @@ extension MainWindowController {
                 let outcome = try await client.addTorrent(
                     metainfoBase64: metainfo, filename: filename,
                     downloadDir: downloadDir, paused: paused)
+                RecentFolders.record(downloadDir)
                 refresh.refreshNow()
                 if outcome.duplicate { self.showDuplicate(name: outcome.name) }
             } catch {
