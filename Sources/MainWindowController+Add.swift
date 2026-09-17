@@ -155,13 +155,17 @@ extension MainWindowController {
     // MARK: - Performing the add
 
     private func addFromFiles(_ files: [URL], downloadDir: String, paused: Bool) {
-        for url in files {
-            guard let data = try? Data(contentsOf: url) else {
-                showError(TransmissionError.connectionFailed("Could not read \(url.lastPathComponent)."))
-                continue
+        Task { @MainActor in
+            for url in files {
+                do {
+                    let base64 = try await Task.detached {
+                        try Data(contentsOf: url).base64EncodedString()
+                    }.value
+                    performAdd(metainfo: base64, filename: nil, downloadDir: downloadDir, paused: paused)
+                } catch {
+                    showError(TransmissionError.connectionFailed("Could not read \(url.lastPathComponent)."))
+                }
             }
-            performAdd(metainfo: data.base64EncodedString(), filename: nil,
-                       downloadDir: downloadDir, paused: paused)
         }
     }
 

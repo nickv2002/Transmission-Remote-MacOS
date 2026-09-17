@@ -248,37 +248,48 @@ actor TransmissionClient {
         return decoded
     }
 
+    /// Max 409 retries. Normally one round-trip fixes it (empty/stale session id
+    /// → daemon hands back the current one), but under concurrent RPCs the daemon
+    /// can rotate the id again between our retry being built and sent, so allow a
+    /// couple more attempts rather than hard-failing on the first re-rotation.
+    private static let maxSessionRetries = 3
+
     private func perform(body: Data, allowRetry: Bool) async throws -> (Data, HTTPURLResponse) {
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.httpBody = body
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let authHeader {
-            request.setValue(authHeader, forHTTPHeaderField: "Authorization")
-        }
-        if let sessionId {
-            request.setValue(sessionId, forHTTPHeaderField: Self.sessionIdHeader)
-        }
+        var attempt = 0
+        while true {
+            var request = URLRequest(url: endpoint)
+            request.httpMethod = "POST"
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let authHeader {
+                request.setValue(authHeader, forHTTPHeaderField: "Authorization")
+            }
+            if let sessionId {
+                request.setValue(sessionId, forHTTPHeaderField: Self.sessionIdHeader)
+            }
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw TransmissionError.connectionFailed(error.localizedDescription)
-        }
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: request)
+            } catch {
+                throw TransmissionError.connectionFailed(error.localizedDescription)
+            }
 
-        guard let http = response as? HTTPURLResponse else {
-            throw TransmissionError.connectionFailed("non-HTTP response")
-        }
+            guard let http = response as? HTTPURLResponse else {
+                throw TransmissionError.connectionFailed("non-HTTP response")
+            }
 
-        // CSRF: capture the session id from the 409 and replay once.
-        if http.statusCode == 409, allowRetry,
-           let newId = http.value(forHTTPHeaderField: Self.sessionIdHeader) {
-            sessionId = newId
-            return try await perform(body: body, allowRetry: false)
-        }
+            // CSRF: capture the session id from the 409 and replay, using whatever
+            // id the daemon reports as current at retry time (not a stale snapshot).
+            if http.statusCode == 409, allowRetry, attempt < Self.maxSessionRetries,
+               let newId = http.value(forHTTPHeaderField: Self.sessionIdHeader) {
+                sessionId = newId
+                attempt += 1
+                continue
+            }
 
-        return (data, http)
+            return (data, http)
+        }
     }
 }

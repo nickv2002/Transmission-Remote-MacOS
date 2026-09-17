@@ -72,10 +72,26 @@ struct AppConfig: Codable, Sendable, Equatable {
 
     init(servers: [ServerConfig], refreshSeconds: Double, currentServer: String? = nil,
          autoCheckForUpdates: Bool = true) {
-        self.servers = servers.isEmpty ? [.localhost] : servers
+        self.servers = Self.dedupeNames(servers.isEmpty ? [.localhost] : servers)
         self.refreshSeconds = max(1, refreshSeconds)
         self.currentServer = currentServer
         self.autoCheckForUpdates = autoCheckForUpdates
+    }
+
+    /// Disambiguates servers that share a name (e.g. two decoded entries that both
+    /// fell back to the same "host:port" default) by suffixing " (2)", " (3)", ...
+    /// on later duplicates, so `server(named:)` can address every server — a
+    /// duplicate name would otherwise make later entries permanently unreachable
+    /// via the Server menu until manually renamed in Settings.
+    private static func dedupeNames(_ servers: [ServerConfig]) -> [ServerConfig] {
+        var seenCounts: [String: Int] = [:]
+        return servers.map { server in
+            var server = server
+            let count = (seenCounts[server.name] ?? 0) + 1
+            seenCounts[server.name] = count
+            if count > 1 { server.name += " (\(count))" }
+            return server
+        }
     }
 
     /// The built-in default config used when nothing is stored yet.
@@ -87,7 +103,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         let decoded = try c.decodeIfPresent([ServerConfig].self, forKey: .servers) ?? []
         // Fall back to a single localhost default so the app still launches when
         // `servers` is empty or missing.
-        servers = decoded.isEmpty ? [.localhost] : decoded
+        servers = Self.dedupeNames(decoded.isEmpty ? [.localhost] : decoded)
         let refresh = try c.decodeIfPresent(Double.self, forKey: .refreshSeconds) ?? 4
         refreshSeconds = max(1, refresh)
         currentServer = try c.decodeIfPresent(String.self, forKey: .currentServer)

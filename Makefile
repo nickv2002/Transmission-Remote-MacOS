@@ -1,4 +1,4 @@
-.PHONY: help release build notarize install test generate dev run clean
+.PHONY: help release build notarize install test generate dev run clean fixture-up fixture-down fixture-test
 
 VERSION ?= $(shell scripts/next_version.sh)
 
@@ -12,6 +12,9 @@ help:
 	@echo "    test       Run unit tests"
 	@echo "    generate   Regenerate the Xcode project from project.yml"
 	@echo "    clean      Remove DerivedData for this project"
+	@echo "    fixture-up    Bring up the disposable Docker Transmission fixture (port 19091)"
+	@echo "    fixture-down  Tear down the fixture and wipe its scratch data"
+	@echo "    fixture-test  Up, run FixtureTransmissionTests, then down (always, even on failure)"
 	@echo ""
 	@echo "  Release pipeline"
 	@echo "    release    Full pipeline: build → sign → notarize → changelog → tag → push → GitHub release → install"
@@ -65,3 +68,15 @@ run:
 # Remove DerivedData for this project
 clean:
 	rm -rf ~/Library/Developer/Xcode/DerivedData/TransmissionRemote-*
+
+# Bring up the disposable Docker Transmission fixture used by FixtureTransmissionTests
+fixture-up:
+	scripts/fixture/up.sh
+
+# Tear down the fixture and wipe its scratch data
+fixture-down:
+	scripts/fixture/down.sh
+
+# Up, run FixtureTransmissionTests, then down — unconditionally, even on failure
+fixture-test:
+	scripts/fixture/run-tests.sh

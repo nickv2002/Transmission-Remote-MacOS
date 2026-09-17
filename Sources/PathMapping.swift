@@ -33,62 +33,50 @@ extension PathMapping {
     }
 }
 
+/// Longest-prefix-match lookup shared by `mapRemoteToLocal`/`mapLocalToRemote`
+/// (below) so a future edge-case fix — the trailing-slash guard, the tie-break —
+/// only needs to change once instead of being hand-copied on both sides. An exact
+/// match on `key` wins outright; otherwise the longest matching `/`-prefix wins
+/// (not list order), so a more specific mapping (e.g. `/video/4k`) always beats a
+/// broader one (e.g. `/video`) regardless of which line it's on. A prefix match is
+/// guarded by a trailing `/`, so `/var` does not match `/var2`. Case-sensitive.
+private func longestPrefixMatch(_ input: String, in pairs: [(key: String, value: String)]) -> String? {
+    let fn = input.trimmingCharacters(in: .whitespaces)
+    guard !fn.isEmpty else { return nil }
+    var best: (prefixLength: Int, value: String)?
+    for (rawKey, rawValue) in pairs {
+        let key = rawKey.trimmingCharacters(in: .whitespaces)
+        guard !key.isEmpty else { continue }
+        let value = rawValue.trimmingCharacters(in: .whitespaces)
+        if key == fn { return value }
+        let keyWithSlash = key.hasSuffix("/") ? key : key + "/"
+        if fn.hasPrefix(keyWithSlash), best == nil || keyWithSlash.count > best!.prefixLength {
+            let remainder = fn.dropFirst(keyWithSlash.count)
+            let base = value.hasSuffix("/") ? String(value.dropLast()) : value
+            best = (keyWithSlash.count, base + "/" + remainder)
+        }
+    }
+    return best?.value
+}
+
 extension ServerConfig {
     /// Translate a remote absolute path to a local one using this server's
-    /// mappings. An exact match on a mapping's remote side wins outright;
-    /// otherwise the longest matching remote-side prefix wins (not list order),
-    /// so a more specific mapping (e.g. `/video/4k`) always beats a broader one
-    /// (e.g. `/video`) regardless of which line it's on. Returns `nil` when no
-    /// mapping applies.
+    /// mappings. Returns `nil` when no mapping applies.
     ///
     /// Ported from `main.pas` `MapRemoteToLocal`, but strengthened to match
-    /// `mapLocalToRemote`'s longest-prefix-wins tie-break below: the remainder of
-    /// the remote path is appended to the local base of the best (longest)
-    /// matching mapping. A prefix match is guarded by a trailing `/`, so `/var`
-    /// does not match `/var2`. Case-sensitive. Both sides use `/` on macOS, so
-    /// the Pascal `FixSeparators` step reduces to a trim.
+    /// `mapLocalToRemote`'s longest-prefix-wins tie-break: both sides use `/` on
+    /// macOS, so the Pascal `FixSeparators` step reduces to a trim.
     func mapRemoteToLocal(_ remotePath: String) -> String? {
-        let fn = remotePath.trimmingCharacters(in: .whitespaces)
-        guard !fn.isEmpty else { return nil }
-        var best: (prefixLength: Int, local: String)?
-        for mapping in pathMappings {
-            let remote = mapping.remote.trimmingCharacters(in: .whitespaces)
-            guard !remote.isEmpty else { continue }
-            let local = mapping.local.trimmingCharacters(in: .whitespaces)
-            if remote == fn { return local }
-            let remoteWithSlash = remote.hasSuffix("/") ? remote : remote + "/"
-            if fn.hasPrefix(remoteWithSlash), best == nil || remoteWithSlash.count > best!.prefixLength {
-                let remainder = fn.dropFirst(remoteWithSlash.count)
-                let base = local.hasSuffix("/") ? String(local.dropLast()) : local
-                best = (remoteWithSlash.count, base + "/" + remainder)
-            }
-        }
-        return best?.local
+        longestPrefixMatch(remotePath, in: pathMappings.map { ($0.remote, $0.local) })
     }
 
     /// Translate a local absolute path back to a remote one — the inverse of
-    /// `mapRemoteToLocal`, used by Move's "Browse…" local folder picker. An
-    /// exact match on a mapping's local side returns its remote side outright;
-    /// otherwise the longest matching local-side prefix wins (not "last
-    /// matching entry", unlike the legacy Pascal `SelectRemoteFolder`, which
-    /// lacked a break and let list order decide ties on overlapping mappings).
+    /// `mapRemoteToLocal`, used by Move's "Browse…" local folder picker. Longest
+    /// matching local-side prefix wins (not "last matching entry", unlike the
+    /// legacy Pascal `SelectRemoteFolder`, which lacked a break and let list order
+    /// decide ties on overlapping mappings).
     func mapLocalToRemote(_ localPath: String) -> String? {
-        let fn = localPath.trimmingCharacters(in: .whitespaces)
-        guard !fn.isEmpty else { return nil }
-        var best: (prefixLength: Int, remote: String)?
-        for mapping in pathMappings {
-            let local = mapping.local.trimmingCharacters(in: .whitespaces)
-            guard !local.isEmpty else { continue }
-            let remote = mapping.remote.trimmingCharacters(in: .whitespaces)
-            if local == fn { return remote }
-            let localWithSlash = local.hasSuffix("/") ? local : local + "/"
-            if fn.hasPrefix(localWithSlash), best == nil || localWithSlash.count > best!.prefixLength {
-                let remainder = fn.dropFirst(localWithSlash.count)
-                let base = remote.hasSuffix("/") ? String(remote.dropLast()) : remote
-                best = (localWithSlash.count, base + "/" + remainder)
-            }
-        }
-        return best?.remote
+        longestPrefixMatch(localPath, in: pathMappings.map { ($0.local, $0.remote) })
     }
 
     /// The three ways a remote path can resolve to something usable on this Mac —
