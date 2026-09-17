@@ -105,6 +105,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     let queuePosition: Int
     let bandwidthPriorityRaw: Int
     let trackers: [TrackerInfo]
+    let trackerStats: [TrackerStatsInfo]
     let comment: String
     let errorCode: Int
     let doneDate: Double
@@ -136,6 +137,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         case queuePosition
         case bandwidthPriorityRaw = "bandwidthPriority"
         case trackers
+        case trackerStats
         case comment
         case errorCode = "error"
         case doneDate
@@ -174,6 +176,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         errorCode = try c.decodeIfPresent(Int.self, forKey: .errorCode) ?? 0
         // Omitted by the slim first poll; arrive on the next full poll.
         trackers = try c.decodeIfPresent([TrackerInfo].self, forKey: .trackers) ?? []
+        trackerStats = try c.decodeIfPresent([TrackerStatsInfo].self, forKey: .trackerStats) ?? []
         comment = try c.decodeIfPresent(String.self, forKey: .comment) ?? ""
         peersConnected = try c.decodeIfPresent(Int.self, forKey: .peersConnected) ?? 0
         peersSendingToUs = try c.decodeIfPresent(Int.self, forKey: .peersSendingToUs) ?? 0
@@ -203,6 +206,16 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         }
         return Formatters.eta(eta)
     }
+
+    /// Connected seeds (peers currently sending to us) and, when a tracker has
+    /// reported one, the swarm-wide seeder total (`-1` when unknown — mirrors the
+    /// legacy Pascal app's sentinel for "no tracker stats yet").
+    var seedsConnected: Int { peersSendingToUs }
+    var seedsTotal: Int { trackerStats.first?.seederCount ?? -1 }
+
+    /// Connected peers we're uploading to, and the swarm-wide leecher total.
+    var peersConnectedForUpload: Int { peersGettingFromUs }
+    var leechersTotal: Int { trackerStats.first?.leecherCount ?? -1 }
 
     /// `downloadDir` normalized so location-equivalent strings collapse into one:
     /// runs of "/" collapsed and any trailing "/" trimmed (root "/" preserved).
@@ -308,7 +321,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
         "downloadDir", "errorString", "peersConnected", "peersSendingToUs",
         "peersGettingFromUs", "addedDate", "hashString", "queuePosition",
-        "bandwidthPriority", "trackers", "comment", "error", "doneDate",
+        "bandwidthPriority", "trackers", "trackerStats", "comment", "error", "doneDate",
         "activityDate", "downloadedEver", "uploadedEver", "seedRatioLimit",
         "seedRatioMode",
     ]
@@ -330,6 +343,13 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
 /// One tracker entry from a torrent's `trackers` array (we only need the URL).
 struct TrackerInfo: Codable, Sendable, Equatable {
     let announce: String
+}
+
+/// One entry from a torrent's `trackerStats` array — swarm-wide seeder/leecher
+/// counts as last reported by that tracker (`-1` means "unknown").
+struct TrackerStatsInfo: Codable, Sendable, Equatable {
+    let seederCount: Int
+    let leecherCount: Int
 }
 
 /// Subset of `session-get` we care about for the MVP.

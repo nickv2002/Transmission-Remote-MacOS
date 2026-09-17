@@ -58,4 +58,12 @@ final class FormattersTests: XCTestCase {
         // compactDateTime joins date + time with a plain space (no locale comma).
         XCTAssertFalse(Formatters.compactDateTime(epoch).contains(","))
     }
+
+    func testPeerCountWithKnownTotal() {
+        XCTAssertEqual(Formatters.peerCount(connected: 3, total: 12), "3/12")
+    }
+
+    func testPeerCountWithUnknownTotal() {
+        XCTAssertEqual(Formatters.peerCount(connected: 3, total: -1), "3")
+    }
 }

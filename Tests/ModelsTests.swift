@@ -35,6 +35,26 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(downloading.etaDisplay, "1m 30s")
     }
 
+    func testSeedsAndPeersConnectedComeFromPeerCounts() {
+        let t = TorrentFactory.make(["peersSendingToUs": 3, "peersGettingFromUs": 2])
+        XCTAssertEqual(t.seedsConnected, 3)
+        XCTAssertEqual(t.peersConnectedForUpload, 2)
+    }
+
+    func testSeedsAndPeersTotalsDefaultToUnknownWithoutTrackerStats() {
+        let t = TorrentFactory.make([:])
+        XCTAssertEqual(t.seedsTotal, -1)
+        XCTAssertEqual(t.leechersTotal, -1)
+    }
+
+    func testSeedsAndPeersTotalsComeFromFirstTrackerStats() {
+        let t = TorrentFactory.make([
+            "trackerStats": [["seederCount": 12, "leecherCount": 8]] as [[String: Any]],
+        ])
+        XCTAssertEqual(t.seedsTotal, 12)
+        XCTAssertEqual(t.leechersTotal, 8)
+    }
+
     func testNormalizeDownloadDir() {
         XCTAssertEqual(Torrent.normalizeDownloadDir("/data//movies/"), "/data/movies")
         XCTAssertEqual(Torrent.normalizeDownloadDir("/data/movies"), "/data/movies")
