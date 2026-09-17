@@ -674,7 +674,7 @@ final class MainWindowController: NSWindowController {
             case .name: result = a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
             case .size: result = a.totalSize < b.totalSize
             case .status: result = a.statusRaw < b.statusRaw
-            case .progress: result = a.percentDone < b.percentDone
+            case .progress: result = a.displayProgress < b.displayProgress
             case .down: result = a.rateDownload < b.rateDownload
             case .up: result = a.rateUpload < b.rateUpload
             case .eta: result = a.eta < b.eta
@@ -881,7 +881,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
                     c.identifier = ProgressCellView.reuseIdentifier
                     return c
                 }()
-            cell.configure(fraction: t.percentDone, color: progressColor(for: t))
+            cell.configure(fraction: t.displayProgress, color: progressColor(for: t))
             return cell
         }
 
