@@ -43,7 +43,7 @@ enum RecentFolders {
         var seen = Set<String>()
         return (load(from: defaults) + extra)
             .compactMap { dir -> String? in
-                let normalized = Torrent.normalizeDownloadDir(dir)
+                let normalized = Torrent.normalizeDownloadDir(dir.trimmingCharacters(in: .whitespacesAndNewlines))
                 guard !normalized.isEmpty else { return nil }
                 return seen.insert(normalized).inserted ? normalized : nil
             }
