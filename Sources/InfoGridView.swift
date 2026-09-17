@@ -343,7 +343,7 @@ final class InfoGridView: NSView {
         if t.hasError { wide("Error", "[\(t.errorCode)] \(t.errorString)") }
 
         short("Status", t.status.displayName)
-        short("Progress", Formatters.percent(t.percentDone))
+        short("Progress", Formatters.percent(t.displayProgress))
         short("Ratio", Formatters.ratio(t.uploadRatio))
         // "want" only differs when some files are unwanted; omit the noise otherwise.
         let size = t.sizeWhenDone == t.totalSize

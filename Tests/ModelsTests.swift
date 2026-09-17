@@ -55,6 +55,25 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(t.leechersTotal, 8)
     }
 
+    func testDisplayProgressDefaultsToZero() {
+        let t = TorrentFactory.make([:])
+        XCTAssertEqual(t.recheckProgress, 0)
+    }
+
+    func testDisplayProgressUsesRecheckProgressWhileChecking() {
+        let checking = TorrentFactory.make([
+            "status": TorrentStatus.checking.rawValue, "percentDone": 1.0, "recheckProgress": 0.466,
+        ])
+        XCTAssertEqual(checking.displayProgress, 0.466)
+    }
+
+    func testDisplayProgressUsesPercentDoneOtherwise() {
+        let downloading = TorrentFactory.make([
+            "status": TorrentStatus.downloading.rawValue, "percentDone": 0.3, "recheckProgress": 0.9,
+        ])
+        XCTAssertEqual(downloading.displayProgress, 0.3)
+    }
+
     func testNormalizeDownloadDir() {
         XCTAssertEqual(Torrent.normalizeDownloadDir("/data//movies/"), "/data/movies")
         XCTAssertEqual(Torrent.normalizeDownloadDir("/data/movies"), "/data/movies")

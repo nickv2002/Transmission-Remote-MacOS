@@ -37,6 +37,7 @@ enum TorrentFactory {
             "uploadedEver": 0,
             "seedRatioLimit": 0.0,
             "seedRatioMode": 0,
+            "recheckProgress": 0.0,
         ]
         for (k, v) in overrides { dict[k] = v }
         let data = try! JSONSerialization.data(withJSONObject: dict)
