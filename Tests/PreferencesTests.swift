@@ -65,6 +65,20 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(cfg.autoCheckForUpdates)
     }
 
+    func testAppConfigDefaultsRemoveTorrentFileSettings() throws {
+        // Backward-compatible: configs written before this feature have no keys.
+        let cfg = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
+        XCTAssertFalse(cfg.removeTorrentFileAfterAdd)
+        XCTAssertEqual(cfg.removeTorrentFileMethod, .trash)
+    }
+
+    func testAppConfigDecodesRemoveTorrentFileSettings() throws {
+        let json = #"{"removeTorrentFileAfterAdd":true,"removeTorrentFileMethod":"delete"}"#
+        let cfg = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        XCTAssertTrue(cfg.removeTorrentFileAfterAdd)
+        XCTAssertEqual(cfg.removeTorrentFileMethod, .delete)
+    }
+
     func testServerLookupAndNames() {
         let cfg = AppConfig(
             servers: [.localhost, ServerConfig(name: "Remote", host: "h", port: 1,
@@ -91,6 +105,16 @@ final class PreferencesTests: XCTestCase {
         let decoded = try PreferencesStore.decode(data)
         XCTAssertEqual(decoded, original)
         XCTAssertFalse(decoded.autoCheckForUpdates)
+    }
+
+    func testRemoveTorrentFileSettingsRoundTrip() throws {
+        let original = AppConfig(servers: [.localhost], refreshSeconds: 4,
+                                 removeTorrentFileAfterAdd: true,
+                                 removeTorrentFileMethod: .delete)
+        let decoded = try PreferencesStore.decode(PreferencesStore.encode(original))
+        XCTAssertEqual(decoded, original)
+        XCTAssertTrue(decoded.removeTorrentFileAfterAdd)
+        XCTAssertEqual(decoded.removeTorrentFileMethod, .delete)
     }
 
     func testSaveThenLoad() throws {
