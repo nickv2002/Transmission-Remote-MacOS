@@ -36,6 +36,12 @@ final class MainWindowController: NSWindowController {
     /// Full sorted model — every torrent from the server.
     var torrents: [Torrent] = []
 
+    /// Global default (from Settings) for removing a `.torrent` file after the
+    /// daemon accepts it; the Add dialog seeds its per-add checkbox from this.
+    var removeTorrentFileAfterAdd = false
+    /// How to remove it when enabled — move to Trash (default) or delete.
+    var removeTorrentFileMethod: TorrentFileRemoval = .trash
+
     /// Width thresholds (pt) for the Added column's three date forms, measured once
     /// from representative strings so each form appears right as it starts to fit:
     /// below `mid` → numeric date; `mid`..<`full` → numeric date+time; ≥`full` →
@@ -165,6 +171,8 @@ final class MainWindowController: NSWindowController {
 
     init(config: AppConfig) {
         self.refresh = RefreshController(config: config)
+        self.removeTorrentFileAfterAdd = config.removeTorrentFileAfterAdd
+        self.removeTorrentFileMethod = config.removeTorrentFileMethod
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 980, height: 620),
@@ -204,6 +212,8 @@ final class MainWindowController: NSWindowController {
     /// Apply a freshly reloaded config without rebuilding the window.
     func applyConfig(_ config: AppConfig) {
         refresh.updateConfig(config)
+        removeTorrentFileAfterAdd = config.removeTorrentFileAfterAdd
+        removeTorrentFileMethod = config.removeTorrentFileMethod
         updateWindowTitle()
     }
 
