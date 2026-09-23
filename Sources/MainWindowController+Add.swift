@@ -111,16 +111,17 @@ extension MainWindowController {
         startCheck.state = .on
         stack.addArrangedSubview(startCheck)
 
-        // Per-add override of the global "remove .torrent after adding" setting —
-        // only meaningful on the file route (there's no local file to remove for a
-        // magnet/URL). Seeded from the current global default.
-        var removeCheck: NSButton?
+        // Per-add override of the Settings default — only meaningful on the file
+        // route (there's no local file to remove for a magnet/URL). Seeded from
+        // the current Settings default.
+        var removeMethodPopup: NSPopUpButton?
         if link == nil {
-            let check = NSButton(checkboxWithTitle: "Remove .torrent file after adding",
-                                 target: nil, action: nil)
-            check.state = removeTorrentFileAfterAdd ? .on : .off
-            stack.addArrangedSubview(check)
-            removeCheck = check
+            stack.addArrangedSubview(makeLabel("Torrent file after adding:"))
+            let popup = NSPopUpButton()
+            popup.addItems(withTitles: TorrentFileRemoval.allCases.map(\.displayName))
+            popup.selectItem(at: TorrentFileRemoval.allCases.firstIndex(of: removeTorrentFileMethod) ?? 0)
+            stack.addArrangedSubview(popup)
+            removeMethodPopup = popup
         }
 
         // Wrap in a sized container so the alert lays the accessory out correctly.
@@ -153,11 +154,11 @@ extension MainWindowController {
                 self?.performAdd(metainfo: nil, filename: text, downloadDir: dest, paused: paused)
             } else {
                 // Snapshot the removal choice at confirm time so changing the
-                // Settings method mid-add can't retarget an in-flight deletion.
-                let removeAfterAdd = removeCheck?.state == .on
-                let method = self?.removeTorrentFileMethod ?? .trash
-                self?.addFromFiles(files, downloadDir: dest, paused: paused,
-                                   removeAfterAdd: removeAfterAdd, method: method)
+                // popup mid-add can't retarget an in-flight deletion.
+                let allCases = TorrentFileRemoval.allCases
+                let index = removeMethodPopup?.indexOfSelectedItem ?? 0
+                let method = allCases.indices.contains(index) ? allCases[index] : .none
+                self?.addFromFiles(files, downloadDir: dest, paused: paused, method: method)
             }
         }
     }
@@ -172,7 +173,7 @@ extension MainWindowController {
     // MARK: - Performing the add
 
     private func addFromFiles(_ files: [URL], downloadDir: String, paused: Bool,
-                              removeAfterAdd: Bool, method: TorrentFileRemoval) {
+                              method: TorrentFileRemoval) {
         Task { @MainActor in
             for url in files {
                 do {
@@ -180,7 +181,7 @@ extension MainWindowController {
                         try Data(contentsOf: url).base64EncodedString()
                     }.value
                     performAdd(metainfo: base64, filename: nil, downloadDir: downloadDir, paused: paused,
-                               sourceFileURL: url, removeAfterAdd: removeAfterAdd, method: method)
+                               sourceFileURL: url, method: method)
                 } catch {
                     showError(TransmissionError.connectionFailed("Could not read \(url.lastPathComponent)."))
                 }
@@ -189,8 +190,7 @@ extension MainWindowController {
     }
 
     private func performAdd(metainfo: String?, filename: String?, downloadDir: String, paused: Bool,
-                            sourceFileURL: URL? = nil, removeAfterAdd: Bool = false,
-                            method: TorrentFileRemoval = .trash) {
+                            sourceFileURL: URL? = nil, method: TorrentFileRemoval = .none) {
         guard let client = refresh.activeClient else { return }
         Task { @MainActor in
             do {
@@ -202,9 +202,9 @@ extension MainWindowController {
                 if outcome.duplicate { self.showDuplicate(name: outcome.name) }
                 // The daemon accepted it (a duplicate counts as success) — honor
                 // the removal choice captured when the dialog was confirmed.
-                if removeAfterAdd, let sourceFileURL {
+                if method != .none, let sourceFileURL {
                     do {
-                        try await Task.detached {
+                        _ = try await Task.detached {
                             try removeTorrentFile(at: sourceFileURL, method: method)
                         }.value
                     } catch {

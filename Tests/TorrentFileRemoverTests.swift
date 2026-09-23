@@ -44,4 +44,11 @@ final class TorrentFileRemoverTests: XCTestCase {
         let url = tmp.appendingPathComponent("missing.torrent")
         XCTAssertThrowsError(try removeTorrentFile(at: url, method: .delete))
     }
+
+    func testNoneLeavesFileUntouched() throws {
+        let url = try makeTorrentFile()
+        let result = try removeTorrentFile(at: url, method: .none)
+        XCTAssertNil(result)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
 }

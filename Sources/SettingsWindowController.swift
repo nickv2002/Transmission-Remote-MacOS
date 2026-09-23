@@ -39,8 +39,6 @@ final class SettingsWindowController: NSWindowController {
     private let refreshStepper = NSStepper()
     private let autoCheckBox = NSButton(checkboxWithTitle: "Automatically check for updates",
                                         target: nil, action: nil)
-    private let removeFileCheckbox = NSButton(checkboxWithTitle: "Remove .torrent file after adding",
-                                              target: nil, action: nil)
     private let removeFileMethodPopup = NSPopUpButton()
 
     // Bottom bar.
@@ -348,25 +346,17 @@ final class SettingsWindowController: NSWindowController {
         autoCheckBox.target = self
         autoCheckBox.action = #selector(autoCheckChanged)
 
-        removeFileCheckbox.target = self
-        removeFileCheckbox.action = #selector(removeFileToggled)
-
         removeFileMethodPopup.target = self
         removeFileMethodPopup.action = #selector(removeFileMethodChanged)
         removeFileMethodPopup.addItems(withTitles: TorrentFileRemoval.allCases.map(\.displayName))
 
         // A plain leading-aligned vertical stack: every row starts flush with
         // the "R" in "Refresh every:". (An NSGridView with several merged
-        // full-width checkbox rows collapsed those rows onto one line.) The
-        // removal-method row is indented under its checkbox.
-        let indent = NSView()
-        indent.translatesAutoresizingMaskIntoConstraints = false
-        indent.widthAnchor.constraint(equalToConstant: 14).isActive = true
-        let methodRow = stack([indent, label("When removing:"), removeFileMethodPopup])
+        // full-width checkbox rows collapsed those rows onto one line.)
+        let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
         let column = NSStackView(views: [
             stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
             autoCheckBox,
-            removeFileCheckbox,
             methodRow,
         ])
         column.orientation = .vertical
@@ -487,9 +477,7 @@ final class SettingsWindowController: NSWindowController {
         refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
         refreshStepper.doubleValue = editor.refreshSeconds
         autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
-        removeFileCheckbox.state = editor.removeTorrentFileAfterAdd ? .on : .off
         removeFileMethodPopup.selectItem(at: TorrentFileRemoval.allCases.firstIndex(of: editor.removeTorrentFileMethod) ?? 0)
-        removeFileMethodPopup.isEnabled = editor.removeTorrentFileAfterAdd
     }
 
     @objc private func refreshChanged() {
@@ -510,16 +498,10 @@ final class SettingsWindowController: NSWindowController {
         updateDirtyState()
     }
 
-    @objc private func removeFileToggled() {
-        editor.setRemoveTorrentFileAfterAdd(removeFileCheckbox.state == .on)
-        removeFileMethodPopup.isEnabled = removeFileCheckbox.state == .on
-        updateDirtyState()
-    }
-
     @objc private func removeFileMethodChanged() {
         let index = removeFileMethodPopup.indexOfSelectedItem
         let allCases = TorrentFileRemoval.allCases
-        editor.setRemoveTorrentFileMethod(allCases.indices.contains(index) ? allCases[index] : .trash)
+        editor.setRemoveTorrentFileMethod(allCases.indices.contains(index) ? allCases[index] : .none)
         updateDirtyState()
     }
 
