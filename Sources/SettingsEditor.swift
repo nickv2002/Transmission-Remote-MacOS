@@ -16,7 +16,9 @@ struct SettingsEditor: Equatable {
         let normalized = AppConfig(servers: config.servers,
                                    refreshSeconds: config.refreshSeconds,
                                    currentServer: config.currentServer,
-                                   autoCheckForUpdates: config.autoCheckForUpdates)
+                                   autoCheckForUpdates: config.autoCheckForUpdates,
+                                   removeTorrentFileAfterAdd: config.removeTorrentFileAfterAdd,
+                                   removeTorrentFileMethod: config.removeTorrentFileMethod)
         self.working = normalized
         self.savedBaseline = normalized
     }
@@ -29,6 +31,8 @@ struct SettingsEditor: Equatable {
     var currentServer: String? { working.currentServer }
     var refreshSeconds: Double { working.refreshSeconds }
     var autoCheckForUpdates: Bool { working.autoCheckForUpdates }
+    var removeTorrentFileAfterAdd: Bool { working.removeTorrentFileAfterAdd }
+    var removeTorrentFileMethod: TorrentFileRemoval { working.removeTorrentFileMethod }
 
     func server(at index: Int) -> ServerConfig? {
         working.servers.indices.contains(index) ? working.servers[index] : nil
@@ -39,7 +43,9 @@ struct SettingsEditor: Equatable {
         AppConfig(servers: working.servers,
                   refreshSeconds: working.refreshSeconds,
                   currentServer: working.currentServer,
-                  autoCheckForUpdates: working.autoCheckForUpdates)
+                  autoCheckForUpdates: working.autoCheckForUpdates,
+                  removeTorrentFileAfterAdd: working.removeTorrentFileAfterAdd,
+                  removeTorrentFileMethod: working.removeTorrentFileMethod)
     }
 
     /// True when there are changes not yet saved.
@@ -110,6 +116,14 @@ struct SettingsEditor: Equatable {
 
     mutating func setAutoCheckForUpdates(_ enabled: Bool) {
         working.autoCheckForUpdates = enabled
+    }
+
+    mutating func setRemoveTorrentFileAfterAdd(_ enabled: Bool) {
+        working.removeTorrentFileAfterAdd = enabled
+    }
+
+    mutating func setRemoveTorrentFileMethod(_ method: TorrentFileRemoval) {
+        working.removeTorrentFileMethod = method
     }
 
     // MARK: - Save / reset

@@ -51,6 +51,22 @@ struct ServerConfig: Codable, Sendable, Equatable {
         useHTTPS: false, rpcPath: "/transmission/rpc")
 }
 
+/// How a `.torrent` file is disposed of after the daemon has accepted it, when
+/// "remove after adding" is enabled.
+enum TorrentFileRemoval: String, Codable, Sendable, CaseIterable {
+    /// Move the file to the Trash (recoverable).
+    case trash
+    /// Delete the file permanently.
+    case delete
+
+    var displayName: String {
+        switch self {
+        case .trash: return "Move to Trash"
+        case .delete: return "Delete permanently"
+        }
+    }
+}
+
 /// App configuration: the list of named servers, the active one, and the poll
 /// interval. Persisted natively as JSON under Application Support by
 /// `PreferencesStore` (migrated from the legacy JSONC file on first run) and
@@ -65,17 +81,31 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// most, gated by its own last-check time). Defaults to `true`; the app asks
     /// the user to confirm this once on first launch (`AppDelegate`).
     var autoCheckForUpdates: Bool
+    /// When true, a `.torrent` file added via the file route is removed after the
+    /// daemon accepts it (including when it reports the torrent was already
+    /// present). Off by default; the Add dialog also offers a per-add override.
+    var removeTorrentFileAfterAdd: Bool
+    /// How to remove the `.torrent` file — move to Trash (default) or delete
+    /// permanently. Consulted whenever a file is actually removed: either
+    /// because `removeTorrentFileAfterAdd` is on, or because the user checked
+    /// the per-add override in the Add dialog for that add.
+    var removeTorrentFileMethod: TorrentFileRemoval
 
     enum CodingKeys: String, CodingKey {
         case servers, refreshSeconds, currentServer, autoCheckForUpdates
+        case removeTorrentFileAfterAdd, removeTorrentFileMethod
     }
 
     init(servers: [ServerConfig], refreshSeconds: Double, currentServer: String? = nil,
-         autoCheckForUpdates: Bool = true) {
+         autoCheckForUpdates: Bool = true,
+         removeTorrentFileAfterAdd: Bool = false,
+         removeTorrentFileMethod: TorrentFileRemoval = .trash) {
         self.servers = Self.dedupeNames(servers.isEmpty ? [.localhost] : servers)
         self.refreshSeconds = max(1, refreshSeconds)
         self.currentServer = currentServer
         self.autoCheckForUpdates = autoCheckForUpdates
+        self.removeTorrentFileAfterAdd = removeTorrentFileAfterAdd
+        self.removeTorrentFileMethod = removeTorrentFileMethod
     }
 
     /// Disambiguates servers that share a name (e.g. two decoded entries that both
@@ -109,6 +139,13 @@ struct AppConfig: Codable, Sendable, Equatable {
         currentServer = try c.decodeIfPresent(String.self, forKey: .currentServer)
         // Backward-compatible: configs written before this feature have no key.
         autoCheckForUpdates = try c.decodeIfPresent(Bool.self, forKey: .autoCheckForUpdates) ?? true
+        // Backward-compatible: configs written before this feature have no key.
+        removeTorrentFileAfterAdd = try c.decodeIfPresent(Bool.self, forKey: .removeTorrentFileAfterAdd) ?? false
+        // Decode via the raw string (not the enum directly) so an unrecognized
+        // value from a future version — or a downgrade — falls back to the safe
+        // default instead of failing the whole config decode.
+        let methodRaw = try c.decodeIfPresent(String.self, forKey: .removeTorrentFileMethod)
+        removeTorrentFileMethod = methodRaw.flatMap(TorrentFileRemoval.init(rawValue:)) ?? .trash
     }
 
     /// The display names of all configured servers, in file order.

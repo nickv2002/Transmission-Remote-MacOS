@@ -272,7 +272,9 @@ and **`HostCandidates`/`ConnectionResolver`** (comma- and newline-list parsing
 incl. scheme/port/path/IPv6/inheritance + first-reachable failover selection),
 and **`PathMapping`** (remote→local exact/prefix mapping, separator guard,
 longest-prefix-wins regardless of list order, case-sensitivity; `parse`/`format`
-round-trip).
+round-trip), and **`TorrentFileRemover`** (Trash / permanent delete of an added
+`.torrent`; the settings' decode defaults, round-trip, and survival through
+`SettingsEditor` normalize/save).
 A `TorrentFactory` helper builds `Torrent` values from a default JSON dict.
 
 ```sh
