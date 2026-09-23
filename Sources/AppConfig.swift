@@ -51,18 +51,23 @@ struct ServerConfig: Codable, Sendable, Equatable {
         useHTTPS: false, rpcPath: "/transmission/rpc")
 }
 
-/// How a `.torrent` file is disposed of after the daemon has accepted it, when
-/// "remove after adding" is enabled.
+/// How the local `.torrent` file is disposed of after the daemon has accepted
+/// the add. `none` leaves it in place. This never touches the torrent's
+/// downloaded data or removes the torrent itself — only the `.torrent` file
+/// used to add it.
 enum TorrentFileRemoval: String, Codable, Sendable, CaseIterable {
-    /// Move the file to the Trash (recoverable).
+    /// Leave the `.torrent` file where it is.
+    case none
+    /// Move the `.torrent` file to the Trash (recoverable).
     case trash
-    /// Delete the file permanently.
+    /// Delete the `.torrent` file permanently.
     case delete
 
     var displayName: String {
         switch self {
-        case .trash: return "Move to Trash"
-        case .delete: return "Delete permanently"
+        case .none: return "Don't remove the .torrent file"
+        case .trash: return "Move the .torrent file to Trash"
+        case .delete: return "Delete the .torrent file permanently"
         }
     }
 }
@@ -81,30 +86,24 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// most, gated by its own last-check time). Defaults to `true`; the app asks
     /// the user to confirm this once on first launch (`AppDelegate`).
     var autoCheckForUpdates: Bool
-    /// When true, a `.torrent` file added via the file route is removed after the
-    /// daemon accepts it (including when it reports the torrent was already
-    /// present). Off by default; the Add dialog also offers a per-add override.
-    var removeTorrentFileAfterAdd: Bool
-    /// How to remove the `.torrent` file — move to Trash (default) or delete
-    /// permanently. Consulted whenever a file is actually removed: either
-    /// because `removeTorrentFileAfterAdd` is on, or because the user checked
-    /// the per-add override in the Add dialog for that add.
+    /// Default disposition of a `.torrent` file added via the file route, once
+    /// the daemon accepts it (including when it reports the torrent was already
+    /// present). The Add dialog seeds its per-add dropdown from this and lets
+    /// the user override it for that add.
     var removeTorrentFileMethod: TorrentFileRemoval
 
     enum CodingKeys: String, CodingKey {
         case servers, refreshSeconds, currentServer, autoCheckForUpdates
-        case removeTorrentFileAfterAdd, removeTorrentFileMethod
+        case removeTorrentFileMethod
     }
 
     init(servers: [ServerConfig], refreshSeconds: Double, currentServer: String? = nil,
          autoCheckForUpdates: Bool = true,
-         removeTorrentFileAfterAdd: Bool = false,
-         removeTorrentFileMethod: TorrentFileRemoval = .trash) {
+         removeTorrentFileMethod: TorrentFileRemoval = .none) {
         self.servers = Self.dedupeNames(servers.isEmpty ? [.localhost] : servers)
         self.refreshSeconds = max(1, refreshSeconds)
         self.currentServer = currentServer
         self.autoCheckForUpdates = autoCheckForUpdates
-        self.removeTorrentFileAfterAdd = removeTorrentFileAfterAdd
         self.removeTorrentFileMethod = removeTorrentFileMethod
     }
 
@@ -139,13 +138,13 @@ struct AppConfig: Codable, Sendable, Equatable {
         currentServer = try c.decodeIfPresent(String.self, forKey: .currentServer)
         // Backward-compatible: configs written before this feature have no key.
         autoCheckForUpdates = try c.decodeIfPresent(Bool.self, forKey: .autoCheckForUpdates) ?? true
-        // Backward-compatible: configs written before this feature have no key.
-        removeTorrentFileAfterAdd = try c.decodeIfPresent(Bool.self, forKey: .removeTorrentFileAfterAdd) ?? false
         // Decode via the raw string (not the enum directly) so an unrecognized
         // value from a future version — or a downgrade — falls back to the safe
-        // default instead of failing the whole config decode.
+        // default instead of failing the whole config decode. Also covers configs
+        // from before this key existed, and pre-3-way configs that only ever
+        // wrote "trash"/"delete" (their value still decodes fine).
         let methodRaw = try c.decodeIfPresent(String.self, forKey: .removeTorrentFileMethod)
-        removeTorrentFileMethod = methodRaw.flatMap(TorrentFileRemoval.init(rawValue:)) ?? .trash
+        removeTorrentFileMethod = methodRaw.flatMap(TorrentFileRemoval.init(rawValue:)) ?? .none
     }
 
     /// The display names of all configured servers, in file order.

@@ -196,28 +196,23 @@ final class SettingsEditorTests: XCTestCase {
 
     func testSetRemoveTorrentFileSettings() {
         var e = SettingsEditor(sample())
-        XCTAssertFalse(e.removeTorrentFileAfterAdd)
-        XCTAssertEqual(e.removeTorrentFileMethod, .trash)
-        e.setRemoveTorrentFileAfterAdd(true)
-        XCTAssertTrue(e.isDirty)
+        XCTAssertEqual(e.removeTorrentFileMethod, .none)
         e.setRemoveTorrentFileMethod(.delete)
+        XCTAssertTrue(e.isDirty)
         let saved = e.save()
-        XCTAssertTrue(saved.removeTorrentFileAfterAdd)
         XCTAssertEqual(saved.removeTorrentFileMethod, .delete)
         XCTAssertFalse(e.isDirty)
     }
 
     func testRemoveTorrentFileSettingsSurviveOpenAndUnrelatedSave() {
         // The editor rebuilds AppConfig when it opens and on save; the removal
-        // settings must carry through both rather than reset to their defaults.
+        // setting must carry through both rather than reset to its default.
         var config = sample()
-        config.removeTorrentFileAfterAdd = true
         config.removeTorrentFileMethod = .delete
         var e = SettingsEditor(config)
         XCTAssertFalse(e.isDirty)
         e.setRefreshSeconds(9)
         let saved = e.save()
-        XCTAssertTrue(saved.removeTorrentFileAfterAdd)
         XCTAssertEqual(saved.removeTorrentFileMethod, .delete)
     }
 

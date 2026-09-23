@@ -66,17 +66,23 @@ final class PreferencesTests: XCTestCase {
     }
 
     func testAppConfigDefaultsRemoveTorrentFileSettings() throws {
-        // Backward-compatible: configs written before this feature have no keys.
+        // Backward-compatible: configs written before this feature have no key.
         let cfg = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
-        XCTAssertFalse(cfg.removeTorrentFileAfterAdd)
-        XCTAssertEqual(cfg.removeTorrentFileMethod, .trash)
+        XCTAssertEqual(cfg.removeTorrentFileMethod, .none)
     }
 
     func testAppConfigDecodesRemoveTorrentFileSettings() throws {
-        let json = #"{"removeTorrentFileAfterAdd":true,"removeTorrentFileMethod":"delete"}"#
+        let json = #"{"removeTorrentFileMethod":"delete"}"#
         let cfg = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
-        XCTAssertTrue(cfg.removeTorrentFileAfterAdd)
         XCTAssertEqual(cfg.removeTorrentFileMethod, .delete)
+    }
+
+    func testAppConfigDecodesLegacyTwoFieldRemoveTorrentFileSettings() throws {
+        // Configs written by the pre-collapse (bool + method) shape: the now-gone
+        // key is simply ignored, and the method still decodes.
+        let json = #"{"removeTorrentFileAfterAdd":true,"removeTorrentFileMethod":"trash"}"#
+        let cfg = try JSONDecoder().decode(AppConfig.self, from: Data(json.utf8))
+        XCTAssertEqual(cfg.removeTorrentFileMethod, .trash)
     }
 
     func testServerLookupAndNames() {
@@ -109,11 +115,9 @@ final class PreferencesTests: XCTestCase {
 
     func testRemoveTorrentFileSettingsRoundTrip() throws {
         let original = AppConfig(servers: [.localhost], refreshSeconds: 4,
-                                 removeTorrentFileAfterAdd: true,
                                  removeTorrentFileMethod: .delete)
         let decoded = try PreferencesStore.decode(PreferencesStore.encode(original))
         XCTAssertEqual(decoded, original)
-        XCTAssertTrue(decoded.removeTorrentFileAfterAdd)
         XCTAssertEqual(decoded.removeTorrentFileMethod, .delete)
     }
 
