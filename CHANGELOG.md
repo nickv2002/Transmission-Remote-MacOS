@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.09.22.1 — 2026-09-22
+
+- Collapse remove-torrent-file setting to a single 3-way choice
+- Add option to remove .torrent files after adding (#10)
+
 ## 2026.09.17.2 — 2026-09-17
 
 - Fix concurrency/correctness bugs; add Docker Transmission test fixture
