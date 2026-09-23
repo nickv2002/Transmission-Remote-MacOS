@@ -832,10 +832,10 @@ final class MainWindowController: NSWindowController {
 
     // MARK: - Errors
 
-    func showError(_ error: Error) {
+    func showError(_ error: Error, title: String = "Operation failed") {
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = "Operation failed"
+        alert.messageText = title
         alert.informativeText = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         alert.addButton(withTitle: "OK")
         if let window { alert.beginSheetModal(for: window) }

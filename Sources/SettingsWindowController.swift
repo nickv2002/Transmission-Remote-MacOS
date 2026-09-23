@@ -353,7 +353,7 @@ final class SettingsWindowController: NSWindowController {
 
         removeFileMethodPopup.target = self
         removeFileMethodPopup.action = #selector(removeFileMethodChanged)
-        removeFileMethodPopup.addItems(withTitles: ["Move to Trash", "Delete permanently"])
+        removeFileMethodPopup.addItems(withTitles: TorrentFileRemoval.allCases.map(\.displayName))
 
         // A plain leading-aligned vertical stack: every row starts flush with
         // the "R" in "Refresh every:". (An NSGridView with several merged
@@ -488,7 +488,7 @@ final class SettingsWindowController: NSWindowController {
         refreshStepper.doubleValue = editor.refreshSeconds
         autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
         removeFileCheckbox.state = editor.removeTorrentFileAfterAdd ? .on : .off
-        removeFileMethodPopup.selectItem(at: editor.removeTorrentFileMethod == .trash ? 0 : 1)
+        removeFileMethodPopup.selectItem(at: TorrentFileRemoval.allCases.firstIndex(of: editor.removeTorrentFileMethod) ?? 0)
         removeFileMethodPopup.isEnabled = editor.removeTorrentFileAfterAdd
     }
 
@@ -517,7 +517,9 @@ final class SettingsWindowController: NSWindowController {
     }
 
     @objc private func removeFileMethodChanged() {
-        editor.setRemoveTorrentFileMethod(removeFileMethodPopup.indexOfSelectedItem == 0 ? .trash : .delete)
+        let index = removeFileMethodPopup.indexOfSelectedItem
+        let allCases = TorrentFileRemoval.allCases
+        editor.setRemoveTorrentFileMethod(allCases.indices.contains(index) ? allCases[index] : .trash)
         updateDirtyState()
     }
 

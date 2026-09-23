@@ -203,8 +203,16 @@ extension MainWindowController {
                 // The daemon accepted it (a duplicate counts as success) — honor
                 // the removal choice captured when the dialog was confirmed.
                 if removeAfterAdd, let sourceFileURL {
-                    do { try removeTorrentFile(at: sourceFileURL, method: method) }
-                    catch { self.showError(error) }
+                    do {
+                        try await Task.detached {
+                            try removeTorrentFile(at: sourceFileURL, method: method)
+                        }.value
+                    } catch {
+                        // The torrent was already added — this is a distinct
+                        // failure from an add failure, so don't imply retrying
+                        // the add would help.
+                        self.showError(error, title: "Torrent added, but couldn't remove file")
+                    }
                 }
             } catch {
                 self.showError(error)

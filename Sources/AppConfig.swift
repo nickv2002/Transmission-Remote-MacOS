@@ -53,11 +53,18 @@ struct ServerConfig: Codable, Sendable, Equatable {
 
 /// How a `.torrent` file is disposed of after the daemon has accepted it, when
 /// "remove after adding" is enabled.
-enum TorrentFileRemoval: String, Codable, Sendable {
+enum TorrentFileRemoval: String, Codable, Sendable, CaseIterable {
     /// Move the file to the Trash (recoverable).
     case trash
     /// Delete the file permanently.
     case delete
+
+    var displayName: String {
+        switch self {
+        case .trash: return "Move to Trash"
+        case .delete: return "Delete permanently"
+        }
+    }
 }
 
 /// App configuration: the list of named servers, the active one, and the poll
@@ -79,7 +86,9 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// present). Off by default; the Add dialog also offers a per-add override.
     var removeTorrentFileAfterAdd: Bool
     /// How to remove the `.torrent` file — move to Trash (default) or delete
-    /// permanently. Only consulted when `removeTorrentFileAfterAdd` is on.
+    /// permanently. Consulted whenever a file is actually removed: either
+    /// because `removeTorrentFileAfterAdd` is on, or because the user checked
+    /// the per-add override in the Add dialog for that add.
     var removeTorrentFileMethod: TorrentFileRemoval
 
     enum CodingKeys: String, CodingKey {
@@ -132,7 +141,11 @@ struct AppConfig: Codable, Sendable, Equatable {
         autoCheckForUpdates = try c.decodeIfPresent(Bool.self, forKey: .autoCheckForUpdates) ?? true
         // Backward-compatible: configs written before this feature have no key.
         removeTorrentFileAfterAdd = try c.decodeIfPresent(Bool.self, forKey: .removeTorrentFileAfterAdd) ?? false
-        removeTorrentFileMethod = try c.decodeIfPresent(TorrentFileRemoval.self, forKey: .removeTorrentFileMethod) ?? .trash
+        // Decode via the raw string (not the enum directly) so an unrecognized
+        // value from a future version — or a downgrade — falls back to the safe
+        // default instead of failing the whole config decode.
+        let methodRaw = try c.decodeIfPresent(String.self, forKey: .removeTorrentFileMethod)
+        removeTorrentFileMethod = methodRaw.flatMap(TorrentFileRemoval.init(rawValue:)) ?? .trash
     }
 
     /// The display names of all configured servers, in file order.

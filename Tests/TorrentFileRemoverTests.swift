@@ -9,7 +9,14 @@ final class TorrentFileRemoverTests: XCTestCase {
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
     }
 
+    /// Trashed copies land outside `tmp` (in the real ~/.Trash), so any test that
+    /// successfully trashes a file must record its resulting URL here for cleanup.
+    private var trashedURLs: [URL] = []
+
     override func tearDownWithError() throws {
+        for url in trashedURLs {
+            try? FileManager.default.removeItem(at: url)
+        }
         try? FileManager.default.removeItem(at: tmp)
     }
 
@@ -25,17 +32,12 @@ final class TorrentFileRemoverTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
     }
 
-    func testTrashMovesFileAwayOrThrows() throws {
+    func testTrashMovesFile() throws {
         let url = try makeTorrentFile()
-        // Volumes without a Trash (some temp/network volumes) make trashItem
-        // throw. Either the file is moved away, or the call throws and leaves
-        // it untouched — never a silent no-op.
-        do {
-            try removeTorrentFile(at: url, method: .trash)
-            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
-        } catch {
-            XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
-        }
+        let trashedURL = try removeTorrentFile(at: url, method: .trash)
+        if let trashedURL { trashedURLs.append(trashedURL) }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertNotNil(trashedURL)
     }
 
     func testDeleteMissingFileThrows() {
