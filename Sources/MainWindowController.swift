@@ -39,6 +39,20 @@ final class MainWindowController: NSWindowController {
     /// Default disposition of a `.torrent` file after the daemon accepts it
     /// (from Settings); the Add dialog seeds its per-add dropdown from this.
     var removeTorrentFileMethod: TorrentFileRemoval = .none
+    /// Settings: show the Add options sheet, or add straight away (see `AppConfig`).
+    var showAddOptions = true
+    /// Settings: pick up a torrent link copied to the clipboard on activation.
+    var addLinksFromClipboard = false
+
+    /// Adds waiting to be shown/performed, FIFO (see `MainWindowController+Add`).
+    var pendingAdds: [AddRequest] = []
+    /// True while an Add options sheet from the queue is on screen.
+    var isPresentingQueuedAdd = false
+    /// Links recently queued, so the same magnet arriving twice in quick
+    /// succession (copied, then clicked) only opens one sheet.
+    var recentAddLinks: [(link: String, at: Date)] = []
+    /// `NSPasteboard.general.changeCount` last inspected by the clipboard pickup.
+    var lastPasteboardChangeCount = NSPasteboard.general.changeCount
 
     /// Width thresholds (pt) for the Added column's three date forms, measured once
     /// from representative strings so each form appears right as it starts to fit:
@@ -170,6 +184,8 @@ final class MainWindowController: NSWindowController {
     init(config: AppConfig) {
         self.refresh = RefreshController(config: config)
         self.removeTorrentFileMethod = config.removeTorrentFileMethod
+        self.showAddOptions = config.showAddOptions
+        self.addLinksFromClipboard = config.addLinksFromClipboard
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 980, height: 620),
@@ -210,6 +226,12 @@ final class MainWindowController: NSWindowController {
     func applyConfig(_ config: AppConfig) {
         refresh.updateConfig(config)
         removeTorrentFileMethod = config.removeTorrentFileMethod
+        showAddOptions = config.showAddOptions
+        if config.addLinksFromClipboard && !addLinksFromClipboard {
+            // Just enabled: only react to copies made from now on.
+            lastPasteboardChangeCount = NSPasteboard.general.changeCount
+        }
+        addLinksFromClipboard = config.addLinksFromClipboard
         updateWindowTitle()
     }
 
@@ -496,6 +518,7 @@ final class MainWindowController: NSWindowController {
         }
         refresh.onState = { [weak self] state in
             self?.updateStatusBar(state: state)
+            self?.drainPendingAdds()
         }
         refresh.onFetchingChanged = { [weak self] fetching in
             guard let self else { return }
@@ -843,10 +866,12 @@ final class MainWindowController: NSWindowController {
         let nc = NotificationCenter.default
         nc.addObserver(self, selector: #selector(windowHidden), name: NSWindow.didMiniaturizeNotification, object: window)
         nc.addObserver(self, selector: #selector(windowShown), name: NSWindow.didDeminiaturizeNotification, object: window)
+        nc.addObserver(self, selector: #selector(appBecameActive), name: NSApplication.didBecomeActiveNotification, object: nil)
     }
 
     @objc private func windowHidden() { refresh.setPaused(true) }
     @objc private func windowShown() { refresh.setPaused(false); refresh.refreshNow() }
+    @objc private func appBecameActive() { checkClipboardForLink() }
 }
 
 // MARK: - Header menu

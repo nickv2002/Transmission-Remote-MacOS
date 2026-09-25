@@ -91,20 +91,33 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// present). The Add dialog seeds its per-add dropdown from this and lets
     /// the user override it for that add.
     var removeTorrentFileMethod: TorrentFileRemoval
+    /// Show the Add options sheet (destination / start) for torrents arriving
+    /// from outside the app — a clicked magnet link, an opened `.torrent`, a drop,
+    /// or the clipboard. When off they're added straight away to the daemon's
+    /// default folder, started. Mirrors the legacy `ShowAddTorrentWindow`.
+    var showAddOptions: Bool
+    /// When the app becomes active, add a magnet link (or `.torrent` URL / bare
+    /// info-hash) newly copied to the clipboard. Mirrors the legacy
+    /// `LinksFromClipboard`, but off by default and never clears the clipboard.
+    var addLinksFromClipboard: Bool
 
     enum CodingKeys: String, CodingKey {
         case servers, refreshSeconds, currentServer, autoCheckForUpdates
-        case removeTorrentFileMethod
+        case removeTorrentFileMethod, showAddOptions, addLinksFromClipboard
     }
 
     init(servers: [ServerConfig], refreshSeconds: Double, currentServer: String? = nil,
          autoCheckForUpdates: Bool = true,
-         removeTorrentFileMethod: TorrentFileRemoval = .none) {
+         removeTorrentFileMethod: TorrentFileRemoval = .none,
+         showAddOptions: Bool = true,
+         addLinksFromClipboard: Bool = false) {
         self.servers = Self.dedupeNames(servers.isEmpty ? [.localhost] : servers)
         self.refreshSeconds = max(1, refreshSeconds)
         self.currentServer = currentServer
         self.autoCheckForUpdates = autoCheckForUpdates
         self.removeTorrentFileMethod = removeTorrentFileMethod
+        self.showAddOptions = showAddOptions
+        self.addLinksFromClipboard = addLinksFromClipboard
     }
 
     /// Disambiguates servers that share a name (e.g. two decoded entries that both
@@ -145,6 +158,8 @@ struct AppConfig: Codable, Sendable, Equatable {
         // wrote "trash"/"delete" (their value still decodes fine).
         let methodRaw = try c.decodeIfPresent(String.self, forKey: .removeTorrentFileMethod)
         removeTorrentFileMethod = methodRaw.flatMap(TorrentFileRemoval.init(rawValue:)) ?? .none
+        showAddOptions = try c.decodeIfPresent(Bool.self, forKey: .showAddOptions) ?? true
+        addLinksFromClipboard = try c.decodeIfPresent(Bool.self, forKey: .addLinksFromClipboard) ?? false
     }
 
     /// The display names of all configured servers, in file order.

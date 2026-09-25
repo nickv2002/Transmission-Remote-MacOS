@@ -17,7 +17,9 @@ struct SettingsEditor: Equatable {
                                    refreshSeconds: config.refreshSeconds,
                                    currentServer: config.currentServer,
                                    autoCheckForUpdates: config.autoCheckForUpdates,
-                                   removeTorrentFileMethod: config.removeTorrentFileMethod)
+                                   removeTorrentFileMethod: config.removeTorrentFileMethod,
+                                   showAddOptions: config.showAddOptions,
+                                   addLinksFromClipboard: config.addLinksFromClipboard)
         self.working = normalized
         self.savedBaseline = normalized
     }
@@ -31,6 +33,8 @@ struct SettingsEditor: Equatable {
     var refreshSeconds: Double { working.refreshSeconds }
     var autoCheckForUpdates: Bool { working.autoCheckForUpdates }
     var removeTorrentFileMethod: TorrentFileRemoval { working.removeTorrentFileMethod }
+    var showAddOptions: Bool { working.showAddOptions }
+    var addLinksFromClipboard: Bool { working.addLinksFromClipboard }
 
     func server(at index: Int) -> ServerConfig? {
         working.servers.indices.contains(index) ? working.servers[index] : nil
@@ -42,7 +46,9 @@ struct SettingsEditor: Equatable {
                   refreshSeconds: working.refreshSeconds,
                   currentServer: working.currentServer,
                   autoCheckForUpdates: working.autoCheckForUpdates,
-                  removeTorrentFileMethod: working.removeTorrentFileMethod)
+                  removeTorrentFileMethod: working.removeTorrentFileMethod,
+                  showAddOptions: working.showAddOptions,
+                  addLinksFromClipboard: working.addLinksFromClipboard)
     }
 
     /// True when there are changes not yet saved.
@@ -117,6 +123,14 @@ struct SettingsEditor: Equatable {
 
     mutating func setRemoveTorrentFileMethod(_ method: TorrentFileRemoval) {
         working.removeTorrentFileMethod = method
+    }
+
+    mutating func setShowAddOptions(_ enabled: Bool) {
+        working.showAddOptions = enabled
+    }
+
+    mutating func setAddLinksFromClipboard(_ enabled: Bool) {
+        working.addLinksFromClipboard = enabled
     }
 
     // MARK: - Save / reset

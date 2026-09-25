@@ -86,6 +86,7 @@ targets:
       - path: Sources/RecentFolders.swift
       - path: Sources/RefreshController.swift
       - path: Sources/TorrentFileRemover.swift
+      - path: Sources/TorrentLink.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nickvance.transmission-remote-mac.tests

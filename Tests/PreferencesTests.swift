@@ -85,6 +85,23 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(cfg.removeTorrentFileMethod, .trash)
     }
 
+    func testAppConfigDefaultsAddSettings() throws {
+        // Backward-compatible: configs written before these keys existed keep
+        // the legacy behavior (options sheet on) and leave the clipboard alone.
+        let cfg = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
+        XCTAssertTrue(cfg.showAddOptions)
+        XCTAssertFalse(cfg.addLinksFromClipboard)
+    }
+
+    func testAddSettingsRoundTrip() throws {
+        let original = AppConfig(servers: [.localhost], refreshSeconds: 4,
+                                 showAddOptions: false, addLinksFromClipboard: true)
+        let decoded = try PreferencesStore.decode(PreferencesStore.encode(original))
+        XCTAssertEqual(decoded, original)
+        XCTAssertFalse(decoded.showAddOptions)
+        XCTAssertTrue(decoded.addLinksFromClipboard)
+    }
+
     func testServerLookupAndNames() {
         let cfg = AppConfig(
             servers: [.localhost, ServerConfig(name: "Remote", host: "h", port: 1,

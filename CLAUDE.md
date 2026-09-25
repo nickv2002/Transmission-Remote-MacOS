@@ -108,6 +108,9 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `SettingsEditor.swift` — Foundation-only editing model behind Settings (tested).
 - `ConnectionDiagnostics.swift` — Test Connection error→message mapping (tested).
 - `HostCandidates.swift` — comma-separated host parsing + `ConnectionResolver` (tested).
+- `TorrentLink.swift` — magnet / `.torrent` URL / bare info-hash recognition (tested).
+- `DefaultHandlers.swift` — Launch Services default-app status + Make Default for
+  `magnet:` and `.torrent` (Settings → General).
 - `PathMapping.swift` — `ServerConfig.pathMappings` + remote→local mapping and the
   `remote=local` text parse/format used by the Settings editor (tested).
 - `MainWindowController.swift` — window, `NSTableView`, detail pane, status bar,
@@ -252,6 +255,36 @@ legacy app's per-connection `PathMap` (`main.pas` `MapRemoteToLocal`).
   all 1040 torrents map and 1039 resolve to existing local files (the 1 miss is the
   toast case). Algorithm covered by `PathMappingTests`.
 
+### Magnet links, opened torrents, clipboard (issue #11)
+
+Ported from the legacy app (`RegisterURLHandler`, `CheckClipboardLink`,
+`ShowAddTorrentWindow`):
+
+- `Info.plist` registers the **`magnet:` URL scheme** (`CFBundleURLTypes`) and
+  **imports the `org.bittorrent.torrent` UTI** (the doc type referenced it without
+  declaring it). `application(_:open:)` → `MainWindowController.handleOpened`
+  routes file URLs to the file route and `magnet:`/http(s) to the link route.
+- **Pending-add queue** (`pendingAdds`, `+Add.swift`): externally-arriving adds
+  (opened URLs, drops, the file panel, clipboard) wait until the connection is
+  `.connected`/`.failed` — a magnet click that cold-launches the app arrives before
+  the handshake, when neither the client nor the default download dir is known —
+  then show **one sheet at a time**. The same torrent (keyed on the magnet's btih
+  hash, `TorrentLink.identity`) arriving again within 10s is
+  dropped (copy-then-click). "Add Magnet or URL…" bypasses the queue.
+- **Settings → General**: "Show options when adding torrents" (default on; off =
+  add straight to the daemon's default dir, started, with a toast), "Add magnet
+  links copied to the clipboard" (default **off**; checked on
+  `didBecomeActiveNotification`, gated on `NSPasteboard.changeCount`, never clears
+  the clipboard; clipboard links **always** get the sheet — a bare 40-hex string
+  may just be a git SHA), and **Magnet links / .torrent files: <app>** rows with a **Make
+  Default** button (`NSWorkspace.setDefaultApplication`, acts immediately, not on
+  Save; compared by bundle id). Needed because another torrent client may
+  already own `magnet:`.
+- Verified: cold + warm `open -a <Debug app> magnet:…` shows the sheet with the
+  link and the server's folder (Cancelled via AX on prod); sequential sheets +
+  repeat suppression; skip-dialog add and clipboard pickup against the Docker
+  fixture only.
+
 ## Tests
 
 XCTest unit tests live in `Tests/`, built by the `TransmissionRemoteTests`
@@ -260,7 +293,7 @@ launch the real app and connect to the owner's server), the **business-logic
 source files are compiled directly into the test bundle**, so tests run standalone
 via `xctest` with no `TEST_HOST`.
 
-Coverage (120 hermetic tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
+Coverage (~250 hermetic tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
 (size/speed/percent/ratio/eta/dates), `Filtering` (every `StatusFilter` predicate,
 tints, `SidebarFilter`), `Models` (status/eta-display/normalizeDownloadDir/
 trackerHost/seed-ratio + RPC `torrent-get`/files decoding), `AppConfig` /
@@ -274,7 +307,9 @@ and **`PathMapping`** (remote→local exact/prefix mapping, separator guard,
 longest-prefix-wins regardless of list order, case-sensitivity; `parse`/`format`
 round-trip), and **`TorrentFileRemover`** (Trash / permanent delete of an added
 `.torrent`; the settings' decode defaults, round-trip, and survival through
-`SettingsEditor` normalize/save).
+`SettingsEditor` normalize/save), and **`TorrentLink`** (magnet/hash/`.torrent`-URL
+recognition, strict vs. loose) plus the `showAddOptions`/`addLinksFromClipboard`
+settings' decode defaults, round-trip, and editor plumbing.
 A `TorrentFactory` helper builds `Torrent` values from a default JSON dict.
 
 ```sh
