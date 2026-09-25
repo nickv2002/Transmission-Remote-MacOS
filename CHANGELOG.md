@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.09.25.1 — 2026-09-25
+
+- Add magnet/torrent link handling, clipboard pickup, and default-app registration (#11)
+
 ## 2026.09.22.1 — 2026-09-22
 
 - Collapse remove-torrent-file setting to a single 3-way choice
