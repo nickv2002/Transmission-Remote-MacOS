@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var config = AppConfig.default
     private var updaterController: SPUStandardUpdaterController?
     /// URLs delivered via `application(_:open:)` before the window controller
-    /// exists (cold launch by opening a `.torrent`). Held here and flushed once
+    /// exists (cold launch by opening a `.torrent` or clicking a magnet link). Held here and flushed once
     /// `applicationDidFinishLaunching` has built the controller.
     private var pendingURLs: [URL] = []
 
@@ -59,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Flush any files opened before the controller existed (cold launch via
         // double-clicking a .torrent, where `application(_:open:)` fires first).
         if !pendingURLs.isEmpty {
-            controller.addFiles(pendingURLs)
+            controller.handleOpened(pendingURLs)
             pendingURLs.removeAll()
         }
     }
@@ -75,10 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         windowController?.window?.saveFrame(usingName: "MainWindow")
     }
 
-    /// Dock drop / "Open With" of `.torrent` files.
+    /// Clicked `magnet:` links, and Dock drop / "Open With" of `.torrent` files.
     func application(_ application: NSApplication, open urls: [URL]) {
         if let windowController {
-            windowController.addFiles(urls)
+            windowController.handleOpened(urls)
         } else {
             // Cold launch: the open event arrives before the controller is built.
             // Buffer the URLs; `applicationDidFinishLaunching` flushes them.

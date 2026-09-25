@@ -204,6 +204,35 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertFalse(e.isDirty)
     }
 
+    func testSetAddSettings() {
+        var e = SettingsEditor(sample())
+        XCTAssertTrue(e.showAddOptions)
+        XCTAssertFalse(e.addLinksFromClipboard)
+        e.setShowAddOptions(false)
+        e.setAddLinksFromClipboard(true)
+        XCTAssertTrue(e.isDirty)
+        let saved = e.save()
+        XCTAssertFalse(saved.showAddOptions)
+        XCTAssertTrue(saved.addLinksFromClipboard)
+        XCTAssertFalse(e.isDirty)
+        // Toggling back to the saved values is not dirty.
+        e.setShowAddOptions(true)
+        e.setShowAddOptions(false)
+        XCTAssertFalse(e.isDirty)
+    }
+
+    func testAddSettingsSurviveOpenAndUnrelatedSave() {
+        var config = sample()
+        config.showAddOptions = false
+        config.addLinksFromClipboard = true
+        var e = SettingsEditor(config)
+        XCTAssertFalse(e.isDirty)
+        e.setRefreshSeconds(9)
+        let saved = e.save()
+        XCTAssertFalse(saved.showAddOptions)
+        XCTAssertTrue(saved.addLinksFromClipboard)
+    }
+
     func testRemoveTorrentFileSettingsSurviveOpenAndUnrelatedSave() {
         // The editor rebuilds AppConfig when it opens and on save; the removal
         // setting must carry through both rather than reset to its default.

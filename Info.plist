@@ -5,8 +5,9 @@
 	<!--
 	  Base Info.plist. The remaining keys (bundle id, icon, principal class, etc.)
 	  are generated from INFOPLIST_KEY_* in project.yml and merged in by Xcode
-	  (GENERATE_INFOPLIST_FILE = YES). This file exists only to declare that we
-	  open .torrent documents, which has no INFOPLIST_KEY_ equivalent.
+	  (GENERATE_INFOPLIST_FILE = YES). This file holds what has no INFOPLIST_KEY_
+	  equivalent: Sparkle/ATS settings, the .torrent document type (plus its UTI
+	  declaration), and the magnet: URL scheme.
 	-->
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/nickv2002/Transmission-Remote-MacOS/main/appcast.xml</string>
@@ -41,10 +42,51 @@
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
-			<string>Alternate</string>
+			<string>Default</string>
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>org.bittorrent.torrent</string>
+			</array>
+		</dict>
+	</array>
+	<!--
+	  Declare the .torrent UTI we reference above. Imported (not exported): we
+	  don't own it. Without a declaration, on a Mac with no other torrent app the
+	  extension maps to a dynamic type and the document association never matches.
+	-->
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.bittorrent.torrent</string>
+			<key>UTTypeDescription</key>
+			<string>BitTorrent Document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>torrent</string>
+				</array>
+				<key>public.mime-type</key>
+				<string>application/x-bittorrent</string>
+			</dict>
+		</dict>
+	</array>
+	<!-- Clicked magnet: links (browsers) hand off to us via application(_:open:). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>com.nickvance.transmission-remote-mac.magnet</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>magnet</string>
 			</array>
 		</dict>
 	</array>

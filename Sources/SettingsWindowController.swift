@@ -40,6 +40,14 @@ final class SettingsWindowController: NSWindowController {
     private let autoCheckBox = NSButton(checkboxWithTitle: "Automatically check for updates",
                                         target: nil, action: nil)
     private let removeFileMethodPopup = NSPopUpButton()
+    private let showAddOptionsBox = NSButton(checkboxWithTitle: "Show options when adding torrents",
+                                             target: nil, action: nil)
+    private let clipboardBox = NSButton(checkboxWithTitle: "Add magnet links copied to the clipboard",
+                                        target: nil, action: nil)
+    /// "Magnet links: <app>" / ".torrent files: <app>" status + Make Default,
+    /// keyed by kind. These act immediately (system-wide), not on Save.
+    private var handlerStatusLabels: [DefaultHandlers.Kind: NSTextField] = [:]
+    private var handlerButtons: [DefaultHandlers.Kind: NSButton] = [:]
 
     // Bottom bar.
     private let testButton = NSButton()
@@ -353,12 +361,34 @@ final class SettingsWindowController: NSWindowController {
         // A plain leading-aligned vertical stack: every row starts flush with
         // the "R" in "Refresh every:". (An NSGridView with several merged
         // full-width checkbox rows collapsed those rows onto one line.)
+        showAddOptionsBox.target = self
+        showAddOptionsBox.action = #selector(showAddOptionsChanged)
+        showAddOptionsBox.toolTip = "When off, clicked magnet links, opened .torrent files, drops, and "
+            + "clipboard links are added straight away to the server's default folder and started."
+        clipboardBox.target = self
+        clipboardBox.action = #selector(clipboardChanged)
+        clipboardBox.toolTip = "When the app becomes active, add a magnet link, .torrent URL, or "
+            + "info-hash that was newly copied to the clipboard."
+
         let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
-        let column = NSStackView(views: [
+        var rows: [NSView] = [
             stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
             autoCheckBox,
             methodRow,
-        ])
+            showAddOptionsBox,
+            clipboardBox,
+        ]
+        for kind in DefaultHandlers.Kind.allCases {
+            let status = NSTextField(labelWithString: "")
+            status.textColor = .secondaryLabelColor
+            let button = NSButton(title: "Make Default", target: self, action: #selector(makeDefaultHandler(_:)))
+            button.controlSize = .small
+            button.bezelStyle = .push
+            handlerStatusLabels[kind] = status
+            handlerButtons[kind] = button
+            rows.append(stack([label(kind.title), status, button]))
+        }
+        let column = NSStackView(views: rows)
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 8
@@ -478,6 +508,48 @@ final class SettingsWindowController: NSWindowController {
         refreshStepper.doubleValue = editor.refreshSeconds
         autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
         removeFileMethodPopup.selectItem(at: TorrentFileRemoval.allCases.firstIndex(of: editor.removeTorrentFileMethod) ?? 0)
+        showAddOptionsBox.state = editor.showAddOptions ? .on : .off
+        clipboardBox.state = editor.addLinksFromClipboard ? .on : .off
+        reloadHandlerStatus()
+    }
+
+    /// Refresh the "Magnet links / .torrent files: <app>" rows from Launch Services.
+    private func reloadHandlerStatus() {
+        for kind in DefaultHandlers.Kind.allCases {
+            let status = DefaultHandlers.status(of: kind)
+            switch status {
+            case .thisApp: handlerStatusLabels[kind]?.stringValue = "Transmission Remote ✓"
+            case .other(let name): handlerStatusLabels[kind]?.stringValue = name
+            case .none: handlerStatusLabels[kind]?.stringValue = "No app"
+            }
+            handlerButtons[kind]?.isHidden = status == .thisApp
+        }
+    }
+
+    @objc private func makeDefaultHandler(_ sender: NSButton) {
+        guard let kind = handlerButtons.first(where: { $0.value === sender })?.key else { return }
+        Task { @MainActor in
+            do {
+                try await DefaultHandlers.makeDefault(kind)
+            } catch {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Couldn't change the default app"
+                alert.informativeText = error.localizedDescription
+                if let window { alert.beginSheetModal(for: window, completionHandler: nil) }
+            }
+            reloadHandlerStatus()
+        }
+    }
+
+    @objc private func showAddOptionsChanged() {
+        editor.setShowAddOptions(showAddOptionsBox.state == .on)
+        updateDirtyState()
+    }
+
+    @objc private func clipboardChanged() {
+        editor.setAddLinksFromClipboard(clipboardBox.state == .on)
+        updateDirtyState()
     }
 
     @objc private func refreshChanged() {
@@ -737,6 +809,12 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
 // MARK: - Window delegate
 
 extension SettingsWindowController: NSWindowDelegate {
+    /// The default handler can change outside the app (or via the system's
+    /// confirmation prompt), so re-read it whenever Settings comes forward.
+    func windowDidBecomeKey(_ notification: Notification) {
+        reloadHandlerStatus()
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard editor.isDirty else { return true }
         let alert = NSAlert()
