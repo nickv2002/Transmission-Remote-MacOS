@@ -119,6 +119,32 @@ final class MainWindowController: NSWindowController {
         searchMode == .fuzzy ? "Fuzzy filter by name" : "Exact filter by name"
     }
 
+    /// The active search/filter text (e.g. for AppleScript's `search text`).
+    var currentSearchText: String { filterText }
+
+    /// Set the search/filter text directly (AppleScript's `search text`) and
+    /// re-filter, mirroring `searchChanged(_:)` for a programmatic caller with no
+    /// `NSSearchField` sender.
+    func setSearchText(_ text: String) {
+        let selectedIds = selectedTorrentIds()
+        filterText = text
+        rebuildDisplayed()
+        tableView.reloadData()
+        restoreSelection(selectedIds)
+        updateDetail()
+        updateStatusBar(state: refresh.state)
+        window?.toolbar?.validateVisibleItems()
+        searchField?.stringValue = text
+    }
+
+    /// Select the torrents with the given (RPC) ids — AppleScript's `select`
+    /// command and the `selection` property setter.
+    func selectTorrents(withIds ids: Set<Int>) {
+        restoreSelection(ids)
+        updateDetail()
+        window?.toolbar?.validateVisibleItems()
+    }
+
     /// The toolbar's search field, retained so ⌘F can focus it.
     weak var searchField: NSSearchField?
 

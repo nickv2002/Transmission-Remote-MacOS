@@ -3,7 +3,7 @@ import Sparkle
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var windowController: MainWindowController?
+    private(set) var windowController: MainWindowController?
     /// The Server menu's submenu, rebuilt on demand from the configured servers.
     private let serverMenu = NSMenu(title: "Server")
     /// The native Settings window, created lazily on first open.
@@ -395,5 +395,126 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu === serverMenu { rebuildServerMenu() }
+    }
+}
+
+// MARK: - AppleScript
+
+/// Exposes app-level scriptable properties declared in `TransmissionRemote.sdef`'s
+/// `application` class-extension. `NSApplication` has no scriptable properties of
+/// its own for these keys, so it asks the delegate (via `delegateHandlesKey`) and,
+/// when true, calls these `@objc` accessors directly on `self` for get/set.
+/// Torrent access (`torrents` / `valueInTorrents(withUniqueID:)`) follows Cocoa
+/// Scripting's to-many-relationship convention, keyed on `hashString` (stable
+/// across daemon restarts) rather than the RPC-assigned numeric id.
+extension AppDelegate {
+    private static let scriptableAppKeys: Set<String> = [
+        "torrents", "selection", "currentServer", "connectionState", "refreshInterval",
+        "autoCheckForUpdates", "showAddOptions", "addLinksFromClipboard",
+        "searchText", "searchMode",
+    ]
+
+    func application(_ sender: NSApplication, delegateHandlesKey key: String) -> Bool {
+        Self.scriptableAppKeys.contains(key)
+    }
+
+    // `NSArray` (not `[ScriptableTorrent]`) return types below, built via
+    // `NSArray(array:)` rather than an implicit Swift-array-literal bridge:
+    // returning a genuinely empty native Swift array left Cocoa Scripting
+    // trying to send `-objectSpecifier` to `Swift.__EmptyArrayStorage` itself
+    // and failing to coerce the (empty) result to the `torrent` Apple Event
+    // type — confirmed live via Console ("...returned nil when sent
+    // -objectSpecifier (is it not overridden?)").
+
+    @objc var torrents: NSArray {
+        NSArray(array: (windowController?.torrents ?? []).map(ScriptableTorrent.init))
+    }
+
+    @objc func valueInTorrents(withUniqueID uniqueID: Any) -> Any? {
+        guard let hash = uniqueID as? String,
+              let torrent = windowController?.torrents.first(where: { $0.hashString == hash }) else {
+            return nil
+        }
+        return ScriptableTorrent(torrent)
+    }
+
+    @objc var selection: NSArray {
+        get { NSArray(array: (windowController?.selectedTorrents ?? []).map(ScriptableTorrent.init)) }
+        set {
+            let ids = (newValue as? [ScriptableTorrent])?.map { $0.torrent.id } ?? []
+            windowController?.selectTorrents(withIds: Set(ids))
+        }
+    }
+
+    @objc var currentServer: String {
+        get { windowController?.refresh.currentServerName ?? "" }
+        set {
+            guard windowController?.refresh.availableServerNames.contains(newValue) == true else { return }
+            windowController?.selectServer(newValue)
+            rebuildServerMenu()
+        }
+    }
+
+    @objc var connectionState: String {
+        switch windowController?.refresh.state ?? .idle {
+        case .idle, .connecting: return "connecting"
+        case .connected: return "connected"
+        case .failed: return "failed"
+        }
+    }
+
+    @objc var refreshInterval: Double {
+        get { config.refreshSeconds }
+        set {
+            config.refreshSeconds = max(1, newValue)
+            persistScriptedConfigChange()
+        }
+    }
+
+    @objc var autoCheckForUpdates: Bool {
+        get { config.autoCheckForUpdates }
+        set {
+            config.autoCheckForUpdates = newValue
+            persistScriptedConfigChange()
+        }
+    }
+
+    @objc var showAddOptions: Bool {
+        get { config.showAddOptions }
+        set {
+            config.showAddOptions = newValue
+            persistScriptedConfigChange()
+        }
+    }
+
+    @objc var addLinksFromClipboard: Bool {
+        get { config.addLinksFromClipboard }
+        set {
+            config.addLinksFromClipboard = newValue
+            persistScriptedConfigChange()
+        }
+    }
+
+    @objc var searchText: String {
+        get { windowController?.currentSearchText ?? "" }
+        set { windowController?.setSearchText(newValue) }
+    }
+
+    @objc var searchMode: String {
+        get { windowController?.searchMode == .fuzzy ? "fuzzy" : "exact" }
+        set { windowController?.setSearchMode(newValue.lowercased() == "fuzzy" ? .fuzzy : .exact) }
+    }
+
+    /// Persist a scripted preference change and apply it live — mirrors the
+    /// Settings window's General tab (no reconnect for these keys) and keeps the
+    /// Settings window, if open, in sync with the preferences store.
+    private func persistScriptedConfigChange() {
+        do {
+            try PreferencesStore.save(config)
+        } catch {
+            NSLog("Failed to save preferences: \(error.localizedDescription)")
+        }
+        windowController?.applyConfig(config)
+        updaterController?.updater.automaticallyChecksForUpdates = config.autoCheckForUpdates
     }
 }
