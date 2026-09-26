@@ -113,24 +113,46 @@ struct SettingsEditor: Equatable {
         working.currentServer = name
     }
 
-    mutating func setRefreshSeconds(_ seconds: Double) {
+    // General-pane setters apply immediately: they write through to
+    // `savedBaseline` as well as `working`, so they never register as a pending
+    // server-pane edit (`isDirty` stays scoped to servers/currentServer). Each
+    // returns the resulting config so the caller can persist + apply it right away.
+
+    @discardableResult
+    mutating func setRefreshSeconds(_ seconds: Double) -> AppConfig {
         working.refreshSeconds = seconds
+        let result = normalized()   // clamps to >= 1
+        working.refreshSeconds = result.refreshSeconds
+        savedBaseline.refreshSeconds = result.refreshSeconds
+        return result
     }
 
-    mutating func setAutoCheckForUpdates(_ enabled: Bool) {
+    @discardableResult
+    mutating func setAutoCheckForUpdates(_ enabled: Bool) -> AppConfig {
         working.autoCheckForUpdates = enabled
+        savedBaseline.autoCheckForUpdates = enabled
+        return normalized()
     }
 
-    mutating func setRemoveTorrentFileMethod(_ method: TorrentFileRemoval) {
+    @discardableResult
+    mutating func setRemoveTorrentFileMethod(_ method: TorrentFileRemoval) -> AppConfig {
         working.removeTorrentFileMethod = method
+        savedBaseline.removeTorrentFileMethod = method
+        return normalized()
     }
 
-    mutating func setShowAddOptions(_ enabled: Bool) {
+    @discardableResult
+    mutating func setShowAddOptions(_ enabled: Bool) -> AppConfig {
         working.showAddOptions = enabled
+        savedBaseline.showAddOptions = enabled
+        return normalized()
     }
 
-    mutating func setAddLinksFromClipboard(_ enabled: Bool) {
+    @discardableResult
+    mutating func setAddLinksFromClipboard(_ enabled: Bool) -> AppConfig {
         working.addLinksFromClipboard = enabled
+        savedBaseline.addLinksFromClipboard = enabled
+        return normalized()
     }
 
     // MARK: - Save / reset
