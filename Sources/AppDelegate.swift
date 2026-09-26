@@ -40,10 +40,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Activate before the first-run alert so it isn't hidden behind other apps.
-        NSApp.activate(ignoringOtherApps: true)
+        // Skipped under test isolation so a scripted run never steals focus from
+        // whatever app is frontmost (it never shows the alert anyway, see below).
+        if !TestIsolation.isActive {
+            NSApp.activate(ignoringOtherApps: true)
+        }
 
         let hasPromptedKey = "HasPromptedAutoUpdateCheck"
-        if !UserDefaults.standard.bool(forKey: hasPromptedKey) {
+        if !TestIsolation.isActive, !UserDefaults.standard.bool(forKey: hasPromptedKey) {
             config.autoCheckForUpdates = presentAutoUpdatePrompt()
             try? PreferencesStore.save(config)
             UserDefaults.standard.set(true, forKey: hasPromptedKey)

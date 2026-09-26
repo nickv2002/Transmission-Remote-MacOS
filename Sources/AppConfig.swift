@@ -171,6 +171,14 @@ struct AppConfig: Codable, Sendable, Equatable {
     }
 }
 
+/// Whether the app was launched under test isolation (`-PreferencesPath`). Gates
+/// incidental `UserDefaults.standard` reads/writes (first-run prompts, the
+/// persisted server selection) that would otherwise leak into or read from the
+/// owner's real defaults domain even while preferences themselves are isolated.
+enum TestIsolation {
+    static var isActive: Bool { PreferencesStore.overrideStoreURL != nil }
+}
+
 enum ConfigError: LocalizedError {
     case unreadable(String)
     case malformed(String)
@@ -189,6 +197,18 @@ enum ConfigError: LocalizedError {
 /// run it migrates any legacy JSONC config so an existing server list (including
 /// credentials) carries over automatically.
 enum PreferencesStore {
+    /// When launched with `-PreferencesPath <path>`, all preferences reads/writes
+    /// (and `TestIsolation`-gated `UserDefaults` reads/writes elsewhere) redirect
+    /// to that path instead of the real Application Support store and never touch
+    /// the legacy JSONC migration. Used by the AppleScript test suite so it never
+    /// reads or mutates the owner's real server list/credentials.
+    static var overrideStoreURL: URL? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let idx = args.firstIndex(of: "-PreferencesPath"), args.indices.contains(idx + 1)
+        else { return nil }
+        return URL(fileURLWithPath: args[idx + 1])
+    }
+
     /// The Application Support folder for this app.
     static var supportDirectory: URL {
         let base = (try? FileManager.default.url(
@@ -215,12 +235,15 @@ enum PreferencesStore {
     /// Load the stored preferences, migrating from legacy JSONC or seeding a
     /// default on first run. Always leaves a `preferences.json` on disk afterward.
     static func load() throws -> AppConfig {
-        try load(storeURL: storeURL, legacyURL: legacyConfigURL)
+        if let override = overrideStoreURL {
+            return try load(storeURL: override, legacyURL: nil)
+        }
+        return try load(storeURL: storeURL, legacyURL: legacyConfigURL)
     }
 
     /// Persist the config as pretty-printed JSON, creating the support folder.
     static func save(_ config: AppConfig) throws {
-        try save(config, to: storeURL)
+        try save(config, to: overrideStoreURL ?? storeURL)
     }
 
     // MARK: - Testable core (path-injectable)

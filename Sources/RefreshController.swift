@@ -71,7 +71,8 @@ final class RefreshController {
     /// Resolve which server to connect to: persisted UserDefaults selection (if it
     /// still exists) → `config.currentServer` → the first server.
     private static func resolveSelectedName(config: AppConfig) -> String {
-        if let saved = UserDefaults.standard.string(forKey: selectedServerKey),
+        if !TestIsolation.isActive,
+           let saved = UserDefaults.standard.string(forKey: selectedServerKey),
            config.server(named: saved) != nil {
             return saved
         }
@@ -102,7 +103,9 @@ final class RefreshController {
     func selectServer(named name: String) {
         guard config.server(named: name) != nil, name != selectedServerName else { return }
         selectedServerName = name
-        UserDefaults.standard.set(name, forKey: Self.selectedServerKey)
+        if !TestIsolation.isActive {
+            UserDefaults.standard.set(name, forKey: Self.selectedServerKey)
+        }
         restart()
     }
 
@@ -243,7 +246,8 @@ final class RefreshController {
         // Fast path: try the host that worked last time, alone, with a tight
         // timeout. The common case (still reachable) connects in one round-trip
         // without spinning up a client per candidate.
-        if let saved = UserDefaults.standard.string(forKey: lastGoodHostKey),
+        if !TestIsolation.isActive,
+           let saved = UserDefaults.standard.string(forKey: lastGoodHostKey),
            let lastGood = candidates.first(where: { $0.connectionKey == saved }),
            !Task.isCancelled,
            let resolved = await Self.probe(lastGood, timeout: fastPathTimeout) {
@@ -288,7 +292,9 @@ final class RefreshController {
         resolvedServer = resolved.server
         defaultDownloadDir = resolved.info.downloadDir
         hasConnectedOnce = true
-        UserDefaults.standard.set(resolved.server.connectionKey, forKey: lastGoodHostKey)
+        if !TestIsolation.isActive {
+            UserDefaults.standard.set(resolved.server.connectionKey, forKey: lastGoodHostKey)
+        }
         state = .connected(version: resolved.info.version)
     }
 
