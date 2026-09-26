@@ -175,5 +175,17 @@
         length="3282194"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.09.25.2</title>
+      <sparkle:version>2026.09.25.2</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Sat, 26 Sep 2026 01:42:57 +0000</pubDate>
+      <description><![CDATA[<ul><li>Add AppleScript support for torrents, preferences, and menu actions</li><li>Settings polish: no reconnect on General edits, General tab first, clearer handler labels</li><li>Split Settings into Servers/General tabs; fix cross-pane dirty bug</li><li>Accept smb:// URLs as path-mapping targets (issue #12)</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.25.2/Transmission.Remote-2026.09.25.2.zip"
+        sparkle:edSignature="UnNpHS4OSg9LPCup2b8IpNp3JtCeCZPpjMratSnVqaW3kjebQ4X0wAlKaNQ13ke7PrbODUaS0zTnMRVlID9VBA=="
+        length="3339560"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
