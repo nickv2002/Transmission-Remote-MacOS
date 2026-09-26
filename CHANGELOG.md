@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.09.25.2 — 2026-09-25
+
+- Add AppleScript support for torrents, preferences, and menu actions
+- Settings polish: no reconnect on General edits, General tab first, clearer handler labels
+- Split Settings into Servers/General tabs; fix cross-pane dirty bug
+- Accept smb:// URLs as path-mapping targets (issue #12)
+
 ## 2026.09.25.1 — 2026-09-25
 
 - Add magnet/torrent link handling, clipboard pickup, and default-app registration (#11)
