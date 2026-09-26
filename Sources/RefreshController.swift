@@ -106,14 +106,21 @@ final class RefreshController {
         restart()
     }
 
-    /// Swap in a new config (after "Reload Config") and restart the loop. If the
+    /// Swap in a new config (e.g. from Settings). Only restarts the connection
+    /// (dropping the client, flashing "Connecting…") when the **active server's**
+    /// connection details actually changed — a General-only edit (refresh
+    /// interval, clipboard pickup, etc.) just updates `config` in place, which
+    /// `runLoop` already reads live on its next tick, with no reconnect. If the
     /// previously selected server no longer exists, fall back to the resolved default.
     func updateConfig(_ config: AppConfig) {
+        let previousActiveServer = activeServer
         self.config = config
         if config.server(named: selectedServerName) == nil {
             selectedServerName = Self.resolveSelectedName(config: config)
         }
-        restart()
+        if activeServer != previousActiveServer {
+            restart()
+        }
     }
 
     func start() {
