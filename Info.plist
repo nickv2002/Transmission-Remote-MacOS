@@ -21,6 +21,11 @@
 	<string>+ONkpmgvNWrF3vZIpoBPehwCK9SH4FgKELrAkXpvUgQ=</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
+	<!-- Cocoa Scripting: exposes TransmissionRemote.sdef's terminology to AppleScript/osascript. -->
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>OSAScriptingDefinition</key>
+	<string>TransmissionRemote.sdef</string>
 	<!--
 	  App Transport Security: this app talks to a self-hosted Transmission daemon,
 	  typically over plain HTTP on a LAN or VPN (e.g. 10.0.1.2, n5.local, a

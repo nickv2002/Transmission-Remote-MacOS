@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="Transmission Remote Terminology">
+    <xi:include href="file:///System/Library/ScriptingDefinitions/CocoaStandard.sdef" xmlns:xi="http://www.w3.org/2001/XInclude" xpointer="xpointer(//suite[@name='Standard Suite'])"/>
+
+    <suite name="Transmission Remote Suite" code="TRsu" description="Control Transmission Remote: torrents, servers, and preferences.">
+
+        <class name="torrent" code="TRtr" description="A single torrent in the current server's list.">
+            <cocoa class="ScriptableTorrent"/>
+            <property name="id" code="ID  " type="text" access="r" description="A stable identifier (the torrent's info hash) that survives daemon restarts."/>
+            <property name="name" code="pnam" type="text" access="r" description="The torrent's display name."/>
+            <property name="status" code="stts" type="text" access="r" description="One of: stopped, checking, downloading, seeding, queued (check), queued (down), queued (seed)."/>
+            <property name="progress" code="prog" type="real" access="r" description="Fraction complete, 0.0 to 1.0."/>
+            <property name="download rate" code="drat" type="integer" access="r" description="Current download rate, bytes/sec.">
+                <cocoa key="downloadRate"/>
+            </property>
+            <property name="upload rate" code="urat" type="integer" access="r" description="Current upload rate, bytes/sec.">
+                <cocoa key="uploadRate"/>
+            </property>
+            <property name="eta" code="etas" type="integer" access="r" description="Estimated seconds remaining, or -1 if unknown."/>
+            <property name="size" code="sztr" type="integer" access="r" description="Total size in bytes."/>
+            <property name="download dir" code="ddir" type="text" access="r" description="The torrent's download directory on the server.">
+                <cocoa key="downloadDir"/>
+            </property>
+            <property name="priority" code="prio" type="text" access="r" description="One of: low, normal, high."/>
+            <property name="error message" code="ermg" type="text" access="r" description="The daemon's error string, or empty when there's no error.">
+                <cocoa key="errorMessage"/>
+            </property>
+        </class>
+
+        <class-extension extends="application" description="Torrents, servers, and preferences exposed on the app itself.">
+            <element type="torrent" access="r" description="Every torrent on the currently connected server.">
+                <cocoa key="torrents"/>
+            </element>
+            <property name="selection" code="tsel" access="rw" description="The torrents currently selected in the main window.">
+                <cocoa key="selection"/>
+                <type type="torrent" list="yes"/>
+            </property>
+            <property name="current server" code="csvr" type="text" description="The name of the currently connected server.">
+                <cocoa key="currentServer"/>
+            </property>
+            <property name="connection state" code="cnst" type="text" access="r" description="One of: connecting, connected, failed.">
+                <cocoa key="connectionState"/>
+            </property>
+            <property name="refresh interval" code="rfin" type="real" description="Seconds between automatic torrent-list polls.">
+                <cocoa key="refreshInterval"/>
+            </property>
+            <property name="auto check for updates" code="acfu" type="boolean" description="Whether the app checks for updates automatically.">
+                <cocoa key="autoCheckForUpdates"/>
+            </property>
+            <property name="show add options" code="shao" type="boolean" description="Whether adding a torrent shows the destination/start options sheet.">
+                <cocoa key="showAddOptions"/>
+            </property>
+            <property name="add links from clipboard" code="alfc" type="boolean" description="Whether a torrent link copied to the clipboard is added automatically.">
+                <cocoa key="addLinksFromClipboard"/>
+            </property>
+            <property name="search text" code="srtx" type="text" description="The main window's search/filter text.">
+                <cocoa key="searchText"/>
+            </property>
+            <property name="search mode" code="srmd" type="text" description="One of: fuzzy, exact.">
+                <cocoa key="searchMode"/>
+            </property>
+        </class-extension>
+
+        <!--
+          These verbs take no direct parameter — they act on the app's current
+          `selection` (see the `application` class-extension above), the same
+          target the toolbar/menu actions use. Cocoa Scripting's default Apple
+          Event dispatch, for a command whose *direct parameter* is typed as a
+          scriptable class declared as an app element (here, `torrent`), routes
+          the event to the resolved object itself rather than to the app — so
+          `start item 1 of torrents` would fail with "doesn't understand the
+          start message" instead of reaching `StartCommand`. Routing through
+          `selection` (a plain property, not an element) sidesteps that:
+          `set selection to {item 1 of torrents}` then `start`.
+        -->
+        <command name="start" code="TRsustrt" description="Start the selected torrent(s).">
+            <cocoa class="StartCommand"/>
+        </command>
+
+        <command name="stop" code="TRsustop" description="Stop the selected torrent(s).">
+            <cocoa class="StopCommand"/>
+        </command>
+
+        <command name="force start" code="TRsufsrt" description="Start the selected torrent(s), bypassing the queue.">
+            <cocoa class="ForceStartCommand"/>
+        </command>
+
+        <command name="verify" code="TRsuvrfy" description="Verify (recheck) the selected torrent(s).">
+            <cocoa class="VerifyCommand"/>
+        </command>
+
+        <command name="reannounce" code="TRsurean" description="Reannounce the selected torrent(s) to their trackers.">
+            <cocoa class="ReannounceCommand"/>
+        </command>
+
+        <command name="remove" code="TRsurmov" description="Remove the selected torrent(s) from the server.">
+            <cocoa class="RemoveCommand"/>
+            <parameter name="deleting data" code="rmdt" type="boolean" optional="yes" description="Also delete the downloaded files. Defaults to false.">
+                <cocoa key="deletingData"/>
+            </parameter>
+        </command>
+
+        <!--
+          Named "set location", not "move": a bare "move" collides with the
+          Cocoa Standard Suite's own built-in `move <reference> to <location>`
+          command, which wins the parse over ours (confirmed live —
+          AppleScript reported "Can't make application ... into type
+          specifier" instead of reaching `MoveCommand`).
+        -->
+        <command name="set location" code="TRsumvto" description="Move the selected torrent(s) to a new location, moving their data.">
+            <cocoa class="MoveCommand"/>
+            <parameter name="to" code="mvto" type="text" description="The new download directory on the server."/>
+        </command>
+
+        <command name="rename" code="TRsurnto" description="Rename the selected torrent (exactly one must be selected).">
+            <cocoa class="RenameCommand"/>
+            <parameter name="to" code="rnto" type="text" description="The new name."/>
+        </command>
+
+        <command name="set priority" code="TRsusetp" description="Set the bandwidth priority of the selected torrent(s).">
+            <cocoa class="SetPriorityCommand"/>
+            <parameter name="to" code="setp" type="text" description="One of: low, normal, high."/>
+        </command>
+
+        <command name="queue move" code="TRsuqmov" description="Move the selected torrent(s) within the queue.">
+            <cocoa class="QueueMoveCommand"/>
+            <parameter name="to" code="qmov" type="text" description="One of: top, up, down, bottom."/>
+        </command>
+
+        <command name="add" code="TRsuaddt" description="Add a torrent from a local .torrent file path, a magnet link, or a .torrent URL, bypassing the Add options sheet.">
+            <cocoa class="AddCommand"/>
+            <direct-parameter type="text" description="A local file path, magnet link, or .torrent URL."/>
+            <parameter name="destination" code="addd" type="text" optional="yes" description="Download directory on the server; defaults to the server's default."/>
+            <parameter name="paused" code="addp" type="boolean" optional="yes" description="Add without starting. Defaults to false."/>
+            <result type="text" description="The added (or already-present) torrent's name."/>
+        </command>
+
+        <command name="refresh" code="TRsurfrs" description="Poll the server for the latest torrent list immediately.">
+            <cocoa class="RefreshCommand"/>
+        </command>
+
+        <command name="connect to server" code="TRsucsrv" description="Switch to a configured server by name and wait until the connection succeeds or fails.">
+            <cocoa class="ConnectToServerCommand"/>
+            <direct-parameter type="text" description="The name of a configured server."/>
+        </command>
+
+    </suite>
+</dictionary>
