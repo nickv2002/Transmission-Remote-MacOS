@@ -157,28 +157,42 @@ window** (⌘,) — no more hand-edited JSONC.
   (left in place as a backup) into the native store; otherwise it seeds
   `AppConfig.default`. Verified live: the owner's real server (with credentials)
   migrated correctly.
-- **Settings window** (`SettingsWindowController.swift`): tabbed (Servers /
-  General), inside the tab box's gray content area. Servers tab has the
-  **default-server popup at the top**, then a list with +/- and an editable detail
-  form (name/host/port/HTTPS/rpcPath/username/password); General tab has the
-  refresh interval (field + stepper). All editing logic (working copy, baseline,
-  dirty detection, add/remove/edit/default/save) is factored into the
-  Foundation-only **`SettingsEditor`** (in `SettingsEditor.swift`); the controller
-  is a thin view layer over it.
-  - Edits mutate the working copy and are **only persisted + applied when the user
-    clicks Save** (bottom-right; enabled only when dirty). Save is **not** the
-    Return/default button — Return commits the focused field, not the whole dialog.
-  - Save enables on **every keystroke** (`controlTextDidChange`), not just on
-    end-editing. Live edits update just the affected row label, **never**
-    `reloadData()` (which dropped the table selection mid-edit and broke
-    Test/Remove).
-  - Saving runs `onChange` → `PreferencesStore.save` + `windowController.applyConfig`
-    - Server-menu rebuild. Closing dirty prompts Save / Discard / Cancel;
-      `AppDelegate.showSettings` calls `reset(to:)` on reopen.
-  - **Test Connection** (left of Save) builds a `ServerConfig` from the **current
-    form fields** (so you can test before saving), runs `session-get`, and shows a
-    field-targeted success/failure alert (diagnostic mapping in the Foundation-only
-    `ConnectionDiagnostics.message(for:server:)`).
+- **Settings window** (`SettingsWindowController.swift`): a real fixed-size
+  `NSTabView` with two tabs, **Servers** and **General** — switching tabs never
+  resizes the window. All editing logic (working copy, baseline, dirty detection,
+  add/remove/edit/default/save) is factored into the Foundation-only
+  **`SettingsEditor`** (in `SettingsEditor.swift`); the controller is a thin view
+  layer over it.
+  - **Servers tab**: **default-server popup at the top**, then a list with +/-
+    and an editable detail form (name/host/port/HTTPS/rpcPath/username/password/
+    path mappings). Edits mutate the working copy and are **only persisted +
+    applied when the user clicks Save Server** (bottom-right; enabled only when
+    a server field is dirty). Save is **not** the Return/default button — Return
+    commits the focused field, not the whole dialog. The button enables on
+    **every keystroke** (`controlTextDidChange`), not just on end-editing. Live
+    edits update just the affected row label, **never** `reloadData()` (which
+    dropped the table selection mid-edit and broke Test/Remove). Closing with a
+    pending server edit prompts Save / Discard / Cancel;
+    `AppDelegate.showSettings` calls `reset(to:)` on reopen.
+    - **Test Connection** (left of Save Server) builds a `ServerConfig` from the
+      **current form fields** (so you can test before saving), runs
+      `session-get`, and shows a field-targeted success/failure alert
+      (diagnostic mapping in the Foundation-only
+      `ConnectionDiagnostics.message(for:server:)`).
+  - **General tab**: split by a divider into a **General** group (refresh
+    interval field + stepper, auto-check-for-updates) and an **Incoming
+    Torrents** group (default add-file handling, show-options-when-adding,
+    add-links-from-clipboard, and the Magnet-links/.torrent-files default-app
+    rows). Every control here **applies immediately** — no Save button — each
+    change calls its `SettingsEditor` setter and `onChange` right away, so a
+    General edit persists+applies on the spot and never touches the Servers
+    tab's dirty/Save-button state. (Bug fixed in this pass: previously General
+    and Servers shared one `isDirty` flag off the whole `AppConfig`, so toggling
+    a General checkbox like auto-check-for-updates would wrongly enable "Save
+    Server".) The five General setters in `SettingsEditor` write through to both
+    `working` and `savedBaseline` at once for exactly this reason. The refresh
+    field still only applies on end-of-edit (`refreshChanged`/`stepperChanged`),
+    not per keystroke, so typing "10" doesn't apply "1" first.
 - `PreferencesStore` exposes path-injectable cores
   (`load(storeURL:legacyURL:)`, `save(_:to:)`, `encode`/`decode`,
   `loadLegacyJSONC(from:)`) so the store is unit-tested against temp dirs without

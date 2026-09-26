@@ -1,16 +1,18 @@
 import AppKit
 
 /// Native Settings window (⌘,) replacing the old hand-edited JSONC file. Two
-/// sections stacked vertically, always visible (no tab switching), top to
-/// bottom: **General** (poll interval, auto-update check), a divider, a
-/// "Server Settings" header, then **Servers** (a default-server picker, a list
-/// of connections with editable host/port/auth). Test Connection / Save Server
-/// sit directly below the server detail form, anchored to the Servers section
-/// rather than the window's outer edge.
+/// tabs: **Servers** (a default-server picker, a list of connections with
+/// editable host/port/auth, Test Connection / Save Server) and **General**,
+/// itself split by a divider into a "General" group (poll interval, auto-update
+/// check) and an "Incoming Torrents" group (default add-file handling, add-options
+/// sheet toggle, clipboard pickup, default-app rows).
 ///
-/// Edits mutate an in-memory working copy of `AppConfig`. Nothing is persisted or
-/// applied to the live connection until the user presses **Save** — closing with
-/// unsaved changes prompts to save or discard.
+/// Servers edits mutate an in-memory working copy of `AppConfig`; nothing is
+/// persisted or applied to the live connection until the user presses **Save
+/// Server** — closing with unsaved server changes prompts to save or discard.
+/// General controls apply immediately (no Save button) — each change is
+/// persisted and applied live as soon as it's made, so they never interact with
+/// the Servers pane's dirty/Save-button state.
 @MainActor
 final class SettingsWindowController: NSWindowController {
     /// Called with the edited config when the user saves (persist + apply live).
@@ -56,9 +58,11 @@ final class SettingsWindowController: NSWindowController {
 
     init(config: AppConfig) {
         self.editor = SettingsEditor(config)
+        // Fixed size (no .resizable): sized to fit the taller Servers tab, so
+        // switching to General never resizes the window.
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 560),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            contentRect: NSRect(x: 0, y: 0, width: 580, height: 460),
+            styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered, defer: false)
         window.title = "Settings"
         super.init(window: window)
@@ -96,47 +100,32 @@ final class SettingsWindowController: NSWindowController {
     // MARK: - Layout
 
     private func buildContent() -> NSView {
-        // No tabs: both sections are always visible, stacked vertically —
-        // General on top, a divider, a "Server Settings" header, then Servers
-        // below (default-server picker, list/form, and the Test Connection /
-        // Save Server row anchored to the bottom of the Servers content itself).
+        // Two tabs, each sized independently — the window itself is fixed-size
+        // (see init) so switching tabs never resizes it.
         setupServerActionButtons()
 
-        let generalPane = buildGeneralPane()
-        generalPane.translatesAutoresizingMaskIntoConstraints = false
-
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-
-        let serverSettingsHeader = label("Server Settings")
-        serverSettingsHeader.font = .boldSystemFont(ofSize: 13)
-        serverSettingsHeader.translatesAutoresizingMaskIntoConstraints = false
-
         let serversPane = buildServersPane()
-        serversPane.translatesAutoresizingMaskIntoConstraints = false
+        let serversItem = NSTabViewItem(identifier: "servers")
+        serversItem.label = "Servers"
+        serversItem.view = serversPane
+
+        let generalPane = buildGeneralPane()
+        let generalItem = NSTabViewItem(identifier: "general")
+        generalItem.label = "General"
+        generalItem.view = generalPane
+
+        let tabView = NSTabView()
+        tabView.translatesAutoresizingMaskIntoConstraints = false
+        tabView.addTabViewItem(serversItem)
+        tabView.addTabViewItem(generalItem)
 
         let container = NSView()
-        container.addSubview(generalPane)
-        container.addSubview(separator)
-        container.addSubview(serverSettingsHeader)
-        container.addSubview(serversPane)
+        container.addSubview(tabView)
         NSLayoutConstraint.activate([
-            generalPane.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
-            generalPane.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            generalPane.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-
-            separator.topAnchor.constraint(equalTo: generalPane.bottomAnchor, constant: 6),
-            separator.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            separator.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-
-            serverSettingsHeader.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 12),
-            serverSettingsHeader.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 16),
-
-            serversPane.topAnchor.constraint(equalTo: serverSettingsHeader.bottomAnchor, constant: 4),
-            serversPane.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            serversPane.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            serversPane.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
+            tabView.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
+            tabView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            tabView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            tabView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
         ])
         return container
     }
@@ -370,10 +359,18 @@ final class SettingsWindowController: NSWindowController {
         clipboardBox.toolTip = "When the app becomes active, add a magnet link, .torrent URL, or "
             + "info-hash that was newly copied to the clipboard."
 
-        let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
-        var rows: [NSView] = [
+        // Two groups, divided: "General" (poll interval, auto-update check) above
+        // an "Incoming Torrents" group (default add-file handling, add-options
+        // sheet, clipboard pickup, default-app rows) below.
+        let generalRows: [NSView] = [
+            sectionHeader("General"),
             stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
             autoCheckBox,
+        ]
+
+        let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
+        var incomingRows: [NSView] = [
+            sectionHeader("Incoming Torrents"),
             methodRow,
             showAddOptionsBox,
             clipboardBox,
@@ -386,23 +383,41 @@ final class SettingsWindowController: NSWindowController {
             button.bezelStyle = .push
             handlerStatusLabels[kind] = status
             handlerButtons[kind] = button
-            rows.append(stack([label(kind.title), status, button]))
+            incomingRows.append(stack([label(kind.title), status, button]))
         }
+
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+
+        var rows = generalRows
+        rows.append(separator)
+        rows.append(contentsOf: incomingRows)
+
         let column = NSStackView(views: rows)
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 8
+        column.setCustomSpacing(14, after: separator)
+        // The separator itself needs an explicit width since the stack view
+        // otherwise sizes it to zero (it has no intrinsic content width).
+        separator.widthAnchor.constraint(equalToConstant: 360).isActive = true
         column.translatesAutoresizingMaskIntoConstraints = false
 
         pane.addSubview(column)
         NSLayoutConstraint.activate([
             column.topAnchor.constraint(equalTo: pane.topAnchor, constant: 8),
             column.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 24),
-            // Size the pane to its content (no tab box to stretch it to fill
-            // anymore), so it doesn't leave a dead-space gap above the buttons.
+            // Size the pane to its content, so it doesn't leave a dead-space gap.
             pane.bottomAnchor.constraint(equalTo: column.bottomAnchor, constant: 2),
         ])
         return pane
+    }
+
+    private func sectionHeader(_ text: String) -> NSTextField {
+        let l = label(text)
+        l.font = .boldSystemFont(ofSize: 12)
+        return l
     }
 
     private func label(_ text: String) -> NSTextField {
@@ -542,39 +557,38 @@ final class SettingsWindowController: NSWindowController {
         }
     }
 
+    // General controls apply immediately: no Save button on this pane, each
+    // change is persisted + applied live as soon as it's made.
+
     @objc private func showAddOptionsChanged() {
-        editor.setShowAddOptions(showAddOptionsBox.state == .on)
-        updateDirtyState()
+        onChange?(editor.setShowAddOptions(showAddOptionsBox.state == .on))
     }
 
     @objc private func clipboardChanged() {
-        editor.setAddLinksFromClipboard(clipboardBox.state == .on)
-        updateDirtyState()
+        onChange?(editor.setAddLinksFromClipboard(clipboardBox.state == .on))
     }
 
     @objc private func refreshChanged() {
-        editor.setRefreshSeconds(max(1, Double(refreshField.stringValue) ?? editor.refreshSeconds))
+        let config = editor.setRefreshSeconds(max(1, Double(refreshField.stringValue) ?? editor.refreshSeconds))
         refreshStepper.doubleValue = editor.refreshSeconds
         refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
-        updateDirtyState()
+        onChange?(config)
     }
 
     @objc private func stepperChanged() {
-        editor.setRefreshSeconds(max(1, refreshStepper.doubleValue))
+        let config = editor.setRefreshSeconds(max(1, refreshStepper.doubleValue))
         refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
-        updateDirtyState()
+        onChange?(config)
     }
 
     @objc private func autoCheckChanged() {
-        editor.setAutoCheckForUpdates(autoCheckBox.state == .on)
-        updateDirtyState()
+        onChange?(editor.setAutoCheckForUpdates(autoCheckBox.state == .on))
     }
 
     @objc private func removeFileMethodChanged() {
         let index = removeFileMethodPopup.indexOfSelectedItem
         let allCases = TorrentFileRemoval.allCases
-        editor.setRemoveTorrentFileMethod(allCases.indices.contains(index) ? allCases[index] : .none)
-        updateDirtyState()
+        onChange?(editor.setRemoveTorrentFileMethod(allCases.indices.contains(index) ? allCases[index] : .none))
     }
 
     // MARK: - Dirty / Save
@@ -753,12 +767,12 @@ final class SettingsWindowController: NSWindowController {
 extension SettingsWindowController: NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         if (obj.object as AnyObject) === refreshField {
-            // Update the working copy live; don't rewrite the field text mid-type.
+            // General applies on end-of-edit only (`refreshChanged`), not per
+            // keystroke — typing "10" would otherwise apply "1" first. Just
+            // reflect the in-progress typed value on the stepper for feedback.
             if let value = Double(refreshField.stringValue) {
-                editor.setRefreshSeconds(max(1, value))
-                refreshStepper.doubleValue = editor.refreshSeconds
+                refreshStepper.doubleValue = max(1, value)
             }
-            updateDirtyState()
         } else {
             liveSyncSelectedServer()
         }

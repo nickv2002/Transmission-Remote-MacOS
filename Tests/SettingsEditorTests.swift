@@ -182,43 +182,50 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertEqual(e.normalized().refreshSeconds, 30)
     }
 
-    func testSetAutoCheckForUpdates() {
+    // General-pane setters apply immediately (write through to both `working`
+    // and `savedBaseline`), so they never register as a server-pane dirty edit —
+    // this is the fix for the bug where toggling a General checkbox used to
+    // enable the Servers pane's "Save Server" button.
+
+    func testSetAutoCheckForUpdatesAppliesImmediately() {
         var e = SettingsEditor(sample())
         XCTAssertTrue(e.autoCheckForUpdates)
         XCTAssertFalse(e.isDirty)
-        e.setAutoCheckForUpdates(false)
+        let applied = e.setAutoCheckForUpdates(false)
         XCTAssertFalse(e.autoCheckForUpdates)
-        XCTAssertTrue(e.isDirty)
-        let saved = e.save()
-        XCTAssertFalse(saved.autoCheckForUpdates)
-        XCTAssertFalse(e.isDirty)
+        XCTAssertFalse(applied.autoCheckForUpdates)
+        XCTAssertFalse(e.isDirty)   // still not dirty: it's already the baseline
     }
 
-    func testSetRemoveTorrentFileSettings() {
+    func testSetRemoveTorrentFileSettingsAppliesImmediately() {
         var e = SettingsEditor(sample())
         XCTAssertEqual(e.removeTorrentFileMethod, .none)
-        e.setRemoveTorrentFileMethod(.delete)
-        XCTAssertTrue(e.isDirty)
-        let saved = e.save()
-        XCTAssertEqual(saved.removeTorrentFileMethod, .delete)
+        let applied = e.setRemoveTorrentFileMethod(.delete)
+        XCTAssertEqual(applied.removeTorrentFileMethod, .delete)
         XCTAssertFalse(e.isDirty)
     }
 
-    func testSetAddSettings() {
+    func testSetAddSettingsAppliesImmediately() {
         var e = SettingsEditor(sample())
         XCTAssertTrue(e.showAddOptions)
         XCTAssertFalse(e.addLinksFromClipboard)
         e.setShowAddOptions(false)
-        e.setAddLinksFromClipboard(true)
-        XCTAssertTrue(e.isDirty)
-        let saved = e.save()
-        XCTAssertFalse(saved.showAddOptions)
-        XCTAssertTrue(saved.addLinksFromClipboard)
+        let applied = e.setAddLinksFromClipboard(true)
+        XCTAssertFalse(applied.showAddOptions)
+        XCTAssertTrue(applied.addLinksFromClipboard)
         XCTAssertFalse(e.isDirty)
-        // Toggling back to the saved values is not dirty.
-        e.setShowAddOptions(true)
+    }
+
+    /// The bug regression test: a General edit must never enable the Servers
+    /// pane's dirty/Save-button gating, while a genuine server edit still does.
+    func testGeneralEditDoesNotDirtyServerPane() {
+        var e = SettingsEditor(sample())
+        e.setAutoCheckForUpdates(false)
+        e.setRefreshSeconds(30)
         e.setShowAddOptions(false)
         XCTAssertFalse(e.isDirty)
+        e.updateServer(at: 0, to: server("A", host: "changed.local"), normalizeName: true)
+        XCTAssertTrue(e.isDirty)
     }
 
     func testAddSettingsSurviveOpenAndUnrelatedSave() {
