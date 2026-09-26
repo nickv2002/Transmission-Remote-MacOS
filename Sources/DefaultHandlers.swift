@@ -14,8 +14,8 @@ enum DefaultHandlers {
 
         var title: String {
             switch self {
-            case .magnetLinks: return "Magnet links:"
-            case .torrentFiles: return ".torrent files:"
+            case .magnetLinks: return "Open magnet: links with:"
+            case .torrentFiles: return "Open .torrent files with:"
             }
         }
     }

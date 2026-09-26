@@ -116,8 +116,8 @@ final class SettingsWindowController: NSWindowController {
 
         let tabView = NSTabView()
         tabView.translatesAutoresizingMaskIntoConstraints = false
-        tabView.addTabViewItem(serversItem)
         tabView.addTabViewItem(generalItem)
+        tabView.addTabViewItem(serversItem)
 
         let container = NSView()
         container.addSubview(tabView)
