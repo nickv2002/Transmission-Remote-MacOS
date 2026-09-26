@@ -743,8 +743,10 @@ final class MainWindowController: NSWindowController {
 
     /// Show a brief, non-modal message near the bottom of the window that fades out
     /// on its own. Used for soft warnings (e.g. a mapped local path that isn't
-    /// mounted) where a modal alert would be too heavy.
-    func showToast(_ message: String) {
+    /// mounted) where a modal alert would be too heavy. When `actionTitle`/`action`
+    /// are given, a button appears alongside the message (e.g. "Open Share" to hand
+    /// an unmounted `smb://` reference off to Finder's mount flow).
+    func showToast(_ message: String, actionTitle: String? = nil, action: (() -> Void)? = nil) {
         guard let content = window?.contentView else { return }
 
         // Replace any visible toast immediately (e.g. copying a second value) rather
@@ -769,15 +771,29 @@ final class MainWindowController: NSWindowController {
         bg.wantsLayer = true
         bg.layer?.cornerRadius = 8
         bg.layer?.masksToBounds = true
-        bg.addSubview(label)
+
+        let stack = NSStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.orientation = .horizontal
+        stack.spacing = 10
+        stack.alignment = .centerY
+        stack.addArrangedSubview(label)
+        if let actionTitle, let action {
+            bg.action = action
+            let button = NSButton(title: actionTitle, target: bg, action: #selector(ToastView.runAction))
+            button.bezelStyle = .rounded
+            stack.addArrangedSubview(button)
+        }
+
+        bg.addSubview(stack)
         content.addSubview(bg)
         activeToast = bg
 
         NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: bg.topAnchor, constant: 8),
-            label.bottomAnchor.constraint(equalTo: bg.bottomAnchor, constant: -8),
-            label.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 14),
-            label.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -14),
+            stack.topAnchor.constraint(equalTo: bg.topAnchor, constant: 8),
+            stack.bottomAnchor.constraint(equalTo: bg.bottomAnchor, constant: -8),
+            stack.leadingAnchor.constraint(equalTo: bg.leadingAnchor, constant: 14),
+            stack.trailingAnchor.constraint(equalTo: bg.trailingAnchor, constant: -14),
             bg.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             bg.centerYAnchor.constraint(equalTo: content.centerYAnchor),
             bg.widthAnchor.constraint(lessThanOrEqualTo: content.widthAnchor, multiplier: 0.85),
@@ -1185,8 +1201,15 @@ final class TorrentTableView: NSTableView {
 /// auto-timer fires, whichever comes first. The fade-out runs at most once.
 final class ToastView: NSVisualEffectView {
     private var dismissed = false
+    /// The optional action wired to a button inside the toast (e.g. "Open Share").
+    var action: (() -> Void)?
 
     override func mouseDown(with event: NSEvent) { dismiss() }
+
+    @objc func runAction() {
+        action?()
+        dismiss()
+    }
 
     func dismiss() {
         guard !dismissed, superview != nil else { return }
@@ -1246,6 +1269,8 @@ extension MainWindowController {
             return "" // callers only invoke this for a non-resolving path
         case .notFound(let local):
             return "Not available locally: \(local)"
+        case .notMounted(let shareURL):
+            return "Share not currently mounted: \(shareURL)"
         case .unmapped:
             return "Not available locally: \(remotePath)"
         }

@@ -281,7 +281,7 @@ final class SettingsWindowController: NSWindowController {
                         rpcPathField, usernameField, passwordField]
 
         let mappingsScroll = buildPathMappingsEditor()
-        let caption = label("Remote→local, one per line.\ne.g.  /video=/Volumes/Video")
+        let caption = label("Remote→local, one per line.\ne.g.  /video=/Volumes/Video\nLocal side also accepts smb://host/share/path, resolved to wherever that share is currently mounted.")
         caption.font = .systemFont(ofSize: 10)
         caption.textColor = .secondaryLabelColor
         caption.lineBreakMode = .byWordWrapping
@@ -325,7 +325,7 @@ final class SettingsWindowController: NSWindowController {
         pathMappingsView.isAutomaticDashSubstitutionEnabled = false
         pathMappingsView.isAutomaticSpellingCorrectionEnabled = false
         pathMappingsView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        pathMappingsView.placeholderString = "/video=/Volumes/Video\n/backup=/Volumes/backup"
+        pathMappingsView.placeholderString = "/video=/Volumes/Video\n/backup=/Volumes/backup\n/downloads=smb://nas/share/downloads"
         pathMappingsView.textContainerInset = NSSize(width: 2, height: 4)
         pathMappingsView.isVerticallyResizable = true
         pathMappingsView.isHorizontallyResizable = false
