@@ -1,0 +1,20 @@
+{
+    "servers": [
+        {
+            "name": "AppleScriptFixture",
+            "host": "localhost",
+            "port": 19091,
+            "useHTTPS": false,
+            "rpcPath": "/transmission/rpc",
+            "username": "fixture",
+            "password": "fixture-pass",
+            "pathMappings": []
+        }
+    ],
+    "currentServer": "AppleScriptFixture",
+    "refreshSeconds": 1,
+    "autoCheckForUpdates": false,
+    "removeTorrentFileMethod": "none",
+    "showAddOptions": false,
+    "addLinksFromClipboard": false
+}

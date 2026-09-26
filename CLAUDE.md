@@ -344,6 +344,26 @@ TEST_RUNNER_RUN_LIVE_TRANSMISSION_TESTS=1 xcodebuild ... test \
   -only-testing:TransmissionRemoteTests/LiveConnectionTests
 ```
 
+**Scripting dictionary tests**: `ScriptingDictionaryTests` (hermetic, always runs) cross-checks
+`Resources/TransmissionRemote.sdef` against `Sources/Scripting.swift` by comparing source text
+(that file isn't compiled into the test bundle — it depends on `AppDelegate`/`MainWindowController`,
+which aren't) — every `cocoa class` the sdef declares must have a matching `@objc(...)` in
+`Scripting.swift` and vice versa, catching a renamed/dead command class without launching the app.
+
+**`scripts/test-applescript.sh`** (opt-in, requires a built Debug app + Docker) drives the real
+AppleScript dictionary against the fixture daemon: adds the seeded delete-local-data torrent, then
+runs `start`/`stop`/`force start`/`verify`/`reannounce`/`set priority`/`rename`/`queue move`/
+`set location`/`remove deleting data`, asserting each verb's effect via `torrents whose id is ...`
+(not the UI). It launches the Debug app with `-PreferencesPath scripts/fixture/preferences.json`
+(an isolated, credential-free preferences file pointed at the fixture's `AppleScriptFixture` server)
+so it never reads or mutates the owner's real server list — see `TestIsolation` in `AppConfig.swift`,
+which also suppresses the real-`UserDefaults` reads/writes (`SelectedServerName`, the first-run
+auto-update prompt, the last-good-host cache) and the launch-time `NSApp.activate` so a run never
+steals focus or leaks into the owner's real defaults domain. It does **not** cover the pending-add
+queue, the Add-options sheet, or clipboard-magnet pickup — those are triggered by
+`didBecomeActiveNotification`/UI flows that the scripted `add` command bypasses entirely; those
+remain covered only by the manual verification recipes below.
+
 ## Gotchas (learned the hard way — don't regress these)
 
 1. **Use `main.swift`, not `@main`.** `@main` on a bare `NSApplicationDelegate`
@@ -379,3 +399,25 @@ end tell
 Notes: `entire contents of window 1` **chokes** on the 1041-row tree — drill explicit
 paths. To drive the search filter in a test, **`set value of <searchField>`** fires
 the filter action reliably; `keystroke` into the field is flaky.
+
+**Prefer the AppleScript scripting dictionary** (`Resources/TransmissionRemote.sdef`,
+`Sources/Scripting.swift`) over the AX tree above wherever it covers the same ground — it reads
+real model state instead of UI internals, so it doesn't break when the view hierarchy changes:
+
+```applescript
+tell application id "com.nickvance.transmission-remote-mac"
+  -- the torrent list, instead of drilling the table:
+  name of every torrent
+  -- connection state, instead of reading the status dot:
+  connection state
+  -- driving the search filter, instead of `set value of <searchField>`:
+  set search text to "foo"
+end tell
+```
+
+Keep the AX tree for what the dictionary can't see: actual rendering, context-menu presence/content,
+and menu-item enablement (see `macapp-ax-context-menu-verification` — right-click menus specifically
+can't be driven via System Events at all; verify those another way). Note `first item of selection`
+does **not** work (`selection` is a plain list property, not an element) — filter `torrents` instead,
+e.g. `first item of (torrents whose name is "...")` (see `scripts/test-applescript.sh` for the
+pattern used throughout that script).
