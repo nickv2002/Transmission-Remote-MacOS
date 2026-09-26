@@ -13,6 +13,13 @@ struct PathMapping: Codable, Sendable, Equatable {
 }
 
 extension PathMapping {
+    /// Whether `local` was typed as an `smb://host/share/subpath` reference
+    /// (Finder's Connect-to-Server form) rather than a literal filesystem path —
+    /// resolved lazily to its current mount point by `effectiveMappings`.
+    static func isSMBReference(_ s: String) -> Bool {
+        s.hasPrefix("smb://")
+    }
+
     /// Parse the Settings text editor's contents (one `remote=local` per line) into
     /// mappings. Splits each line on the **first** `=`, trims both sides, and drops
     /// blank or `=`-less lines (mirrors the Pascal load that purges empty values).
@@ -60,14 +67,36 @@ private func longestPrefixMatch(_ input: String, in pairs: [(key: String, value:
 }
 
 extension ServerConfig {
+    /// `pathMappings` with any `smb://` local value substituted for its
+    /// currently-resolved mount point (via `SMBMountResolver`); entries that
+    /// don't currently resolve to a mount are left as-is (surfaced downstream as
+    /// `.notMounted`). Resolved lazily on every call, not cached — mount points
+    /// move (stale `/Volumes/Share-1` suffixes, different path after reboot).
+    func effectiveMappings(mounts: [SMBMountResolver.MountEntry] = SMBMountResolver.currentMounts()) -> [PathMapping] {
+        pathMappings.map { mapping in
+            guard PathMapping.isSMBReference(mapping.local),
+                  let resolved = SMBMountResolver.resolveMountPoint(forSMBReference: mapping.local, mounts: mounts)
+            else { return mapping }
+            return PathMapping(remote: mapping.remote, local: resolved)
+        }
+    }
+
+    /// True when `remotePath` matches a mapping at all, resolved or not — used to
+    /// gate Reveal/Open menu enablement so an unmounted `smb://` mapping still
+    /// routes through to the actionable `.notMounted` toast instead of leaving
+    /// the menu item silently disabled.
+    func hasPathMapping(forRemotePath remotePath: String) -> Bool {
+        longestPrefixMatch(remotePath, in: pathMappings.map { ($0.remote, $0.local) }) != nil
+    }
+
     /// Translate a remote absolute path to a local one using this server's
     /// mappings. Returns `nil` when no mapping applies.
     ///
     /// Ported from `main.pas` `MapRemoteToLocal`, but strengthened to match
     /// `mapLocalToRemote`'s longest-prefix-wins tie-break: both sides use `/` on
     /// macOS, so the Pascal `FixSeparators` step reduces to a trim.
-    func mapRemoteToLocal(_ remotePath: String) -> String? {
-        longestPrefixMatch(remotePath, in: pathMappings.map { ($0.remote, $0.local) })
+    func mapRemoteToLocal(_ remotePath: String, mounts: [SMBMountResolver.MountEntry] = SMBMountResolver.currentMounts()) -> String? {
+        longestPrefixMatch(remotePath, in: effectiveMappings(mounts: mounts).map { ($0.remote, $0.local) })
     }
 
     /// Translate a local absolute path back to a remote one — the inverse of
@@ -75,8 +104,8 @@ extension ServerConfig {
     /// matching local-side prefix wins (not "last matching entry", unlike the
     /// legacy Pascal `SelectRemoteFolder`, which lacked a break and let list order
     /// decide ties on overlapping mappings).
-    func mapLocalToRemote(_ localPath: String) -> String? {
-        longestPrefixMatch(localPath, in: pathMappings.map { ($0.local, $0.remote) })
+    func mapLocalToRemote(_ localPath: String, mounts: [SMBMountResolver.MountEntry] = SMBMountResolver.currentMounts()) -> String? {
+        longestPrefixMatch(localPath, in: effectiveMappings(mounts: mounts).map { ($0.local, $0.remote) })
     }
 
     /// The three ways a remote path can resolve to something usable on this Mac —
@@ -88,6 +117,9 @@ extension ServerConfig {
         case available(path: String)
         /// A mapping matched but nothing exists locally at `path` right now.
         case notFound(path: String)
+        /// An `smb://` mapping matched the remote path, but that share isn't
+        /// currently mounted anywhere on this Mac.
+        case notMounted(shareURL: String)
         /// No mapping matched this remote path at all.
         case unmapped
     }
@@ -96,8 +128,21 @@ extension ServerConfig {
     /// `fileExists` (injectable so this is unit-testable without touching the real
     /// filesystem; defaults to `FileManager.default.fileExists`).
     func resolveLocalPath(forRemotePath remotePath: String,
+                           mounts: [SMBMountResolver.MountEntry] = SMBMountResolver.currentMounts(),
                            fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> LocalPathResolution {
-        guard let local = mapRemoteToLocal(remotePath) else { return .unmapped }
+        guard let rawMapping = longestPrefixMatch(remotePath, in: pathMappings.map { ($0.remote, $0.local) })
+        else { return .unmapped }
+
+        if PathMapping.isSMBReference(rawMapping),
+           SMBMountResolver.resolveMountPoint(forSMBReference: rawMapping, mounts: mounts) == nil {
+            // Trigger-a-mount must target the share root, not the full resolved
+            // subpath — opening a deep subpath mounts *that folder* as its own
+            // volume instead of the actual share.
+            let shareURL = SMBMountResolver.shareRootReference(rawMapping) ?? rawMapping
+            return .notMounted(shareURL: shareURL)
+        }
+
+        guard let local = mapRemoteToLocal(remotePath, mounts: mounts) else { return .unmapped }
         return fileExists(local) ? .available(path: local) : .notFound(path: local)
     }
 }

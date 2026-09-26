@@ -277,4 +277,72 @@ final class PathMappingTests: XCTestCase {
     func testBlocksCrossProcessDragAtPathMissingFileDoesNotBlock() {
         XCTAssertFalse(PathPermissions.blocksCrossProcessDrag(atPath: "/nonexistent/path/\(UUID().uuidString)"))
     }
+
+    // MARK: - smb:// mappings (issue #12)
+
+    private func mount(_ remountURL: String, _ mountPoint: String) -> SMBMountResolver.MountEntry {
+        SMBMountResolver.MountEntry(remountURL: URL(string: remountURL)!, mountPoint: mountPoint)
+    }
+
+    func testEffectiveMappingsSubstitutesResolvedSMBMount() {
+        let s = server([PathMapping(remote: "/video", local: "smb://nas/Video")])
+        let mounts = [mount("smb://nas/Video", "/Volumes/Video")]
+        XCTAssertEqual(s.effectiveMappings(mounts: mounts),
+                       [PathMapping(remote: "/video", local: "/Volumes/Video")])
+    }
+
+    func testEffectiveMappingsLeavesUnresolvedSMBMappingUnchanged() {
+        let s = server([PathMapping(remote: "/video", local: "smb://nas/Video")])
+        XCTAssertEqual(s.effectiveMappings(mounts: []),
+                       [PathMapping(remote: "/video", local: "smb://nas/Video")])
+    }
+
+    func testEffectiveMappingsLeavesPlainPathMappingsUntouched() {
+        let s = server([PathMapping(remote: "/video", local: "/Volumes/Video")])
+        XCTAssertEqual(s.effectiveMappings(mounts: []),
+                       [PathMapping(remote: "/video", local: "/Volumes/Video")])
+    }
+
+    func testMapRemoteToLocalResolvesThroughSMBMapping() {
+        let s = server([PathMapping(remote: "/video", local: "smb://nas/Video")])
+        let mounts = [mount("smb://nas/Video", "/Volumes/Video")]
+        XCTAssertEqual(s.mapRemoteToLocal("/video/Show/ep.mkv", mounts: mounts), "/Volumes/Video/Show/ep.mkv")
+    }
+
+    func testMapLocalToRemoteRoundTripsThroughResolvedSMBMapping() {
+        // As NSOpenPanel would hand back a real /Volumes/... path chosen by the user.
+        let s = server([PathMapping(remote: "/video", local: "smb://nas/Video")])
+        let mounts = [mount("smb://nas/Video", "/Volumes/Video")]
+        XCTAssertEqual(s.mapLocalToRemote("/Volumes/Video/Show/ep.mkv", mounts: mounts), "/video/Show/ep.mkv")
+    }
+
+    func testResolveLocalPathNotMountedWhenSMBShareNotMounted() {
+        let s = server([PathMapping(remote: "/video", local: "smb://nas/Video")])
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/video/ep.mkv", mounts: [], fileExists: { _ in true }),
+                       .notMounted(shareURL: "smb://nas/Video"))
+    }
+
+    /// REPRODUCTION for a live bug report: opening the full resolved subpath
+    /// (e.g. `smb://n/Undupe/2026/09`) via NSWorkspace mounted the deep folder
+    /// `09` as its own volume instead of the actual `Undupe` share. `.notMounted`
+    /// must carry only the share root, regardless of how deep the remote path is.
+    func testResolveLocalPathNotMountedCarriesShareRootNotDeepSubpath() {
+        let s = server([PathMapping(remote: "/undupe", local: "smb://n/Undupe")])
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/undupe/2026/09/blah.mp3", mounts: [], fileExists: { _ in true }),
+                       .notMounted(shareURL: "smb://n/Undupe"))
+    }
+
+    func testResolveLocalPathAvailableWhenSMBShareMountedAndFilePresent() {
+        let s = server([PathMapping(remote: "/video", local: "smb://nas/Video")])
+        let mounts = [mount("smb://nas/Video", "/Volumes/Video")]
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/video/ep.mkv", mounts: mounts, fileExists: { _ in true }),
+                       .available(path: "/Volumes/Video/ep.mkv"))
+    }
+
+    func testResolveLocalPathNotFoundWhenSMBShareMountedButFileMissing() {
+        let s = server([PathMapping(remote: "/video", local: "smb://nas/Video")])
+        let mounts = [mount("smb://nas/Video", "/Volumes/Video")]
+        XCTAssertEqual(s.resolveLocalPath(forRemotePath: "/video/ep.mkv", mounts: mounts, fileExists: { _ in false }),
+                       .notFound(path: "/Volumes/Video/ep.mkv"))
+    }
 }

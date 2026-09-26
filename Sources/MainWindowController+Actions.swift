@@ -213,7 +213,7 @@ extension MainWindowController: NSToolbarDelegate {
         // Files-tab Reveal/Open: enabled only when a mapping resolves the file path.
         if action == #selector(revealFileInFinder(_:)) || action == #selector(openFile(_:)) {
             guard let remote = targetedFileRemotePath() else { return false }
-            return refresh.activeServerConfig.mapRemoteToLocal(remote) != nil
+            return refresh.activeServerConfig.hasPathMapping(forRemotePath: remote)
         }
         // Files-tab Rename: enabled only when a single file is targeted.
         if action == #selector(renameFile(_:)) {
@@ -225,7 +225,7 @@ extension MainWindowController: NSToolbarDelegate {
         case #selector(revealInFinderSelected(_:)), #selector(openSelected(_:)):
             // Enabled only when a mapping resolves the torrent's remote path.
             guard let t = selection.first else { return false }
-            return refresh.activeServerConfig.mapRemoteToLocal(remotePath(for: t)) != nil
+            return refresh.activeServerConfig.hasPathMapping(forRemotePath: remotePath(for: t))
         case #selector(startSelected(_:)):
             return selection.contains { !$0.status.isActive }
         case #selector(stopSelected(_:)):
@@ -468,6 +468,12 @@ extension MainWindowController: NSToolbarDelegate {
             if warnIfUnmapped { showToast("Not available locally: \(remotePath)") }
         case .notFound(let local):
             showToast("Not available locally: \(local)")
+        case .notMounted(let shareURL):
+            showToast("Share not currently mounted: \(shareURL)", actionTitle: "Open Share") {
+                if let url = URL(string: shareURL) {
+                    NSWorkspace.shared.open(url)
+                }
+            }
         case .available(let local):
             let url = URL(fileURLWithPath: local)
             if open {
