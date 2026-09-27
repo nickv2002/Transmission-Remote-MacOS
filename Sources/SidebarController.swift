@@ -383,6 +383,11 @@ extension SidebarController: NSMenuDelegate {
         menu.addItem(up)
         menu.addItem(down)
     }
+
+    func menuDidClose(_ menu: NSMenu) {
+        // Explicitly defined so AppKit's _sendMenuClosedNotification can safely
+        // dispatch respondsToSelector without encountering unmanaged/speculative lookups.
+    }
 }
 
 // MARK: - Delegate

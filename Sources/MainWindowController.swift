@@ -918,7 +918,12 @@ final class MainWindowController: NSWindowController {
 
 // MARK: - Header menu
 
-extension MainWindowController: NSMenuDelegate {}
+extension MainWindowController: NSMenuDelegate {
+    func menuDidClose(_ menu: NSMenu) {
+        // Explicitly defined so AppKit's _sendMenuClosedNotification can safely
+        // dispatch respondsToSelector without encountering unmanaged/speculative lookups.
+    }
+}
 
 // MARK: - Table data source / delegate
 

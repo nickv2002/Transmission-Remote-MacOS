@@ -363,13 +363,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(url)
     }
 
-    /// Rebuild the Server submenu from the controller's configured servers, with a
-    /// checkmark on the active one.
+    /// Rebuild or update the Server submenu from the controller's configured servers,
+    /// keeping checkmarks current on the active server.
     private func rebuildServerMenu() {
-        serverMenu.removeAllItems()
-        guard let controller = windowController else { return }
+        guard let controller = windowController else {
+            serverMenu.removeAllItems()
+            return
+        }
         let active = controller.refresh.currentServerName
-        for name in controller.refresh.availableServerNames {
+        let available = controller.refresh.availableServerNames
+
+        // Extract existing server names from the menu (all items prior to separator).
+        let existingNames: [String] = serverMenu.items.compactMap { item in
+            guard item.action == #selector(selectServer(_:)),
+                  let name = item.representedObject as? String else { return nil }
+            return name
+        }
+
+        // If the server list hasn't structurally changed, update states in-place.
+        // This avoids destroying items while NSMenuTrackingSession or linked menu
+        // dismissal holds references to them.
+        if existingNames == available && !serverMenu.items.isEmpty {
+            for item in serverMenu.items where item.action == #selector(selectServer(_:)) {
+                let name = item.representedObject as? String
+                item.state = (name == active) ? .on : .off
+            }
+            return
+        }
+
+        // Structural change: rebuild the menu items.
+        serverMenu.removeAllItems()
+        for name in available {
             let item = serverMenu.addItem(withTitle: name,
                                           action: #selector(selectServer(_:)), keyEquivalent: "")
             item.target = self
@@ -399,6 +423,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu === serverMenu { rebuildServerMenu() }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        // Explicitly defined so AppKit's _sendMenuClosedNotification can safely
+        // dispatch respondsToSelector without encountering unmanaged/speculative lookups.
     }
 }
 
