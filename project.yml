@@ -28,6 +28,13 @@ targets:
     dependencies:
       - package: Sparkle
         product: Sparkle
+      # Dock tile plug-in: keeps the freeform icon out of macOS 26+'s squircle
+      # mask while the app isn't running (see DockTile/DockTilePlugIn.swift).
+      - target: TransmissionRemoteDockTile
+        embed: true
+        codeSign: true
+        copy:
+          destination: plugins
     settings:
       base:
         PRODUCT_NAME: "Transmission Remote"
@@ -61,6 +68,35 @@ targets:
           CODE_SIGN_IDENTITY: "Developer ID Application"
           ENABLE_HARDENED_RUNTIME: YES
           CODE_SIGN_ENTITLEMENTS: Resources/TransmissionRemote.entitlements
+          OTHER_CODE_SIGN_FLAGS: "--timestamp"
+
+  # NSDockTilePlugIn bundle, embedded in the app's Contents/PlugIns and named by
+  # the app Info.plist's NSDockTilePlugIn key. The Dock loads it into its own
+  # process to draw the unmasked icon while the app isn't running.
+  TransmissionRemoteDockTile:
+    type: bundle
+    platform: macOS
+    sources:
+      - path: DockTile
+      - path: Resources/DockIcon.png
+    settings:
+      base:
+        PRODUCT_NAME: TransmissionRemoteDockTile
+        PRODUCT_BUNDLE_IDENTIFIER: com.nickvance.transmission-remote-mac.docktile
+        WRAPPER_EXTENSION: docktileplugin
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSPrincipalClass: TRDockTilePlugIn
+        SWIFT_STRICT_CONCURRENCY: complete
+        SKIP_INSTALL: YES
+      configs:
+        Debug:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "-"
+          ENABLE_HARDENED_RUNTIME: NO
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Developer ID Application"
+          ENABLE_HARDENED_RUNTIME: YES
           OTHER_CODE_SIGN_FLAGS: "--timestamp"
 
   # Logic unit tests. Rather than host the application (which would launch the

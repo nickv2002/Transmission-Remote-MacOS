@@ -19,6 +19,12 @@
 	-->
 	<key>SUPublicEDKey</key>
 	<string>+ONkpmgvNWrF3vZIpoBPehwCK9SH4FgKELrAkXpvUgQ=</string>
+	<!--
+	  Dock tile plug-in (Contents/PlugIns): the Dock draws our freeform icon
+	  itself, so it escapes macOS 26+'s squircle mask even while we're not running.
+	-->
+	<key>NSDockTilePlugIn</key>
+	<string>TransmissionRemoteDockTile.docktileplugin</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<!-- Cocoa Scripting: exposes TransmissionRemote.sdef's terminology to AppleScript/osascript. -->

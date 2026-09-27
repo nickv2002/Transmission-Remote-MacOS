@@ -30,6 +30,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         NSApp.setActivationPolicy(.regular)
+        // Escape macOS 26+'s "squircle jail": a runtime icon set from raw pixels
+        // isn't masked into a gray squircle the way the bundle icon is. Loaded from
+        // a plain PNG (not the asset catalog, whose rendition is already jailed).
+        // The DockTile plug-in does the same for the Dock tile while not running.
+        if let url = Bundle.main.url(forResource: "DockIcon", withExtension: "png"),
+           let icon = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = icon
+        }
+        applyFinderIconIfNeeded()
         setupMainMenu()
 
         do {
@@ -139,6 +148,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func findInList(_ sender: Any?) {
         windowController?.focusSearch()
+    }
+
+    /// Finder squircle-jails the bundle icon too, but not a *custom* icon set on
+    /// the bundle (an `Icon\r` file + Finder-info flag at the bundle root). A
+    /// Sparkle update replaces the bundle, so re-apply whenever it's missing.
+    /// Plain `codesign --verify` still passes afterwards (only `--strict` flags the
+    /// root detritus). Release-only: in a Debug build the detritus would make
+    /// Xcode's next incremental codesign of the product fail. Retries a few times:
+    /// the very first launch of a freshly copied bundle was seen to miss once.
+    /// Uses the multi-size `AppIcon.icns`: handing `setIcon` the single 1024px PNG
+    /// makes IconServices log a fault (filed as an ExcUserFault report) while it
+    /// synthesizes the smaller sizes.
+    private func applyFinderIconIfNeeded(attempt: Int = 0) {
+        #if !DEBUG
+        let path = Bundle.main.bundlePath
+        let marker = (path as NSString).appendingPathComponent("Icon\r")
+        guard !FileManager.default.fileExists(atPath: marker),
+              FileManager.default.isWritableFile(atPath: path), attempt < 4,
+              let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+              let icon = NSImage(contentsOf: url) else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + (attempt == 0 ? 0 : 5)) { [weak self] in
+            NSWorkspace.shared.setIcon(icon, forFile: path, options: [])
+            self?.applyFinderIconIfNeeded(attempt: attempt + 1)
+        }
+        #endif
     }
 
     /// Asked once, on first launch, before Sparkle's updater starts. Returns
