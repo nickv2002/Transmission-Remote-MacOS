@@ -187,5 +187,17 @@
         length="3339560"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.09.27.1</title>
+      <sparkle:version>2026.09.27.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 27 Sep 2026 20:04:31 +0000</pubDate>
+      <description><![CDATA[<ul><li>compress replacement dock icon</li><li>Show the classic freeform icon in the Dock and Finder (escape squircle jail)</li><li>Update server menu items in-place when the server list is unchanged</li><li>Add AppleScript-driven test coverage and test-isolation launch hook</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.27.1/Transmission.Remote-2026.09.27.1.zip"
+        sparkle:edSignature="kDqfXMjMUY8rdiVRMARmKfH+TMdnLy29v+4duJX2/kdVz8ci6jhLqJoHtMArwRyvX1y8/nj5d2XU+3xVPGw5DA=="
+        length="4432654"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
