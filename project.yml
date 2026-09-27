@@ -88,6 +88,7 @@ targets:
       - path: Sources/RefreshController.swift
       - path: Sources/TorrentFileRemover.swift
       - path: Sources/TorrentLink.swift
+      - path: Sources/ServerMenuSync.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nickvance.transmission-remote-mac.tests
