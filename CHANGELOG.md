@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.09.27.1 — 2026-09-27
+
+- compress replacement dock icon
+- Show the classic freeform icon in the Dock and Finder (escape squircle jail)
+- Update server menu items in-place when the server list is unchanged
+- Add AppleScript-driven test coverage and test-isolation launch hook
+
 ## 2026.09.25.2 — 2026-09-25
 
 - Add AppleScript support for torrents, preferences, and menu actions
