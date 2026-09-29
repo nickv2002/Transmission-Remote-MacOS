@@ -112,6 +112,7 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `main.swift` — explicit AppKit entry point (see gotcha below).
 - `AppDelegate.swift` — app lifecycle, menus (Settings… ⌘,, Find ⌘F, Edit, View, Server).
 - `ServerMenuSync.swift` — Server menu in-place update check + ⌘1–⌘0 key mapping (tested).
+- `ToolbarLayoutAppKit.swift` — `NSWindow.apply(toolbarLayout:)` and the `NSToolbar` display-mode observer (tested); ignores AppKit's transient mode resets while applying.
 - `PopUpEnum.swift` — `NSPopUpButton` ⇄ `CaseIterable` enum bridging (`configure`/`select`/`selectedCase`); use it for every enum-backed popup (tested).
 - `SettingsWindowController.swift` — native preferences window (Servers / General).
 - `SettingsEditor.swift` — Foundation-only editing model behind Settings (tested).
@@ -350,16 +351,26 @@ onto AppKit, so never re-derive "compact" from `window.titleVisibility`:
 - **Default**: title visible + `.expanded` + `.iconAndLabel`. "Transmission Remote"
   with its proxy icon on top; the toolbar row below has labels and the dropdown
   with a clickable `externaldrive.connected.to.line.below` symbol.
-- **Compact**: title hidden + `.unifiedCompact` + `.iconOnly`. One row, with the
+- **Compact**: title hidden + `.unified` + `.iconOnly`. One row, with the
   app icon beside the dropdown and button labels shown as tooltips.
 
 Behavior no config shows:
 
 - **Labels need `.expanded`.** With the title hidden, `.automatic`/`.unified`
   resolve to a compact style that never draws labels, whatever the display mode.
-- **The setting owns the display mode.** `NSToolbar` autosave persists it
-  (`TB Display Mode`) and would override the setting, so it's applied after the
-  toolbar attaches and `allowsDisplayModeCustomization` is off.
+- **The setting owns the display mode, but the toolbar can change it.** `NSToolbar`
+  autosave persists the mode (`TB Display Mode`) and would override the setting, so
+  it's applied after the toolbar attaches. The palette's *Show:* popup and the
+  right-click menu stay enabled: a KVO observer on `displayMode` maps icon-only →
+  Compact, anything else → Default (`ToolbarLayout(iconOnly:)`) and routes it through
+  `AppDelegate.setToolbarLayout` like the View menu does. `applyToolbarLayout` sets
+  `toolbarLayout` first, so its own mode writes never look like user changes.
+- **Compact must be `.unified`, not `.unifiedCompact`.** `.unifiedCompact` makes AppKit
+  drop the display-mode controls (palette *Show:* popup, right-click Icon and Text /
+  Icon Only), so Compact could not be undone there. With `.unified` the palette shows
+  Finder's *Show:* popup and the change flows back through the `displayMode` observer.
+- **No window tabbing.** `NSWindow.allowsAutomaticWindowTabbing = false` at launch
+  keeps Show Tab Bar / Show All Tabs out of the View menu.
 - **Autosave id is `MainToolbar2`**, bumped so saved toolbars gained the dropdown.
   Bump it again when adding a default item; that resets users' customization once.
 - **Dropdown centering is empirical.** In Default AppKit lines view items up with
@@ -390,6 +401,7 @@ native-store precedence), `ConnectionDiagnostics` (every `TransmissionError` map
 to a field-targeted message), **`SettingsEditor`** (add/remove/edit/default/
 refresh, move/reorder, name trim+dedupe, default-follows-rename, dirty detection,
 save, reset), **`ServerMenuSync`** (in-place update check, ⌘1–⌘0 key mapping),
+**`ToolbarLayout`** (properties, `apply(toolbarLayout:)` style/mode, display-mode round trip, `PopUpEnum`), **`SidebarController`** (counts clear on `update(with: [])`, as on a server switch), **server drag-reorder** (`SettingsWindowController` pasteboard/drop layer),
 and **`HostCandidates`/`ConnectionResolver`** (comma- and newline-list parsing
 incl. scheme/port/path/IPv6/inheritance + first-reachable failover selection),
 and **`PathMapping`** (remote→local exact/prefix mapping, separator guard,

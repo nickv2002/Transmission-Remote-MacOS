@@ -19,6 +19,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingURLs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single-window app: keeps AppKit from adding Show Tab Bar / Show All Tabs
+        // to the View menu.
+        NSWindow.allowsAutomaticWindowTabbing = false
         // Sparkle must be initialized before setupMainMenu() so the
         // "Check for Update…" item can target the controller. Its automatic
         // background checking is deliberately NOT started yet — the app decides
@@ -67,6 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let controller = MainWindowController(config: config)
         windowController = controller
+        controller.onToolbarLayoutChange = { [weak self] in self?.setToolbarLayout($0) }
         controller.showWindow(nil)
         rebuildServerMenu()
 
@@ -479,6 +483,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func selectToolbarLayout(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let layout = ToolbarLayout(rawValue: raw) else { return }
+        setToolbarLayout(layout)
+    }
+
+    /// Persist + apply a toolbar layout chosen outside Settings (View menu or the
+    /// toolbar's own display-mode control) and mirror it in an open Settings window.
+    private func setToolbarLayout(_ layout: ToolbarLayout) {
         config.toolbarLayout = layout
         persistConfigChange()
         settingsController?.showToolbarLayout(layout)

@@ -20,6 +20,11 @@ final class ToolbarLayoutTests: XCTestCase {
         XCTAssertTrue(l.serverIconIsAppIcon)
     }
 
+    func testIconOnlyDisplayModeMapsToCompact() {
+        XCTAssertEqual(ToolbarLayout(iconOnly: true), .compact)
+        XCTAssertEqual(ToolbarLayout(iconOnly: false), .default)
+    }
+
     func testDisplayNamesAreDistinctAndOrdered() {
         XCTAssertEqual(ToolbarLayout.allCases.map(\.displayName), ["Default", "Compact"])
     }
