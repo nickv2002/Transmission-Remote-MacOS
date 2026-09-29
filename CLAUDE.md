@@ -72,16 +72,23 @@ notification needed; `cellText` keeps the full form so Auto-Size fits it);
 single localhost default), `TransmissionClient.init(server:)`, a **Server menu**
 (right of Edit) that checkmarks the active server and switches the live connection,
 selection persisted in `UserDefaults` `SelectedServerName` (resolved
-UserDefaults → `currentServer` → first), window title shows the active server when
+UserDefaults → `currentServer` → first), and a **bottom-left fetch spinner + idle dot**
+(`RefreshController.onFetchingChanged`, transition-coalesced; `circle.fill` dot
+tinted by connection state when idle, `NSProgressIndicator` while polling — note the
+spinner is near-invisible against a fast LAN server whose fetch is ~2ms). The owner's
+real config was migrated by hand to the new shape (backed up first); a second
+example `Local` entry was added so the Server menu has two to switch between.
+Follow-up fix this round: the app menu gained standard **Hide / Hide Others /
+Show All** items so **⌘H** is bound (it was a no-op before).
 
-> 1 configured; and a **bottom-left fetch spinner + idle dot**
-> (`RefreshController.onFetchingChanged`, transition-coalesced; `circle.fill` dot
-> tinted by connection state when idle, `NSProgressIndicator` while polling — note the
-> spinner is near-invisible against a fast LAN server whose fetch is ~2ms). The owner's
-> real config was migrated by hand to the new shape (backed up first); a second
-> example `Local` entry was added so the Server menu has two to switch between.
-> Follow-up fix this round: the app menu gained standard **Hide / Hide Others /
-> Show All** items so **⌘H** is bound (it was a no-op before).
+Round-4 (title bar + server switching, no plan file): a **server dropdown** centered
+in the toolbar replaces the server name in the title; **Toolbar size** Default /
+Compact (Settings ▸ General and **View ▸ Toolbar Size**; see *Title bar & toolbar
+layout*); **View ▸ Customize Toolbar…**; **Server ▸ Manage Servers…** opens Settings
+on the Servers tab; **drag-to-reorder servers** in Settings; **⌘1–⌘0** switch to
+servers 1–10 in Server-menu order; outline toolbar symbols. Both layouts were
+verified by window capture; menu items, tooltips, and clicks were not driven (no
+accessibility permission in that session).
 
 Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 
@@ -103,7 +110,8 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 ## Layout (`Sources/`)
 
 - `main.swift` — explicit AppKit entry point (see gotcha below).
-- `AppDelegate.swift` — app lifecycle, menus (Settings… ⌘,, Find ⌘F, Edit, Server).
+- `AppDelegate.swift` — app lifecycle, menus (Settings… ⌘,, Find ⌘F, Edit, View, Server).
+- `ServerMenuSync.swift` — Server menu in-place update check + ⌘1–⌘0 key mapping (tested).
 - `SettingsWindowController.swift` — native preferences window (Servers / General).
 - `SettingsEditor.swift` — Foundation-only editing model behind Settings (tested).
 - `ConnectionDiagnostics.swift` — Test Connection error→message mapping (tested).
@@ -115,8 +123,9 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
   `remote=local` text parse/format used by the Settings editor (tested).
 - `MainWindowController.swift` — window, `NSTableView`, detail pane, status bar,
   sorting, search/filter (`displayed` is the filtered view of the `torrents` model).
-- `MainWindowController+Actions.swift` — toolbar (incl. Add pull-down), context
-  menu, action methods, and the search toolbar item.
+- `MainWindowController+Actions.swift` — toolbar (incl. Add pull-down, server
+  dropdown, `applyToolbarLayout`), context menu, action methods, and the search
+  toolbar item.
 - `MainWindowController+Files.swift` — the Files tab table + wanted/priority actions.
 - `MainWindowController+Add.swift` — add-torrent flows (file/magnet/drag) + `DropView`.
 - `SidebarController.swift` — the source-list filter sidebar (`NSOutlineView`).
@@ -200,14 +209,16 @@ window** (⌘,) — no more hand-edited JSONC.
     edits update just the affected row label, **never** `reloadData()` (which
     dropped the table selection mid-edit and broke Test/Remove). Closing with a
     pending server edit prompts Save / Discard / Cancel;
-    `AppDelegate.showSettings` calls `reset(to:)` on reopen.
+    `AppDelegate.showSettings` calls `reset(to:)` on reopen. Rows **drag to
+    reorder** (`SettingsEditor.moveServer`); a reorder is a working-copy edit like
+    any other, so it goes live on Save Server.
     - **Test Connection** (left of Save Server) builds a `ServerConfig` from the
       **current form fields** (so you can test before saving), runs
       `session-get`, and shows a field-targeted success/failure alert
       (diagnostic mapping in the Foundation-only
       `ConnectionDiagnostics.message(for:server:)`).
   - **General tab**: split by a divider into a **General** group (refresh
-    interval field + stepper, auto-check-for-updates) and an **Incoming
+    interval field + stepper, auto-check-for-updates, toolbar size) and an **Incoming
     Torrents** group (default add-file handling, show-options-when-adding,
     add-links-from-clipboard, and the Magnet-links/.torrent-files default-app
     rows). Every control here **applies immediately** — no Save button — each
@@ -216,7 +227,7 @@ window** (⌘,) — no more hand-edited JSONC.
     tab's dirty/Save-button state. (Bug fixed in this pass: previously General
     and Servers shared one `isDirty` flag off the whole `AppConfig`, so toggling
     a General checkbox like auto-check-for-updates would wrongly enable "Save
-    Server".) The five General setters in `SettingsEditor` write through to both
+    Server".) The six General setters in `SettingsEditor` write through to both
     `working` and `savedBaseline` at once for exactly this reason. The refresh
     field still only applies on end-of-edit (`refreshChanged`/`stepperChanged`),
     not per keystroke, so typing "10" doesn't apply "1" first.
@@ -326,6 +337,38 @@ Ported from the legacy app (`RegisterURLHandler`, `CheckClipboardLink`,
   repeat suppression; skip-dialog add and clipboard pickup against the Docker
   fixture only.
 
+## Title bar & toolbar layout
+
+`ToolbarLayout` (`AppConfig.toolbarLayout`, default `.default`) is applied by
+`MainWindowController.applyToolbarLayout`, the single owner of title visibility,
+toolbar style, and display mode:
+
+- **Default**: title visible + `.expanded` + `.iconAndLabel`. "Transmission Remote"
+  with its proxy icon on top; the toolbar row below has labels and the dropdown
+  with a clickable `externaldrive.connected.to.line.below` symbol.
+- **Compact**: title hidden + `.unifiedCompact` + `.iconOnly`. One row, with the
+  app icon beside the dropdown and button labels shown as tooltips.
+
+Behavior no config shows:
+
+- **Labels need `.expanded`.** With the title hidden, `.automatic`/`.unified`
+  resolve to a compact style that never draws labels, whatever the display mode.
+- **The setting owns the display mode.** `NSToolbar` autosave persists it
+  (`TB Display Mode`) and would override the setting, so it's applied after the
+  toolbar attaches and `allowsDisplayModeCustomization` is off.
+- **Autosave id is `MainToolbar2`**, bumped so saved toolbars gained the dropdown.
+  Bump it again when adding a default item; that resets users' customization once.
+- **Dropdown centering is empirical.** In Default AppKit lines view items up with
+  the button icons, so `serverSwitcherDrop` drops the dropdown by half a label line
+  plus 2pt.
+- **The proxy icon is AppKit's.** It appears only with `representedURL` (the
+  bundle) and is drawn from the bundle icon's **16pt renditions**
+  (`icon_16x16*`, `icon_32x32`), ignoring any image set on the button. Keep those
+  renditions matching the large artwork. After changing icon assets, `touch` and
+  `lsregister -f` the Debug app to refresh the cached icon. A hand-placed image
+  view in the title bar was tried and dropped: it stopped drawing after a layout
+  switch even with a correct frame.
+
 ## Tests
 
 XCTest unit tests live in `Tests/`, built by the `TransmissionRemoteTests`
@@ -341,7 +384,8 @@ trackerHost/seed-ratio + RPC `torrent-get`/files decoding), `AppConfig` /
 `PreferencesStore` (decode defaults, round-trip, migration, default seeding,
 native-store precedence), `ConnectionDiagnostics` (every `TransmissionError` maps
 to a field-targeted message), **`SettingsEditor`** (add/remove/edit/default/
-refresh, name trim+dedupe, default-follows-rename, dirty detection, save, reset),
+refresh, move/reorder, name trim+dedupe, default-follows-rename, dirty detection,
+save, reset), **`ServerMenuSync`** (in-place update check, ⌘1–⌘0 key mapping),
 and **`HostCandidates`/`ConnectionResolver`** (comma- and newline-list parsing
 incl. scheme/port/path/IPv6/inheritance + first-reachable failover selection),
 and **`PathMapping`** (remote→local exact/prefix mapping, separator guard,
@@ -410,9 +454,17 @@ remain covered only by the manual verification recipes below.
 
 ## Verifying changes in the running app
 
-`screencapture` often returns blank because the window opens on a different Mission
-Control **Space**. Verify via the **accessibility tree** instead (it's the source
-of truth here). Requires accessibility permission for the controlling process.
+`screencapture` of the screen often returns blank because the window opens on a
+different Mission Control **Space**. For **rendering**, capture the window by ID
+instead: `screencapture -x -o -l <windowID>` works across Spaces and when covered.
+Get the ID from `CGWindowListCopyWindowInfo` (owner PID = the Debug app, layer 0).
+To render a given setting without touching the owner's preferences, launch the
+Debug binary with `-PreferencesPath` pointing at a scratch copy of
+`scripts/fixture/preferences.json` with that key changed (e.g.
+`"toolbarLayout": "compact"`).
+
+For **state and behavior**, use the **accessibility tree** (the source of truth
+here). Requires accessibility permission for the controlling process.
 
 ```applescript
 tell application "System Events" to tell process "Transmission Remote"
