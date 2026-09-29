@@ -199,5 +199,17 @@
         length="4432654"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.09.29.1</title>
+      <sparkle:version>2026.09.29.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 29 Sep 2026 21:04:14 +0000</pubDate>
+      <description><![CDATA[<ul><li>Files sort: extract testable TorrentFileSort, add unsorted third click, fix stale comment</li><li>Make Files tab columns sortable (#14)</li><li>lossless compress other image files</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.29.1/Transmission.Remote-2026.09.29.1.zip"
+        sparkle:edSignature="zDEuyEHavuqjqVmpfSpQ60AIJlAy3mwtt9wjw5iOo2qwPoc8Ikqod7/FP3RfeZGN36kdkjYmFRxwB6vite4CBg=="
+        length="4446364"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
