@@ -12,28 +12,71 @@ extension MainWindowController: NSToolbarDelegate {
         static let verify = NSToolbarItem.Identifier("verify")
         static let remove = NSToolbarItem.Identifier("remove")
         static let search = NSToolbarItem.Identifier("search")
+        static let server = NSToolbarItem.Identifier("server")
     }
 
     func buildToolbar() {
-        let toolbar = NSToolbar(identifier: "MainToolbar")
+        let toolbar = NSToolbar(identifier: "MainToolbar2")
         toolbar.delegate = self
-        toolbar.displayMode = .iconAndLabel
         toolbar.allowsUserCustomization = true
+        // Display mode comes from Settings (`applyToolbarLayout`), not the
+        // toolbar's own right-click menu, so there's one source of truth.
+        toolbar.allowsDisplayModeCustomization = false
         toolbar.autosavesConfiguration = true
+        toolbar.centeredItemIdentifiers = [ToolbarID.server]
         window?.toolbar = toolbar
+    }
+
+    /// Default: the "Transmission Remote" title row (with the app icon) above
+    /// a labelled toolbar row. Compact: title hidden, one icon-only row with the
+    /// app icon beside the server dropdown. The style matters as much as the
+    /// display mode: labels only show in the `.expanded` style. Applied after
+    /// the toolbar is attached, so it wins over any autosaved display mode.
+    func applyToolbarLayout(_ layout: ToolbarLayout) {
+        guard let window else { return }
+        switch layout {
+        case .default:
+            window.titleVisibility = .visible
+            window.toolbarStyle = .expanded
+            window.toolbar?.displayMode = .iconAndLabel
+        case .compact:
+            window.titleVisibility = .hidden
+            window.toolbarStyle = .unifiedCompact
+            window.toolbar?.displayMode = .iconOnly
+        }
+        serverIcon?.image = serverIconImage
+        serverSwitcherOffset?.constant = serverSwitcherDrop
+        window.toolbar?.items.forEach(updateToolTip)
+    }
+
+    /// Compact hides the labels, so it shows them as tooltips instead. Default
+    /// has no tooltips, since the labels are already visible.
+    private func updateToolTip(_ item: NSToolbarItem) {
+        let compact = window?.titleVisibility == .hidden
+        switch item.itemIdentifier {
+        case ToolbarID.server: serverPopup?.toolTip = compact ? "Switch Server" : nil
+        case ToolbarID.search: break   // its placeholder already explains it
+        default: item.toolTip = compact && !item.label.isEmpty ? item.label : nil
+        }
+    }
+
+    /// Items added later via Customize Toolbar pick up the current tooltips.
+    func toolbarWillAddItem(_ notification: Notification) {
+        guard let item = notification.userInfo?["item"] as? NSToolbarItem else { return }
+        updateToolTip(item)
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [ToolbarID.add, .space,
          ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
          ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         .flexibleSpace, ToolbarID.search]
+         .flexibleSpace, ToolbarID.server, .flexibleSpace, ToolbarID.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [ToolbarID.add, ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
          ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         ToolbarID.search, .space, .flexibleSpace]
+         ToolbarID.search, ToolbarID.server, .space, .flexibleSpace]
     }
 
     func toolbar(_ toolbar: NSToolbar,
@@ -49,6 +92,17 @@ extension MainWindowController: NSToolbarDelegate {
             item.searchField.action = #selector(searchChanged(_:))
             item.searchField.searchMenuTemplate = searchModeMenu()
             searchField = item.searchField
+            return item
+        }
+
+        // Server-switching dropdown, centered in the toolbar row.
+        if itemIdentifier == ToolbarID.server {
+            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+            // No label under the dropdown in the default layout; the palette
+            // (Customize Toolbar) still names it.
+            item.label = ""
+            item.paletteLabel = "Server"
+            item.view = makeServerSwitcher()
             return item
         }
 
@@ -84,6 +138,86 @@ extension MainWindowController: NSToolbarDelegate {
         item.action = spec.action
         item.isBordered = true
         return item
+    }
+
+    /// Compact has no title, so the dropdown carries the app icon. Default
+    /// already shows the app icon in the title, so it gets a server symbol.
+    private var serverIconImage: NSImage? {
+        window?.titleVisibility == .visible
+            ? NSImage(systemSymbolName: "externaldrive.connected.to.line.below",
+                      accessibilityDescription: "Server")
+            : NSApp.applicationIconImage
+    }
+
+    /// In default, AppKit lines a view item up with the button icons, above
+    /// the label row. The switcher has no label, so drop it by half a label
+    /// line (plus the small icon–label gap) to center it on the whole row.
+    /// Compact has no label row.
+    private var serverSwitcherDrop: CGFloat {
+        guard window?.titleVisibility == .visible else { return 0 }
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        return ceil(font.ascender - font.descender + font.leading) / 2 + 2
+    }
+
+    private func makeServerSwitcher() -> NSView {
+        // A borderless button so, in default, clicking the drive icon opens
+        // the dropdown too.
+        let icon = NSButton(image: NSImage(), target: self, action: #selector(serverIconClicked(_:)))
+        icon.isBordered = false
+        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.image = serverIconImage
+        icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        serverIcon = icon
+
+        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
+        popup.isBordered = false
+        popup.font = .titleBarFont(ofSize: 0)
+        popup.target = self
+        popup.action = #selector(serverPopupChanged(_:))
+        serverPopup = popup
+        updateServerPopup()
+
+        let stack = NSStackView(views: [icon, popup])
+        stack.orientation = .horizontal
+        stack.spacing = 4
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        // The container keeps the stack's size for toolbar layout; the stack
+        // is drawn offset inside it (container doesn't clip).
+        let container = NSView()
+        container.addSubview(stack)
+        let offset = stack.centerYAnchor.constraint(equalTo: container.centerYAnchor,
+                                                    constant: serverSwitcherDrop)
+        serverSwitcherOffset = offset
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            stack.heightAnchor.constraint(equalTo: container.heightAnchor),
+            offset,
+        ])
+        return container
+    }
+
+    /// Sync the switcher's items and selection with the configured servers.
+    func updateServerPopup() {
+        guard let popup = serverPopup else { return }
+        let names = refresh.availableServerNames
+        if popup.itemTitles != names {
+            popup.removeAllItems()
+            popup.addItems(withTitles: names)
+        }
+        popup.selectItem(withTitle: refresh.currentServerName)
+    }
+
+    @objc private func serverIconClicked(_ sender: NSButton) {
+        guard window?.titleVisibility == .visible else { return }   // default only
+        serverPopup?.performClick(sender)
+    }
+
+    @objc private func serverPopupChanged(_ sender: NSPopUpButton) {
+        guard let name = sender.titleOfSelectedItem else { return }
+        selectServer(name)
     }
 
     /// Pull-down for the Add toolbar item: torrent file or magnet/URL.

@@ -102,6 +102,20 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(decoded.addLinksFromClipboard)
     }
 
+    func testToolbarLayoutDefaultsToDefault() throws {
+        // Configs from before the setting, and unknown values, get the default.
+        let old = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
+        XCTAssertEqual(old.toolbarLayout, .default)
+        let unknown = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"toolbarLayout":"huge"}"#.utf8))
+        XCTAssertEqual(unknown.toolbarLayout, .default)
+    }
+
+    func testToolbarLayoutRoundTrip() throws {
+        let original = AppConfig(servers: [.localhost], refreshSeconds: 4, toolbarLayout: .compact)
+        let decoded = try PreferencesStore.decode(PreferencesStore.encode(original))
+        XCTAssertEqual(decoded.toolbarLayout, .compact)
+    }
+
     func testServerLookupAndNames() {
         let cfg = AppConfig(
             servers: [.localhost, ServerConfig(name: "Remote", host: "h", port: 1,
