@@ -126,6 +126,10 @@ targets:
       - path: Sources/TorrentLink.swift
       - path: Sources/ServerMenuSync.swift
       - path: Sources/PopUpEnum.swift
+      - path: Sources/ToolbarLayoutAppKit.swift
+      - path: Sources/SidebarController.swift
+      - path: Sources/SettingsWindowController.swift
+      - path: Sources/DefaultHandlers.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.nickvance.transmission-remote-mac.tests

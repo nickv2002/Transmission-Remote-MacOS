@@ -19,9 +19,13 @@ extension MainWindowController: NSToolbarDelegate {
         let toolbar = NSToolbar(identifier: "MainToolbar2")
         toolbar.delegate = self
         toolbar.allowsUserCustomization = true
-        // Display mode comes from Settings (`applyToolbarLayout`), not the
-        // toolbar's own right-click menu, so there's one source of truth.
-        toolbar.allowsDisplayModeCustomization = false
+        // The palette's Show: popup / right-click menu change the display mode;
+        // that maps onto the Toolbar size setting (`ToolbarLayout(iconOnly:)`),
+        // which stays the single source of truth and drives the rest of the layout.
+        toolbar.allowsDisplayModeCustomization = true
+        displayModeObservation = toolbar.observeLayoutChanges(
+            current: { [weak self] in self?.toolbarLayout ?? .default },
+            onChange: { [weak self] in self?.onToolbarLayoutChange?($0) })
         toolbar.autosavesConfiguration = true
         toolbar.centeredItemIdentifiers = [ToolbarID.server]
         window?.toolbar = toolbar
@@ -35,9 +39,7 @@ extension MainWindowController: NSToolbarDelegate {
     func applyToolbarLayout(_ layout: ToolbarLayout) {
         guard let window else { return }
         toolbarLayout = layout
-        window.titleVisibility = layout.showsTitle ? .visible : .hidden
-        window.toolbarStyle = layout.isCompact ? .unifiedCompact : .expanded
-        window.toolbar?.displayMode = layout.isCompact ? .iconOnly : .iconAndLabel
+        window.apply(toolbarLayout: layout)
         serverIcon?.image = serverIconImage
         serverSwitcherOffset?.constant = serverSwitcherDrop
         window.toolbar?.items.forEach(updateToolTip)
