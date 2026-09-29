@@ -109,6 +109,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Open (or focus) the native Settings window. Edits are persisted to the
     /// preferences store and applied to the live connection immediately.
     @objc private func showSettings(_ sender: Any?) {
+        showSettings(serversTab: false)
+    }
+
+    @objc private func manageServers(_ sender: Any?) {
+        showSettings(serversTab: true)
+    }
+
+    private func showSettings(serversTab: Bool) {
         if settingsController == nil {
             let controller = SettingsWindowController(config: config)
             controller.onChange = { [weak self] updated in
@@ -128,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Reopened: reflect the latest saved config, discarding any prior edits.
             settingsController?.reset(to: config)
         }
+        if serversTab { settingsController?.showServersTab() }
         settingsController?.showWindow(nil)
         settingsController?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -435,6 +444,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = (name == active) ? .on : .off
         }
         serverMenu.addItem(.separator())
+        let manageItem = serverMenu.addItem(withTitle: "Manage Servers…",
+                                            action: #selector(manageServers(_:)), keyEquivalent: "")
+        manageItem.target = self
         let refreshItem = serverMenu.addItem(withTitle: "Refresh Now",
                                               action: #selector(refreshNow(_:)), keyEquivalent: "r")
         refreshItem.target = self

@@ -21,6 +21,8 @@ final class SettingsWindowController: NSWindowController {
     /// The editing model: working copy + saved baseline + all mutations.
     private var editor: SettingsEditor
 
+    private let tabView = NSTabView()
+
     // Servers pane.
     private let defaultServerPopup = NSPopUpButton()
     private let serverTable = NSTableView()
@@ -88,6 +90,11 @@ final class SettingsWindowController: NSWindowController {
         reloadEverything()
     }
 
+    /// Bring the Servers tab to the front.
+    func showServersTab() {
+        tabView.selectTabViewItem(withIdentifier: "servers")
+    }
+
     /// Refresh all UI from the editor and select the first server.
     private func reloadEverything() {
         reloadServerList()
@@ -114,7 +121,6 @@ final class SettingsWindowController: NSWindowController {
         generalItem.label = "General"
         generalItem.view = generalPane
 
-        let tabView = NSTabView()
         tabView.translatesAutoresizingMaskIntoConstraints = false
         tabView.addTabViewItem(generalItem)
         tabView.addTabViewItem(serversItem)
@@ -818,6 +824,7 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
     func tableViewSelectionDidChange(_ notification: Notification) {
         loadDetail()
     }
+
 }
 
 // MARK: - Window delegate
