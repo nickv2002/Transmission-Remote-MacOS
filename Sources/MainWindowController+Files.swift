@@ -40,6 +40,9 @@ extension MainWindowController {
             let col = NSTableColumn(identifier: column.identifier)
             col.title = column.title
             col.width = column.width
+            if column != .wanted {
+                col.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: true)
+            }
             filesTable.addTableColumn(col)
         }
         restoreFilesColumnWidths()
@@ -211,8 +214,7 @@ extension MainWindowController {
             do {
                 let fetched = try await client.fetchFiles(id: id)
                 guard !Task.isCancelled, self.filesTorrentId == id else { return }
-                self.files = fetched
-                self.reloadFilesData()
+                self.applyFetchedFiles(fetched)
             } catch {
                 // Silent: the list poll surfaces connection errors already.
             }
@@ -253,6 +255,48 @@ extension MainWindowController {
         runFilesRPC { try await $0.setFilesWanted(id: id, fileIndices: [fileIndex], wanted: wanted) }
     }
 
+    /// Store a freshly fetched file list in the table's sort order. Sorting moves
+    /// rows between polls, so the selection is restored by file index, not row.
+    private func applyFetchedFiles(_ fetched: [TorrentFile]) {
+        let selectedFiles = Set(filesTable.selectedRowIndexes.compactMap {
+            files.indices.contains($0) ? files[$0].index : nil
+        })
+        files = sortedFiles(fetched)
+        reloadFilesData()
+        guard !selectedFiles.isEmpty else { return }
+        let rows = IndexSet(files.indices.filter { selectedFiles.contains(files[$0].index) })
+        if rows != filesTable.selectedRowIndexes {
+            filesTable.selectRowIndexes(rows, byExtendingSelection: false)
+        }
+    }
+
+    /// Re-sort the current list after the user clicks a column header.
+    func filesSortDescriptorsDidChange() {
+        applyFetchedFiles(files)
+    }
+
+    private func sortedFiles(_ list: [TorrentFile]) -> [TorrentFile] {
+        guard let descriptor = filesTable.sortDescriptors.first,
+              let key = descriptor.key, let column = FileColumn(rawValue: key) else { return list }
+        func order(_ a: TorrentFile, _ b: TorrentFile) -> ComparisonResult {
+            switch column {
+            case .name: return a.name.localizedStandardCompare(b.name)
+            case .size: return a.length < b.length ? .orderedAscending : a.length > b.length ? .orderedDescending : .orderedSame
+            case .progress: return a.percentDone < b.percentDone ? .orderedAscending : a.percentDone > b.percentDone ? .orderedDescending : .orderedSame
+            case .priority:
+                // Matches the displayed text: unwanted files show "Skip".
+                let (x, y) = (a.wanted ? a.priorityRaw : -2, b.wanted ? b.priorityRaw : -2)
+                return x < y ? .orderedAscending : x > y ? .orderedDescending : .orderedSame
+            case .wanted: return .orderedSame
+            }
+        }
+        return list.sorted { a, b in
+            let result = order(a, b)
+            if result == .orderedSame { return a.index < b.index }
+            return (result == .orderedAscending) == descriptor.ascending
+        }
+    }
+
     /// Reload the files table, preserving the user's selection and focus.
     ///
     /// `NSTableView.reloadData()` drops `selectedRowIndexes` on this toolchain
@@ -291,8 +335,7 @@ extension MainWindowController {
                 try await body(client)
                 let fetched = try await client.fetchFiles(id: id)
                 guard self.filesTorrentId == id else { return }
-                self.files = fetched
-                self.reloadFilesData()
+                self.applyFetchedFiles(fetched)
             } catch {
                 self.showError(error)
             }
