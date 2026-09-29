@@ -19,7 +19,8 @@ struct SettingsEditor: Equatable {
                                    autoCheckForUpdates: config.autoCheckForUpdates,
                                    removeTorrentFileMethod: config.removeTorrentFileMethod,
                                    showAddOptions: config.showAddOptions,
-                                   addLinksFromClipboard: config.addLinksFromClipboard)
+                                   addLinksFromClipboard: config.addLinksFromClipboard,
+                                   toolbarLayout: config.toolbarLayout)
         self.working = normalized
         self.savedBaseline = normalized
     }
@@ -35,6 +36,7 @@ struct SettingsEditor: Equatable {
     var removeTorrentFileMethod: TorrentFileRemoval { working.removeTorrentFileMethod }
     var showAddOptions: Bool { working.showAddOptions }
     var addLinksFromClipboard: Bool { working.addLinksFromClipboard }
+    var toolbarLayout: ToolbarLayout { working.toolbarLayout }
 
     func server(at index: Int) -> ServerConfig? {
         working.servers.indices.contains(index) ? working.servers[index] : nil
@@ -48,7 +50,8 @@ struct SettingsEditor: Equatable {
                   autoCheckForUpdates: working.autoCheckForUpdates,
                   removeTorrentFileMethod: working.removeTorrentFileMethod,
                   showAddOptions: working.showAddOptions,
-                  addLinksFromClipboard: working.addLinksFromClipboard)
+                  addLinksFromClipboard: working.addLinksFromClipboard,
+                  toolbarLayout: working.toolbarLayout)
     }
 
     /// True when there are changes not yet saved.
@@ -165,6 +168,13 @@ struct SettingsEditor: Equatable {
     mutating func setAddLinksFromClipboard(_ enabled: Bool) -> AppConfig {
         working.addLinksFromClipboard = enabled
         savedBaseline.addLinksFromClipboard = enabled
+        return normalized()
+    }
+
+    @discardableResult
+    mutating func setToolbarLayout(_ layout: ToolbarLayout) -> AppConfig {
+        working.toolbarLayout = layout
+        savedBaseline.toolbarLayout = layout
         return normalized()
     }
 

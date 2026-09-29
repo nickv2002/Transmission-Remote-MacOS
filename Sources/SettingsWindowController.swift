@@ -45,6 +45,7 @@ final class SettingsWindowController: NSWindowController {
     private let autoCheckBox = NSButton(checkboxWithTitle: "Automatically check for updates",
                                         target: nil, action: nil)
     private let removeFileMethodPopup = NSPopUpButton()
+    private let toolbarLayoutPopup = NSPopUpButton()
     private let showAddOptionsBox = NSButton(checkboxWithTitle: "Show options when adding torrents",
                                              target: nil, action: nil)
     private let clipboardBox = NSButton(checkboxWithTitle: "Add magnet links copied to the clipboard",
@@ -355,6 +356,10 @@ final class SettingsWindowController: NSWindowController {
         removeFileMethodPopup.action = #selector(removeFileMethodChanged)
         removeFileMethodPopup.addItems(withTitles: TorrentFileRemoval.allCases.map(\.displayName))
 
+        toolbarLayoutPopup.target = self
+        toolbarLayoutPopup.action = #selector(toolbarLayoutChanged)
+        toolbarLayoutPopup.addItems(withTitles: ToolbarLayout.allCases.map(\.displayName))
+
         // A plain leading-aligned vertical stack: every row starts flush with
         // the "R" in "Refresh every:". (An NSGridView with several merged
         // full-width checkbox rows collapsed those rows onto one line.)
@@ -374,6 +379,7 @@ final class SettingsWindowController: NSWindowController {
             sectionHeader("General"),
             stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
             autoCheckBox,
+            stack([label("Toolbar size:"), toolbarLayoutPopup]),
         ]
 
         let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
@@ -532,6 +538,7 @@ final class SettingsWindowController: NSWindowController {
         autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
         removeFileMethodPopup.selectItem(at: TorrentFileRemoval.allCases.firstIndex(of: editor.removeTorrentFileMethod) ?? 0)
         showAddOptionsBox.state = editor.showAddOptions ? .on : .off
+        toolbarLayoutPopup.selectItem(at: ToolbarLayout.allCases.firstIndex(of: editor.toolbarLayout) ?? 0)
         clipboardBox.state = editor.addLinksFromClipboard ? .on : .off
         reloadHandlerStatus()
     }
@@ -591,6 +598,12 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func autoCheckChanged() {
         onChange?(editor.setAutoCheckForUpdates(autoCheckBox.state == .on))
+    }
+
+    @objc private func toolbarLayoutChanged() {
+        let index = toolbarLayoutPopup.indexOfSelectedItem
+        let allCases = ToolbarLayout.allCases
+        onChange?(editor.setToolbarLayout(allCases.indices.contains(index) ? allCases[index] : .default))
     }
 
     @objc private func removeFileMethodChanged() {

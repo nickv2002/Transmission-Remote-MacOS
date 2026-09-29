@@ -72,6 +72,23 @@ enum TorrentFileRemoval: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Main-window title bar + toolbar layout.
+enum ToolbarLayout: String, Codable, Sendable, CaseIterable {
+    /// "Transmission Remote" title row, with a toolbar row beneath it whose
+    /// buttons have labels.
+    case `default`
+    /// One slim row: icon-only buttons, with the app icon + server dropdown
+    /// in place of the title.
+    case compact
+
+    var displayName: String {
+        switch self {
+        case .default: return "Default"
+        case .compact: return "Compact"
+        }
+    }
+}
+
 /// App configuration: the list of named servers, the active one, and the poll
 /// interval. Persisted natively as JSON under Application Support by
 /// `PreferencesStore` (migrated from the legacy JSONC file on first run) and
@@ -100,17 +117,21 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// info-hash) newly copied to the clipboard. Mirrors the legacy
     /// `LinksFromClipboard`, but off by default and never clears the clipboard.
     var addLinksFromClipboard: Bool
+    /// Default (title row + labelled toolbar) or compact (one icon-only row).
+    var toolbarLayout: ToolbarLayout
 
     enum CodingKeys: String, CodingKey {
         case servers, refreshSeconds, currentServer, autoCheckForUpdates
         case removeTorrentFileMethod, showAddOptions, addLinksFromClipboard
+        case toolbarLayout
     }
 
     init(servers: [ServerConfig], refreshSeconds: Double, currentServer: String? = nil,
          autoCheckForUpdates: Bool = true,
          removeTorrentFileMethod: TorrentFileRemoval = .none,
          showAddOptions: Bool = true,
-         addLinksFromClipboard: Bool = false) {
+         addLinksFromClipboard: Bool = false,
+         toolbarLayout: ToolbarLayout = .default) {
         self.servers = Self.dedupeNames(servers.isEmpty ? [.localhost] : servers)
         self.refreshSeconds = max(1, refreshSeconds)
         self.currentServer = currentServer
@@ -118,6 +139,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.removeTorrentFileMethod = removeTorrentFileMethod
         self.showAddOptions = showAddOptions
         self.addLinksFromClipboard = addLinksFromClipboard
+        self.toolbarLayout = toolbarLayout
     }
 
     /// Disambiguates servers that share a name (e.g. two decoded entries that both
@@ -160,6 +182,9 @@ struct AppConfig: Codable, Sendable, Equatable {
         removeTorrentFileMethod = methodRaw.flatMap(TorrentFileRemoval.init(rawValue:)) ?? .none
         showAddOptions = try c.decodeIfPresent(Bool.self, forKey: .showAddOptions) ?? true
         addLinksFromClipboard = try c.decodeIfPresent(Bool.self, forKey: .addLinksFromClipboard) ?? false
+        // Raw string, like `removeTorrentFileMethod`: unknown values fall back.
+        let layoutRaw = try c.decodeIfPresent(String.self, forKey: .toolbarLayout)
+        toolbarLayout = layoutRaw.flatMap(ToolbarLayout.init(rawValue:)) ?? .default
     }
 
     /// The display names of all configured servers, in file order.

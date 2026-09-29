@@ -33,6 +33,13 @@ final class MainWindowController: NSWindowController {
     /// In-flight files fetch, so a new selection can cancel a stale one.
     var filesFetchTask: Task<Void, Never>?
 
+    /// Server-switching dropdown in the toolbar (nil until the toolbar builds it).
+    var serverPopup: NSPopUpButton?
+    /// Icon beside the dropdown: the app icon in compact, a server symbol in default.
+    var serverIcon: NSButton?
+    /// Vertical offset of the switcher within its toolbar slot (see `applyToolbarLayout`).
+    var serverSwitcherOffset: NSLayoutConstraint?
+
     /// Full sorted model — every torrent from the server.
     var torrents: [Torrent] = []
 
@@ -220,6 +227,9 @@ final class MainWindowController: NSWindowController {
             defer: false
         )
         window.title = "Transmission Remote"
+        // The proxy icon puts the app icon beside the title. It only appears
+        // with a `representedURL`; AppKit draws it from the bundle's own icon.
+        window.representedURL = Bundle.main.bundleURL
         // Restore the saved frame if one exists; otherwise center on first launch.
         // The frame is also saved explicitly on terminate (see AppDelegate) —
         // relying on setFrameAutosaveName alone is unreliable under this app's
@@ -231,10 +241,11 @@ final class MainWindowController: NSWindowController {
         super.init(window: window)
 
         buildToolbar()
+        applyToolbarLayout(config.toolbarLayout)
         buildLayout()
         wireRefresh()
         observeWindow()
-        updateWindowTitle()
+        updateServerPopup()
     }
 
     @available(*, unavailable)
@@ -258,7 +269,8 @@ final class MainWindowController: NSWindowController {
             lastPasteboardChangeCount = NSPasteboard.general.changeCount
         }
         addLinksFromClipboard = config.addLinksFromClipboard
-        updateWindowTitle()
+        applyToolbarLayout(config.toolbarLayout)
+        updateServerPopup()
     }
 
     /// Switch to a different server (from the Server menu). Clears the list to a
@@ -271,12 +283,7 @@ final class MainWindowController: NSWindowController {
         tableView.reloadData()
         updateDetail()
         updateStatusBar(state: refresh.state)
-        updateWindowTitle()
-    }
-
-    /// Reflect the active server in the window title.
-    func updateWindowTitle() {
-        window?.title = "Transmission Remote: \(refresh.currentServerName)"
+        updateServerPopup()
     }
 
     // MARK: - Layout
