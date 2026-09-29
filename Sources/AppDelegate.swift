@@ -436,9 +436,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Structural change: rebuild the menu items.
         serverMenu.removeAllItems()
-        for name in available {
+        for (index, name) in available.enumerated() {
             let item = serverMenu.addItem(withTitle: name,
-                                          action: #selector(selectServer(_:)), keyEquivalent: "")
+                                          action: #selector(selectServer(_:)),
+                                          keyEquivalent: ServerMenuSync.shortcutKey(forIndex: index))
             item.target = self
             item.representedObject = name
             item.state = (name == active) ? .on : .off

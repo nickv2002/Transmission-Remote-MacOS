@@ -14,4 +14,14 @@ enum ServerMenuSync {
     static func canUpdateInPlace(existingNames: [String], available: [String]) -> Bool {
         !existingNames.isEmpty && existingNames == available
     }
+
+    /// Cmd-key shortcut for the server at `index`: 1-9 for the first nine
+    /// servers, 0 for the tenth, none beyond that.
+    static func shortcutKey(forIndex index: Int) -> String {
+        switch index {
+        case 0...8: return String(index + 1)
+        case 9: return "0"
+        default: return ""
+        }
+    }
 }
