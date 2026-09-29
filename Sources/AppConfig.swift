@@ -72,39 +72,35 @@ enum TorrentFileRemoval: String, Codable, Sendable, CaseIterable {
     }
 }
 
-/// Main-window title bar + toolbar layout.
-enum ToolbarLayout: String, Codable, Sendable, CaseIterable {
-    /// "Transmission Remote" title row, with a toolbar row beneath it whose
-    /// buttons have labels.
-    case `default`
-    /// One slim row: icon-only buttons, with the app icon + server dropdown
-    /// in place of the title.
-    case compact
+/// Whether the window shows its full title bar ("Transmission Remote" plus the
+/// proxy icon, above the toolbar row) or hides it for one slim row.
+enum TitleBarStyle: String, Codable, Sendable, CaseIterable {
+    case full
+    case hidden
 
     var displayName: String {
         switch self {
-        case .default: return "Default"
-        case .compact: return "Compact"
+        case .full: return "Full"
+        case .hidden: return "Hidden"
         }
     }
+}
+
+/// Main-window title bar + toolbar layout: two independent choices, whether the
+/// title bar is shown and whether toolbar buttons carry text labels.
+struct ToolbarLayout: Equatable, Sendable {
+    var titleBar: TitleBarStyle = .full
+    var showsLabels = true
+
+    static let `default` = ToolbarLayout()
 
     // Layout decisions live here (Foundation-only, so tested); the window
     // controller just maps them onto AppKit.
 
-    /// The layout implied by the toolbar's own display mode (Customize Toolbar
-    /// palette / right-click menu): icon-only is compact, anything else default.
-    init(iconOnly: Bool) { self = iconOnly ? .compact : .default }
-
-    var isCompact: Bool { self == .compact }
-    /// Compact drops the title row; the dropdown's icon stands in for it.
-    var showsTitle: Bool { !isCompact }
-    /// Compact hides button labels, so it shows them as tooltips instead.
-    var showsToolTips: Bool { isCompact }
-    /// Compact has no title, so the server dropdown carries the app icon;
-    /// default already shows it there and uses a server symbol instead.
-    var serverIconIsAppIcon: Bool { isCompact }
-    /// Only default has a label row that the label-less dropdown must offset.
-    var hasLabelRow: Bool { !isCompact }
+    /// The title row (with the proxy icon) is drawn above the toolbar.
+    var showsTitle: Bool { titleBar == .full }
+    /// Without labels the buttons show them as tooltips instead.
+    var showsToolTips: Bool { !showsLabels }
 }
 
 /// App configuration: the list of named servers, the active one, and the poll
@@ -135,13 +131,14 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// info-hash) newly copied to the clipboard. Mirrors the legacy
     /// `LinksFromClipboard`, but off by default and never clears the clipboard.
     var addLinksFromClipboard: Bool
-    /// Default (title row + labelled toolbar) or compact (one icon-only row).
+    /// Title bar shown/hidden and toolbar button labels shown/hidden.
     var toolbarLayout: ToolbarLayout
 
     enum CodingKeys: String, CodingKey {
         case servers, refreshSeconds, currentServer, autoCheckForUpdates
         case removeTorrentFileMethod, showAddOptions, addLinksFromClipboard
-        case toolbarLayout
+        case titleBar, toolbarLabels
+        case toolbarLayout   // legacy single "default"/"compact" setting, decode-only
     }
 
     init(servers: [ServerConfig], refreshSeconds: Double, currentServer: String? = nil,
@@ -201,8 +198,29 @@ struct AppConfig: Codable, Sendable, Equatable {
         showAddOptions = try c.decodeIfPresent(Bool.self, forKey: .showAddOptions) ?? true
         addLinksFromClipboard = try c.decodeIfPresent(Bool.self, forKey: .addLinksFromClipboard) ?? false
         // Raw string, like `removeTorrentFileMethod`: unknown values fall back.
-        let layoutRaw = try c.decodeIfPresent(String.self, forKey: .toolbarLayout)
-        toolbarLayout = layoutRaw.flatMap(ToolbarLayout.init(rawValue:)) ?? .default
+        // The legacy `toolbarLayout` ("compact") only ever meant icon-only buttons
+        // (and, wrongly, a hidden title), so it now maps to labels off.
+        var layout = ToolbarLayout.default
+        if try c.decodeIfPresent(String.self, forKey: .toolbarLayout) == "compact" {
+            layout.showsLabels = false
+        }
+        if let raw = try c.decodeIfPresent(String.self, forKey: .titleBar),
+           let style = TitleBarStyle(rawValue: raw) { layout.titleBar = style }
+        layout.showsLabels = try c.decodeIfPresent(Bool.self, forKey: .toolbarLabels) ?? layout.showsLabels
+        toolbarLayout = layout
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(servers, forKey: .servers)
+        try c.encode(refreshSeconds, forKey: .refreshSeconds)
+        try c.encodeIfPresent(currentServer, forKey: .currentServer)
+        try c.encode(autoCheckForUpdates, forKey: .autoCheckForUpdates)
+        try c.encode(removeTorrentFileMethod, forKey: .removeTorrentFileMethod)
+        try c.encode(showAddOptions, forKey: .showAddOptions)
+        try c.encode(addLinksFromClipboard, forKey: .addLinksFromClipboard)
+        try c.encode(toolbarLayout.titleBar, forKey: .titleBar)
+        try c.encode(toolbarLayout.showsLabels, forKey: .toolbarLabels)
     }
 
     /// The display names of all configured servers, in file order.

@@ -39,12 +39,9 @@ final class MainWindowController: NSWindowController {
     /// Toolbar palette or right-click menu), so the app can persist the new layout.
     var onToolbarLayoutChange: ((ToolbarLayout) -> Void)?
     var displayModeObservation: NSKeyValueObservation?
+    var toolbarVisibilityObservation: NSKeyValueObservation?
     /// Server-switching dropdown in the toolbar (nil until the toolbar builds it).
     var serverPopup: NSPopUpButton?
-    /// Icon beside the dropdown: the app icon in compact, a server symbol in default.
-    var serverIcon: NSButton?
-    /// Vertical offset of the switcher within its toolbar slot (see `applyToolbarLayout`).
-    var serverSwitcherOffset: NSLayoutConstraint?
 
     /// Full sorted model — every torrent from the server.
     var torrents: [Torrent] = []

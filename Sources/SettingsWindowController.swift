@@ -46,7 +46,8 @@ final class SettingsWindowController: NSWindowController {
     private let autoCheckBox = NSButton(checkboxWithTitle: "Automatically check for updates",
                                         target: nil, action: nil)
     private let removeFileMethodPopup = NSPopUpButton()
-    private let toolbarLayoutPopup = NSPopUpButton()
+    private let titleBarPopup = NSPopUpButton()
+    private let toolbarLabelsBox = NSButton(checkboxWithTitle: "Show button labels", target: nil, action: nil)
     private let showAddOptionsBox = NSButton(checkboxWithTitle: "Show options when adding torrents",
                                              target: nil, action: nil)
     private let clipboardBox = NSButton(checkboxWithTitle: "Add magnet links copied to the clipboard",
@@ -357,9 +358,11 @@ final class SettingsWindowController: NSWindowController {
         removeFileMethodPopup.action = #selector(removeFileMethodChanged)
         removeFileMethodPopup.configure(for: TorrentFileRemoval.self)
 
-        toolbarLayoutPopup.target = self
-        toolbarLayoutPopup.action = #selector(toolbarLayoutChanged)
-        toolbarLayoutPopup.configure(for: ToolbarLayout.self)
+        titleBarPopup.target = self
+        titleBarPopup.action = #selector(toolbarLayoutChanged)
+        titleBarPopup.configure(for: TitleBarStyle.self)
+        toolbarLabelsBox.target = self
+        toolbarLabelsBox.action = #selector(toolbarLayoutChanged)
 
         // A plain leading-aligned vertical stack: every row starts flush with
         // the "R" in "Refresh every:". (An NSGridView with several merged
@@ -380,7 +383,8 @@ final class SettingsWindowController: NSWindowController {
             sectionHeader("General"),
             stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
             autoCheckBox,
-            stack([label("Toolbar size:"), toolbarLayoutPopup]),
+            stack([label("Title bar:"), titleBarPopup]),
+            toolbarLabelsBox,
         ]
 
         let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
@@ -539,7 +543,7 @@ final class SettingsWindowController: NSWindowController {
         autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
         removeFileMethodPopup.select(editor.removeTorrentFileMethod)
         showAddOptionsBox.state = editor.showAddOptions ? .on : .off
-        toolbarLayoutPopup.select(editor.toolbarLayout)
+        showToolbarLayout(editor.toolbarLayout)
         clipboardBox.state = editor.addLinksFromClipboard ? .on : .off
         reloadHandlerStatus()
     }
@@ -605,11 +609,14 @@ final class SettingsWindowController: NSWindowController {
     /// window, without touching pending server edits.
     func showToolbarLayout(_ layout: ToolbarLayout) {
         editor.setToolbarLayout(layout)
-        toolbarLayoutPopup.select(layout)
+        titleBarPopup.select(layout.titleBar)
+        toolbarLabelsBox.state = layout.showsLabels ? .on : .off
     }
 
     @objc private func toolbarLayoutChanged() {
-        onChange?(editor.setToolbarLayout(toolbarLayoutPopup.selectedCase(default: .default)))
+        let layout = ToolbarLayout(titleBar: titleBarPopup.selectedCase(default: .full),
+                                   showsLabels: toolbarLabelsBox.state == .on)
+        onChange?(editor.setToolbarLayout(layout))
     }
 
     @objc private func removeFileMethodChanged() {

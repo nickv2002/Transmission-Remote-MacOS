@@ -256,13 +256,15 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertFalse(e.isDirty)
     }
 
+    private static let iconOnly = ToolbarLayout(titleBar: .full, showsLabels: false)
+
     func testSetToolbarLayoutAppliesImmediatelyAndSurvivesSave() {
         var e = SettingsEditor(sample())
         XCTAssertEqual(e.toolbarLayout, .default)
-        let applied = e.setToolbarLayout(.compact)
-        XCTAssertEqual(applied.toolbarLayout, .compact)
+        let applied = e.setToolbarLayout(Self.iconOnly)
+        XCTAssertEqual(applied.toolbarLayout, Self.iconOnly)
         XCTAssertFalse(e.isDirty)
-        XCTAssertEqual(e.save().toolbarLayout, .compact)
+        XCTAssertEqual(e.save().toolbarLayout, Self.iconOnly)
     }
 
     func testEveryImmediateSetterLeavesEditorClean() {
@@ -271,14 +273,14 @@ final class SettingsEditorTests: XCTestCase {
         e.setRemoveTorrentFileMethod(.trash)
         e.setShowAddOptions(false)
         e.setAddLinksFromClipboard(true)
-        e.setToolbarLayout(.compact)
+        e.setToolbarLayout(Self.iconOnly)
         XCTAssertFalse(e.isDirty)
         let saved = e.save()
         XCTAssertFalse(saved.autoCheckForUpdates)
         XCTAssertEqual(saved.removeTorrentFileMethod, .trash)
         XCTAssertFalse(saved.showAddOptions)
         XCTAssertTrue(saved.addLinksFromClipboard)
-        XCTAssertEqual(saved.toolbarLayout, .compact)
+        XCTAssertEqual(saved.toolbarLayout, Self.iconOnly)
     }
 
     /// The bug regression test: a General edit must never enable the Servers
