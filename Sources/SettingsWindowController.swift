@@ -600,6 +600,13 @@ final class SettingsWindowController: NSWindowController {
         onChange?(editor.setAutoCheckForUpdates(autoCheckBox.state == .on))
     }
 
+    /// Reflect a toolbar layout changed elsewhere (View menu) in the open
+    /// window, without touching pending server edits.
+    func showToolbarLayout(_ layout: ToolbarLayout) {
+        editor.setToolbarLayout(layout)
+        toolbarLayoutPopup.selectItem(at: ToolbarLayout.allCases.firstIndex(of: layout) ?? 0)
+    }
+
     @objc private func toolbarLayoutChanged() {
         let index = toolbarLayoutPopup.indexOfSelectedItem
         let allCases = ToolbarLayout.allCases
