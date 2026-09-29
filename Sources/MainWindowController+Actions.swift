@@ -120,10 +120,10 @@ extension MainWindowController: NSToolbarDelegate {
 
         let spec: (label: String, symbol: String, action: Selector)?
         switch itemIdentifier {
-        case ToolbarID.start: spec = ("Start", "play.fill", #selector(startSelected(_:)))
-        case ToolbarID.stop: spec = ("Stop", "stop.fill", #selector(stopSelected(_:)))
-        case ToolbarID.forceStart: spec = ("Force Start", "forward.fill", #selector(forceStartSelected(_:)))
-        case ToolbarID.rename: spec = ("Rename", "pencil", #selector(renameSelected(_:)))
+        case ToolbarID.start: spec = ("Start", "play", #selector(startSelected(_:)))
+        case ToolbarID.stop: spec = ("Stop", "stop", #selector(stopSelected(_:)))
+        case ToolbarID.forceStart: spec = ("Force Start", "forward", #selector(forceStartSelected(_:)))
+        case ToolbarID.rename: spec = ("Rename", "square.and.pencil", #selector(renameSelected(_:)))
         case ToolbarID.move: spec = ("Move", "folder", #selector(moveSelected(_:)))
         case ToolbarID.verify: spec = ("Verify", "checkmark.shield", #selector(verifySelected(_:)))
         case ToolbarID.remove: spec = ("Remove…", "trash", #selector(removeSelected(_:)))
