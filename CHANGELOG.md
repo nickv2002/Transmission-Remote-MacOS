@@ -1,5 +1,17 @@
 # Changelog
 
+## 2026.09.29.2 — 2026-09-29
+
+- Sync toolbar display mode with layout, drop tabbing, clear sidebar on server switch
+- Address PR #15 review: DRY popup/layout logic, View menu, drop retargeting, tests
+- Document title bar, toolbar layout, and server UX
+- Use outline symbols for toolbar actions
+- Add View menu with toolbar size options
+- Add title bar server dropdown and toolbar size
+- Add ⌘1–⌘0 shortcuts for switching servers
+- Allow reordering servers in Settings
+- Add Manage Servers… to the Server menu
+
 ## 2026.09.29.1 — 2026-09-29
 
 - Files sort: extract testable TorrentFileSort, add unsorted third click, fix stale comment
