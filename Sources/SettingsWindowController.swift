@@ -856,15 +856,25 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo,
                    proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation)
         -> NSDragOperation {
-        guard info.draggingPasteboard.types?.contains(Self.serverRowType) == true else { return [] }
+        let operation = serverDropOperation(for: info.draggingPasteboard)
         // Dropping onto a row means "next to it": retarget to the gap above.
-        tableView.setDropRow(row, dropOperation: .above)
-        return .move
+        if !operation.isEmpty { tableView.setDropRow(row, dropOperation: .above) }
+        return operation
     }
 
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo,
                    row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
-        guard let source = info.draggingPasteboard.string(forType: Self.serverRowType).flatMap(Int.init),
+        acceptServerDrop(from: info.draggingPasteboard, row: row)
+    }
+
+    /// Only our own server-row drags reorder; anything else is refused.
+    func serverDropOperation(for pasteboard: NSPasteboard) -> NSDragOperation {
+        pasteboard.types?.contains(Self.serverRowType) == true ? .move : []
+    }
+
+    /// Move the dragged server to the gap before `row` (drop-position semantics).
+    func acceptServerDrop(from pasteboard: NSPasteboard, row: Int) -> Bool {
+        guard let source = pasteboard.string(forType: Self.serverRowType).flatMap(Int.init),
               let newIndex = editor.moveServer(from: source, to: row) else { return false }
         reloadServerList()
         reloadDefaultServerPopup()

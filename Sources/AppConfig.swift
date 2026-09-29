@@ -91,6 +91,10 @@ enum ToolbarLayout: String, Codable, Sendable, CaseIterable {
     // Layout decisions live here (Foundation-only, so tested); the window
     // controller just maps them onto AppKit.
 
+    /// The layout implied by the toolbar's own display mode (Customize Toolbar
+    /// palette / right-click menu): icon-only is compact, anything else default.
+    init(iconOnly: Bool) { self = iconOnly ? .compact : .default }
+
     var isCompact: Bool { self == .compact }
     /// Compact drops the title row; the dropdown's icon stands in for it.
     var showsTitle: Bool { !isCompact }

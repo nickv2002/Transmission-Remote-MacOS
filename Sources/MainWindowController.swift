@@ -35,6 +35,10 @@ final class MainWindowController: NSWindowController {
 
     /// The applied title bar + toolbar layout (see `applyToolbarLayout`).
     var toolbarLayout: ToolbarLayout = .default
+    /// Fired when the user changes the toolbar's display mode directly (Customize
+    /// Toolbar palette or right-click menu), so the app can persist the new layout.
+    var onToolbarLayoutChange: ((ToolbarLayout) -> Void)?
+    var displayModeObservation: NSKeyValueObservation?
     /// Server-switching dropdown in the toolbar (nil until the toolbar builds it).
     var serverPopup: NSPopUpButton?
     /// Icon beside the dropdown: the app icon in compact, a server symbol in default.
@@ -281,6 +285,7 @@ final class MainWindowController: NSWindowController {
         guard name != refresh.currentServerName else { return }
         refresh.selectServer(named: name)
         torrents = []
+        sidebar.update(with: torrents)   // drop the old server's counts too
         rebuildDisplayed()
         tableView.reloadData()
         updateDetail()
