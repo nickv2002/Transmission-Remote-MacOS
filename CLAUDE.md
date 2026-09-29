@@ -112,6 +112,7 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `main.swift` — explicit AppKit entry point (see gotcha below).
 - `AppDelegate.swift` — app lifecycle, menus (Settings… ⌘,, Find ⌘F, Edit, View, Server).
 - `ServerMenuSync.swift` — Server menu in-place update check + ⌘1–⌘0 key mapping (tested).
+- `PopUpEnum.swift` — `NSPopUpButton` ⇄ `CaseIterable` enum bridging (`configure`/`select`/`selectedCase`); use it for every enum-backed popup (tested).
 - `SettingsWindowController.swift` — native preferences window (Servers / General).
 - `SettingsEditor.swift` — Foundation-only editing model behind Settings (tested).
 - `ConnectionDiagnostics.swift` — Test Connection error→message mapping (tested).
@@ -228,7 +229,7 @@ window** (⌘,) — no more hand-edited JSONC.
     and Servers shared one `isDirty` flag off the whole `AppConfig`, so toggling
     a General checkbox like auto-check-for-updates would wrongly enable "Save
     Server".) The six General setters in `SettingsEditor` write through to both
-    `working` and `savedBaseline` at once for exactly this reason. The refresh
+    `working` and `savedBaseline` at once (via `applyImmediately`) for exactly this reason. The refresh
     field still only applies on end-of-edit (`refreshChanged`/`stepperChanged`),
     not per keystroke, so typing "10" doesn't apply "1" first.
 - `PreferencesStore` exposes path-injectable cores
@@ -341,7 +342,10 @@ Ported from the legacy app (`RegisterURLHandler`, `CheckClipboardLink`,
 
 `ToolbarLayout` (`AppConfig.toolbarLayout`, default `.default`) is applied by
 `MainWindowController.applyToolbarLayout`, the single owner of title visibility,
-toolbar style, and display mode:
+toolbar style, and display mode. The layout *decisions* (`isCompact`, `showsTitle`,
+`showsToolTips`, `serverIconIsAppIcon`, `hasLabelRow`) are Foundation-only properties
+on `ToolbarLayout` (tested in `ToolbarLayoutTests`); the controller only maps them
+onto AppKit, so never re-derive "compact" from `window.titleVisibility`:
 
 - **Default**: title visible + `.expanded` + `.iconAndLabel`. "Transmission Remote"
   with its proxy icon on top; the toolbar row below has labels and the dropdown

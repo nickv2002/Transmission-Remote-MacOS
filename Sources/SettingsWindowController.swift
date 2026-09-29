@@ -22,6 +22,7 @@ final class SettingsWindowController: NSWindowController {
     private var editor: SettingsEditor
 
     private let tabView = NSTabView()
+    static let serversTabID = "servers"
     private static let serverRowType = NSPasteboard.PasteboardType("com.nickvance.transmission-remote-mac.server-row")
 
     // Servers pane.
@@ -94,7 +95,7 @@ final class SettingsWindowController: NSWindowController {
 
     /// Bring the Servers tab to the front.
     func showServersTab() {
-        tabView.selectTabViewItem(withIdentifier: "servers")
+        tabView.selectTabViewItem(withIdentifier: Self.serversTabID)
     }
 
     /// Refresh all UI from the editor and select the first server.
@@ -114,7 +115,7 @@ final class SettingsWindowController: NSWindowController {
         setupServerActionButtons()
 
         let serversPane = buildServersPane()
-        let serversItem = NSTabViewItem(identifier: "servers")
+        let serversItem = NSTabViewItem(identifier: Self.serversTabID)
         serversItem.label = "Servers"
         serversItem.view = serversPane
 
@@ -354,11 +355,11 @@ final class SettingsWindowController: NSWindowController {
 
         removeFileMethodPopup.target = self
         removeFileMethodPopup.action = #selector(removeFileMethodChanged)
-        removeFileMethodPopup.addItems(withTitles: TorrentFileRemoval.allCases.map(\.displayName))
+        removeFileMethodPopup.configure(for: TorrentFileRemoval.self)
 
         toolbarLayoutPopup.target = self
         toolbarLayoutPopup.action = #selector(toolbarLayoutChanged)
-        toolbarLayoutPopup.addItems(withTitles: ToolbarLayout.allCases.map(\.displayName))
+        toolbarLayoutPopup.configure(for: ToolbarLayout.self)
 
         // A plain leading-aligned vertical stack: every row starts flush with
         // the "R" in "Refresh every:". (An NSGridView with several merged
@@ -536,9 +537,9 @@ final class SettingsWindowController: NSWindowController {
         refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
         refreshStepper.doubleValue = editor.refreshSeconds
         autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
-        removeFileMethodPopup.selectItem(at: TorrentFileRemoval.allCases.firstIndex(of: editor.removeTorrentFileMethod) ?? 0)
+        removeFileMethodPopup.select(editor.removeTorrentFileMethod)
         showAddOptionsBox.state = editor.showAddOptions ? .on : .off
-        toolbarLayoutPopup.selectItem(at: ToolbarLayout.allCases.firstIndex(of: editor.toolbarLayout) ?? 0)
+        toolbarLayoutPopup.select(editor.toolbarLayout)
         clipboardBox.state = editor.addLinksFromClipboard ? .on : .off
         reloadHandlerStatus()
     }
@@ -604,19 +605,15 @@ final class SettingsWindowController: NSWindowController {
     /// window, without touching pending server edits.
     func showToolbarLayout(_ layout: ToolbarLayout) {
         editor.setToolbarLayout(layout)
-        toolbarLayoutPopup.selectItem(at: ToolbarLayout.allCases.firstIndex(of: layout) ?? 0)
+        toolbarLayoutPopup.select(layout)
     }
 
     @objc private func toolbarLayoutChanged() {
-        let index = toolbarLayoutPopup.indexOfSelectedItem
-        let allCases = ToolbarLayout.allCases
-        onChange?(editor.setToolbarLayout(allCases.indices.contains(index) ? allCases[index] : .default))
+        onChange?(editor.setToolbarLayout(toolbarLayoutPopup.selectedCase(default: .default)))
     }
 
     @objc private func removeFileMethodChanged() {
-        let index = removeFileMethodPopup.indexOfSelectedItem
-        let allCases = TorrentFileRemoval.allCases
-        onChange?(editor.setRemoveTorrentFileMethod(allCases.indices.contains(index) ? allCases[index] : .none))
+        onChange?(editor.setRemoveTorrentFileMethod(removeFileMethodPopup.selectedCase(default: .none)))
     }
 
     // MARK: - Dirty / Save
@@ -859,7 +856,10 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo,
                    proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation)
         -> NSDragOperation {
-        dropOperation == .above ? .move : []
+        guard info.draggingPasteboard.types?.contains(Self.serverRowType) == true else { return [] }
+        // Dropping onto a row means "next to it": retarget to the gap above.
+        tableView.setDropRow(row, dropOperation: .above)
+        return .move
     }
 
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo,

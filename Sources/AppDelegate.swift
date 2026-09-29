@@ -290,8 +290,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         find.target = self
         editMenuItem.submenu = editMenu
 
-        // View menu. Nil target: routes to the key window, and AppKit disables
-        // the item when that window has no customizable toolbar (e.g. Settings).
+        // View menu. The toolbar items are nil-targeted: they route to the key
+        // window, and AppKit disables them when it has no toolbar (e.g. Settings).
         let viewMenuItem = NSMenuItem()
         mainMenu.addItem(viewMenuItem)
         let viewMenu = NSMenu(title: "View")
@@ -303,6 +303,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         toolbarLayoutMenu.delegate = self
         viewMenu.addItem(withTitle: "Toolbar Size", action: nil, keyEquivalent: "").submenu = toolbarLayoutMenu
+        viewMenu.addItem(withTitle: "Show Toolbar",
+                         action: #selector(NSWindow.toggleToolbarShown(_:)), keyEquivalent: "t")
+            .keyEquivalentModifierMask = [.command, .option]
         viewMenu.addItem(withTitle: "Customize Toolbar…",
                          action: #selector(NSWindow.runToolbarCustomizationPalette(_:)), keyEquivalent: "")
         viewMenuItem.submenu = viewMenu
@@ -477,7 +480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let raw = sender.representedObject as? String,
               let layout = ToolbarLayout(rawValue: raw) else { return }
         config.toolbarLayout = layout
-        persistScriptedConfigChange()
+        persistConfigChange()
         settingsController?.showToolbarLayout(layout)
     }
 
@@ -574,7 +577,7 @@ extension AppDelegate {
         get { config.refreshSeconds }
         set {
             config.refreshSeconds = max(1, newValue)
-            persistScriptedConfigChange()
+            persistConfigChange()
         }
     }
 
@@ -582,7 +585,7 @@ extension AppDelegate {
         get { config.autoCheckForUpdates }
         set {
             config.autoCheckForUpdates = newValue
-            persistScriptedConfigChange()
+            persistConfigChange()
         }
     }
 
@@ -590,7 +593,7 @@ extension AppDelegate {
         get { config.showAddOptions }
         set {
             config.showAddOptions = newValue
-            persistScriptedConfigChange()
+            persistConfigChange()
         }
     }
 
@@ -598,7 +601,7 @@ extension AppDelegate {
         get { config.addLinksFromClipboard }
         set {
             config.addLinksFromClipboard = newValue
-            persistScriptedConfigChange()
+            persistConfigChange()
         }
     }
 
@@ -612,10 +615,11 @@ extension AppDelegate {
         set { windowController?.setSearchMode(newValue.lowercased() == "fuzzy" ? .fuzzy : .exact) }
     }
 
-    /// Persist a scripted preference change and apply it live — mirrors the
+    /// Persist a preference change made outside the Settings window (AppleScript,
+    /// View menu) and apply it live — mirrors the
     /// Settings window's General tab (no reconnect for these keys) and keeps the
     /// Settings window, if open, in sync with the preferences store.
-    private func persistScriptedConfigChange() {
+    private func persistConfigChange() {
         do {
             try PreferencesStore.save(config)
         } catch {
