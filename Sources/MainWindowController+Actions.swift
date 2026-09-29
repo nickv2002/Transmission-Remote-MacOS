@@ -34,16 +34,10 @@ extension MainWindowController: NSToolbarDelegate {
     /// the toolbar is attached, so it wins over any autosaved display mode.
     func applyToolbarLayout(_ layout: ToolbarLayout) {
         guard let window else { return }
-        switch layout {
-        case .default:
-            window.titleVisibility = .visible
-            window.toolbarStyle = .expanded
-            window.toolbar?.displayMode = .iconAndLabel
-        case .compact:
-            window.titleVisibility = .hidden
-            window.toolbarStyle = .unifiedCompact
-            window.toolbar?.displayMode = .iconOnly
-        }
+        toolbarLayout = layout
+        window.titleVisibility = layout.showsTitle ? .visible : .hidden
+        window.toolbarStyle = layout.isCompact ? .unifiedCompact : .expanded
+        window.toolbar?.displayMode = layout.isCompact ? .iconOnly : .iconAndLabel
         serverIcon?.image = serverIconImage
         serverSwitcherOffset?.constant = serverSwitcherDrop
         window.toolbar?.items.forEach(updateToolTip)
@@ -52,11 +46,11 @@ extension MainWindowController: NSToolbarDelegate {
     /// Compact hides the labels, so it shows them as tooltips instead. Default
     /// has no tooltips, since the labels are already visible.
     private func updateToolTip(_ item: NSToolbarItem) {
-        let compact = window?.titleVisibility == .hidden
+        let tips = toolbarLayout.showsToolTips
         switch item.itemIdentifier {
-        case ToolbarID.server: serverPopup?.toolTip = compact ? "Switch Server" : nil
+        case ToolbarID.server: serverPopup?.toolTip = tips ? "Switch Server" : nil
         case ToolbarID.search: break   // its placeholder already explains it
-        default: item.toolTip = compact && !item.label.isEmpty ? item.label : nil
+        default: item.toolTip = tips && !item.label.isEmpty ? item.label : nil
         }
     }
 
@@ -143,10 +137,10 @@ extension MainWindowController: NSToolbarDelegate {
     /// Compact has no title, so the dropdown carries the app icon. Default
     /// already shows the app icon in the title, so it gets a server symbol.
     private var serverIconImage: NSImage? {
-        window?.titleVisibility == .visible
-            ? NSImage(systemSymbolName: "externaldrive.connected.to.line.below",
+        toolbarLayout.serverIconIsAppIcon
+            ? NSApp.applicationIconImage
+            : NSImage(systemSymbolName: "externaldrive.connected.to.line.below",
                       accessibilityDescription: "Server")
-            : NSApp.applicationIconImage
     }
 
     /// In default, AppKit lines a view item up with the button icons, above
@@ -154,7 +148,7 @@ extension MainWindowController: NSToolbarDelegate {
     /// line (plus the small icon–label gap) to center it on the whole row.
     /// Compact has no label row.
     private var serverSwitcherDrop: CGFloat {
-        guard window?.titleVisibility == .visible else { return 0 }
+        guard toolbarLayout.hasLabelRow else { return 0 }
         let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
         return ceil(font.ascender - font.descender + font.leading) / 2 + 2
     }
@@ -211,7 +205,7 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     @objc private func serverIconClicked(_ sender: NSButton) {
-        guard window?.titleVisibility == .visible else { return }   // default only
+        guard !toolbarLayout.serverIconIsAppIcon else { return }   // default only
         serverPopup?.performClick(sender)
     }
 

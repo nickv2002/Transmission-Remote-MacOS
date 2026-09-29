@@ -246,8 +246,8 @@ extension MainWindowController {
         if link == nil {
             stack.addArrangedSubview(makeLabel("Torrent file after adding:"))
             let popup = NSPopUpButton()
-            popup.addItems(withTitles: TorrentFileRemoval.allCases.map(\.displayName))
-            popup.selectItem(at: TorrentFileRemoval.allCases.firstIndex(of: removeTorrentFileMethod) ?? 0)
+            popup.configure(for: TorrentFileRemoval.self)
+            popup.select(removeTorrentFileMethod)
             stack.addArrangedSubview(popup)
             removeMethodPopup = popup
         }
@@ -284,9 +284,7 @@ extension MainWindowController {
             } else {
                 // Snapshot the removal choice at confirm time so changing the
                 // popup mid-add can't retarget an in-flight deletion.
-                let allCases = TorrentFileRemoval.allCases
-                let index = removeMethodPopup?.indexOfSelectedItem ?? 0
-                let method = allCases.indices.contains(index) ? allCases[index] : .none
+                let method = removeMethodPopup?.selectedCase(default: TorrentFileRemoval.none) ?? .none
                 self?.addFromFiles(files, downloadDir: dest, paused: paused, method: method)
             }
         }

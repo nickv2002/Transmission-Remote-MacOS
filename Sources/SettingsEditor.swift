@@ -134,6 +134,13 @@ struct SettingsEditor: Equatable {
     // server-pane edit (`isDirty` stays scoped to servers/currentServer). Each
     // returns the resulting config so the caller can persist + apply it right away.
 
+    private mutating func applyImmediately<T>(_ keyPath: WritableKeyPath<AppConfig, T>,
+                                              _ value: T) -> AppConfig {
+        working[keyPath: keyPath] = value
+        savedBaseline[keyPath: keyPath] = value
+        return normalized()
+    }
+
     @discardableResult
     mutating func setRefreshSeconds(_ seconds: Double) -> AppConfig {
         working.refreshSeconds = seconds
@@ -145,37 +152,27 @@ struct SettingsEditor: Equatable {
 
     @discardableResult
     mutating func setAutoCheckForUpdates(_ enabled: Bool) -> AppConfig {
-        working.autoCheckForUpdates = enabled
-        savedBaseline.autoCheckForUpdates = enabled
-        return normalized()
+        applyImmediately(\.autoCheckForUpdates, enabled)
     }
 
     @discardableResult
     mutating func setRemoveTorrentFileMethod(_ method: TorrentFileRemoval) -> AppConfig {
-        working.removeTorrentFileMethod = method
-        savedBaseline.removeTorrentFileMethod = method
-        return normalized()
+        applyImmediately(\.removeTorrentFileMethod, method)
     }
 
     @discardableResult
     mutating func setShowAddOptions(_ enabled: Bool) -> AppConfig {
-        working.showAddOptions = enabled
-        savedBaseline.showAddOptions = enabled
-        return normalized()
+        applyImmediately(\.showAddOptions, enabled)
     }
 
     @discardableResult
     mutating func setAddLinksFromClipboard(_ enabled: Bool) -> AppConfig {
-        working.addLinksFromClipboard = enabled
-        savedBaseline.addLinksFromClipboard = enabled
-        return normalized()
+        applyImmediately(\.addLinksFromClipboard, enabled)
     }
 
     @discardableResult
     mutating func setToolbarLayout(_ layout: ToolbarLayout) -> AppConfig {
-        working.toolbarLayout = layout
-        savedBaseline.toolbarLayout = layout
-        return normalized()
+        applyImmediately(\.toolbarLayout, layout)
     }
 
     // MARK: - Save / reset

@@ -265,6 +265,22 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertEqual(e.save().toolbarLayout, .compact)
     }
 
+    func testEveryImmediateSetterLeavesEditorClean() {
+        var e = SettingsEditor(sample())
+        e.setAutoCheckForUpdates(false)
+        e.setRemoveTorrentFileMethod(.trash)
+        e.setShowAddOptions(false)
+        e.setAddLinksFromClipboard(true)
+        e.setToolbarLayout(.compact)
+        XCTAssertFalse(e.isDirty)
+        let saved = e.save()
+        XCTAssertFalse(saved.autoCheckForUpdates)
+        XCTAssertEqual(saved.removeTorrentFileMethod, .trash)
+        XCTAssertFalse(saved.showAddOptions)
+        XCTAssertTrue(saved.addLinksFromClipboard)
+        XCTAssertEqual(saved.toolbarLayout, .compact)
+    }
+
     /// The bug regression test: a General edit must never enable the Servers
     /// pane's dirty/Save-button gating, while a genuine server edit still does.
     func testGeneralEditDoesNotDirtyServerPane() {
