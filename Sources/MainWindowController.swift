@@ -929,7 +929,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
         if tableView === filesTable {
-            filesSortDescriptorsDidChange()
+            filesSortDescriptorsDidChange(from: oldDescriptors)
             return
         }
         if let descriptor = tableView.sortDescriptors.first, let key = descriptor.key {
