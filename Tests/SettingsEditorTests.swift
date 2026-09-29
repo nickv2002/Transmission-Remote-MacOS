@@ -76,6 +76,46 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertEqual(e.servers[j].name, "New Server 3")
     }
 
+    // MARK: - Move
+
+    private func three() -> SettingsEditor {
+        SettingsEditor(AppConfig(servers: [server("A"), server("B"), server("C")],
+                                 refreshSeconds: 4, currentServer: "A"))
+    }
+
+    func testMoveServerDown() {
+        var e = three()
+        XCTAssertEqual(e.moveServer(from: 0, to: 3), 2)   // drop after last
+        XCTAssertEqual(e.serverNames, ["B", "C", "A"])
+        XCTAssertTrue(e.isDirty)
+    }
+
+    func testMoveServerUp() {
+        var e = three()
+        XCTAssertEqual(e.moveServer(from: 2, to: 0), 0)
+        XCTAssertEqual(e.serverNames, ["C", "A", "B"])
+    }
+
+    func testMoveToSamePositionKeepsOrderAndNotDirty() {
+        var e = three()
+        XCTAssertEqual(e.moveServer(from: 1, to: 2), 1)   // just below itself
+        XCTAssertEqual(e.serverNames, ["A", "B", "C"])
+        XCTAssertFalse(e.isDirty)
+    }
+
+    func testMoveKeepsDefaultServer() {
+        var e = three()
+        e.moveServer(from: 0, to: 3)
+        XCTAssertEqual(e.currentServer, "A")
+    }
+
+    func testMoveInvalidIndexIsNoOp() {
+        var e = three()
+        XCTAssertNil(e.moveServer(from: 5, to: 0))
+        XCTAssertNil(e.moveServer(from: 0, to: 4))
+        XCTAssertEqual(e.serverNames, ["A", "B", "C"])
+    }
+
     // MARK: - Remove
 
     func testRemoveServer() {

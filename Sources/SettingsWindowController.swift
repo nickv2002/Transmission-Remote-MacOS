@@ -22,6 +22,7 @@ final class SettingsWindowController: NSWindowController {
     private var editor: SettingsEditor
 
     private let tabView = NSTabView()
+    private static let serverRowType = NSPasteboard.PasteboardType("com.nickvance.transmission-remote-mac.server-row")
 
     // Servers pane.
     private let defaultServerPopup = NSPopUpButton()
@@ -175,6 +176,7 @@ final class SettingsWindowController: NSWindowController {
         serverTable.dataSource = self
         serverTable.delegate = self
         serverTable.allowsEmptySelection = true
+        serverTable.registerForDraggedTypes([Self.serverRowType])
 
         let scroll = NSScrollView()
         scroll.translatesAutoresizingMaskIntoConstraints = false
@@ -825,6 +827,31 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
         loadDetail()
     }
 
+    // Drag-to-reorder. The new order is a working-copy edit, so it enables
+    // Save Server like any other server change.
+
+    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        let item = NSPasteboardItem()
+        item.setString(String(row), forType: Self.serverRowType)
+        return item
+    }
+
+    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo,
+                   proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation)
+        -> NSDragOperation {
+        dropOperation == .above ? .move : []
+    }
+
+    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo,
+                   row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
+        guard let source = info.draggingPasteboard.string(forType: Self.serverRowType).flatMap(Int.init),
+              let newIndex = editor.moveServer(from: source, to: row) else { return false }
+        reloadServerList()
+        reloadDefaultServerPopup()
+        selectServer(at: newIndex)
+        updateDirtyState()
+        return true
+    }
 }
 
 // MARK: - Window delegate
