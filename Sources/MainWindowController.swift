@@ -928,7 +928,10 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        guard tableView !== filesTable else { return }
+        if tableView === filesTable {
+            filesSortDescriptorsDidChange()
+            return
+        }
         if let descriptor = tableView.sortDescriptors.first, let key = descriptor.key {
             UserDefaults.standard.set(key, forKey: "TorrentSortKey")
             UserDefaults.standard.set(descriptor.ascending, forKey: "TorrentSortAscending")
