@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var windowController: MainWindowController?
     /// The Server menu's submenu, rebuilt on demand from the configured servers.
     private let serverMenu = NSMenu(title: "Server")
+    private let toolbarLayoutMenu = NSMenu(title: "Toolbar Size")
     /// The native Settings window, created lazily on first open.
     private var settingsController: SettingsWindowController?
     /// The live app config (servers + poll interval), kept in sync with the
@@ -289,6 +290,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         find.target = self
         editMenuItem.submenu = editMenu
 
+        // View menu. Nil target: routes to the key window, and AppKit disables
+        // the item when that window has no customizable toolbar (e.g. Settings).
+        let viewMenuItem = NSMenuItem()
+        mainMenu.addItem(viewMenuItem)
+        let viewMenu = NSMenu(title: "View")
+        for layout in ToolbarLayout.allCases {
+            let item = toolbarLayoutMenu.addItem(withTitle: layout.displayName,
+                                                 action: #selector(selectToolbarLayout(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = layout.rawValue
+        }
+        toolbarLayoutMenu.delegate = self
+        viewMenu.addItem(withTitle: "Toolbar Size", action: nil, keyEquivalent: "").submenu = toolbarLayoutMenu
+        viewMenu.addItem(withTitle: "Customize Toolbar…",
+                         action: #selector(NSWindow.runToolbarCustomizationPalette(_:)), keyEquivalent: "")
+        viewMenuItem.submenu = viewMenu
+
         // Torrent menu — mirrors the right-click context menu. Targets are nil so
         // actions route through the first-responder chain to MainWindowController.
         let torrentMenuItem = NSMenuItem()
@@ -454,6 +472,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshItem.isEnabled = true
     }
 
+    /// View ▸ Toolbar Size: same setting as Settings ▸ General ▸ Toolbar size.
+    @objc private func selectToolbarLayout(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let layout = ToolbarLayout(rawValue: raw) else { return }
+        config.toolbarLayout = layout
+        persistScriptedConfigChange()
+        settingsController?.showToolbarLayout(layout)
+    }
+
     @objc private func refreshNow(_ sender: Any?) {
         windowController?.refresh.refreshNow()
     }
@@ -470,6 +497,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu === serverMenu { rebuildServerMenu() }
+        if menu === toolbarLayoutMenu {
+            for item in menu.items {
+                item.state = item.representedObject as? String == config.toolbarLayout.rawValue ? .on : .off
+            }
+        }
     }
 }
 
