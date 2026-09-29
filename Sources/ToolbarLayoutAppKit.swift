@@ -7,15 +7,18 @@ import AppKit
 /// AppKit side of `ToolbarLayout`: maps the layout onto a window and watches the
 /// toolbar's own display-mode control, so both directions are unit-testable.
 extension NSWindow {
-    /// Title row, toolbar style, and display mode for `layout`. Compact must be
-    /// `.unified`: `.unifiedCompact` makes AppKit drop the display-mode controls
-    /// (palette *Show:* popup, right-click menu), so Compact couldn't be undone.
+    /// Title row, toolbar style, and display mode for `layout`. The style must be
+    /// `.expanded` or `.unified`: `.unifiedCompact` makes AppKit drop the
+    /// display-mode controls (palette *Show:* popup, right-click menu), so icon-only
+    /// couldn't be undone. A hidden toolbar forces the title visible, since a hidden
+    /// title with no toolbar leaves a blank bar.
     func apply(toolbarLayout layout: ToolbarLayout) {
         isApplyingLayout = true
         defer { isApplyingLayout = false }
-        titleVisibility = layout.showsTitle ? .visible : .hidden
-        toolbarStyle = layout.isCompact ? .unified : .expanded
-        toolbar?.displayMode = layout.isCompact ? .iconOnly : .iconAndLabel
+        let toolbarShown = toolbar?.isVisible ?? true
+        titleVisibility = layout.showsTitle || !toolbarShown ? .visible : .hidden
+        toolbarStyle = layout.showsTitle ? .expanded : .unified
+        toolbar?.displayMode = layout.showsLabels ? .iconAndLabel : .iconOnly
     }
 }
 
@@ -29,9 +32,15 @@ extension NSToolbar {
         observe(\.displayMode) { toolbar, _ in
             MainActor.assumeIsolated {
                 guard !isApplyingLayout else { return }
-                let layout = ToolbarLayout(iconOnly: toolbar.displayMode == .iconOnly)
+                var layout = current()
+                layout.showsLabels = toolbar.displayMode != .iconOnly
                 if layout != current() { onChange(layout) }
             }
         }
+    }
+
+    /// Call `handler` whenever the toolbar is shown or hidden (View ▸ Show Toolbar).
+    func observeVisibility(_ handler: @escaping @MainActor () -> Void) -> NSKeyValueObservation {
+        observe(\.isVisible) { _, _ in MainActor.assumeIsolated { handler() } }
     }
 }

@@ -341,41 +341,40 @@ Ported from the legacy app (`RegisterURLHandler`, `CheckClipboardLink`,
 
 ## Title bar & toolbar layout
 
-`ToolbarLayout` (`AppConfig.toolbarLayout`, default `.default`) is applied by
-`MainWindowController.applyToolbarLayout`, the single owner of title visibility,
-toolbar style, and display mode. The layout *decisions* (`isCompact`, `showsTitle`,
-`showsToolTips`, `serverIconIsAppIcon`, `hasLabelRow`) are Foundation-only properties
-on `ToolbarLayout` (tested in `ToolbarLayoutTests`); the controller only maps them
-onto AppKit, so never re-derive "compact" from `window.titleVisibility`:
+`ToolbarLayout` (`AppConfig.toolbarLayout`) is two independent choices: **Title bar**
+(`TitleBarStyle` full / hidden) and **Show button labels** (Bool). Settings ▸ General
+and the View menu (**Title Bar ▸ Full/Hidden**, **Show Button Labels**) edit them; they
+persist as `titleBar` / `toolbarLabels` (legacy `toolbarLayout: "compact"` decodes to
+labels off, title kept). `MainWindowController.applyToolbarLayout` is the single owner
+of title visibility, toolbar style, and display mode. The decisions (`showsTitle`,
+`showsToolTips`) are Foundation-only properties
+on `ToolbarLayout` (tested in `ToolbarLayoutTests`); the controller only maps them onto
+AppKit:
 
-- **Default**: title visible + `.expanded` + `.iconAndLabel`. "Transmission Remote"
-  with its proxy icon on top; the toolbar row below has labels and the dropdown
-  with a clickable `externaldrive.connected.to.line.below` symbol.
-- **Compact**: title hidden + `.unified` + `.iconOnly`. One row, with the
-  app icon beside the dropdown and button labels shown as tooltips.
+- Title full → `.expanded` (title row above the toolbar); title hidden → `.unified` (one
+  row, labels still draw beneath the icons). Labels off = tooltips.
+- **Hiding the toolbar forces the title visible** (a hidden title with no toolbar is a
+  blank bar); `observeVisibility` re-applies the layout when the toolbar is shown/hidden.
 
 Behavior no config shows:
 
-- **Labels need `.expanded`.** With the title hidden, `.automatic`/`.unified`
-  resolve to a compact style that never draws labels, whatever the display mode.
 - **The setting owns the display mode, but the toolbar can change it.** `NSToolbar`
   autosave persists the mode (`TB Display Mode`) and would override the setting, so
   it's applied after the toolbar attaches. The palette's *Show:* popup and the
   right-click menu stay enabled: a KVO observer on `displayMode` maps icon-only →
-  Compact, anything else → Default (`ToolbarLayout(iconOnly:)`) and routes it through
+  labels off, anything else → labels on and routes it through
   `AppDelegate.setToolbarLayout` like the View menu does. `applyToolbarLayout` sets
   `toolbarLayout` first, so its own mode writes never look like user changes.
-- **Compact must be `.unified`, not `.unifiedCompact`.** `.unifiedCompact` makes AppKit
-  drop the display-mode controls (palette *Show:* popup, right-click Icon and Text /
-  Icon Only), so Compact could not be undone there. With `.unified` the palette shows
-  Finder's *Show:* popup and the change flows back through the `displayMode` observer.
+- **Never `.unifiedCompact`.** It makes AppKit drop the display-mode controls (palette
+  *Show:* popup, right-click Icon and Text / Icon Only), so icon-only could not be undone.
+- **Search item:** only the live toolbar item (`willBeInsertedIntoToolbar == true`) may
+  set `searchField`; the palette copy would otherwise steal it (placeholder went stale).
 - **No window tabbing.** `NSWindow.allowsAutomaticWindowTabbing = false` at launch
   keeps Show Tab Bar / Show All Tabs out of the View menu.
 - **Autosave id is `MainToolbar2`**, bumped so saved toolbars gained the dropdown.
   Bump it again when adding a default item; that resets users' customization once.
-- **Dropdown centering is empirical.** In Default AppKit lines view items up with
-  the button icons, so `serverSwitcherDrop` drops the dropdown by half a label line
-  plus 2pt.
+- **The server dropdown is a plain view item** labelled "Server" like the buttons, so
+  AppKit aligns it with them and draws the label when labels are on; no manual offset.
 - **The proxy icon is AppKit's.** It appears only with `representedURL` (the
   bundle) and is drawn from the bundle icon's **16pt renditions**
   (`icon_16x16*`, `icon_32x32`), ignoring any image set on the button. Keep those

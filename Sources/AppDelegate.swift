@@ -6,7 +6,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var windowController: MainWindowController?
     /// The Server menu's submenu, rebuilt on demand from the configured servers.
     private let serverMenu = NSMenu(title: "Server")
-    private let toolbarLayoutMenu = NSMenu(title: "Toolbar Size")
+    private let titleBarItem = NSMenuItem(title: "Show Title Bar",
+                                           action: #selector(toggleTitleBar(_:)), keyEquivalent: "")
+    private let toolbarItem = NSMenuItem(title: "Show Toolbar",
+                                         action: #selector(toggleToolbar(_:)), keyEquivalent: "")
+    private let toolbarLabelsItem = NSMenuItem(title: "Show Button Labels",
+                                               action: #selector(toggleToolbarLabels(_:)), keyEquivalent: "")
     /// The native Settings window, created lazily on first open.
     private var settingsController: SettingsWindowController?
     /// The live app config (servers + poll interval), kept in sync with the
@@ -299,17 +304,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let viewMenuItem = NSMenuItem()
         mainMenu.addItem(viewMenuItem)
         let viewMenu = NSMenu(title: "View")
-        for layout in ToolbarLayout.allCases {
-            let item = toolbarLayoutMenu.addItem(withTitle: layout.displayName,
-                                                 action: #selector(selectToolbarLayout(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = layout.rawValue
-        }
-        toolbarLayoutMenu.delegate = self
-        viewMenu.addItem(withTitle: "Toolbar Size", action: nil, keyEquivalent: "").submenu = toolbarLayoutMenu
-        viewMenu.addItem(withTitle: "Show Toolbar",
-                         action: #selector(NSWindow.toggleToolbarShown(_:)), keyEquivalent: "t")
-            .keyEquivalentModifierMask = [.command, .option]
+        // Three checkable toggles, all "Show …": the two layout settings and the toolbar itself.
+        titleBarItem.target = self
+        viewMenu.addItem(titleBarItem)
+        toolbarLabelsItem.target = self
+        viewMenu.addItem(toolbarLabelsItem)
+        toolbarItem.target = self
+        viewMenu.addItem(toolbarItem)
         viewMenu.addItem(withTitle: "Customize Toolbar…",
                          action: #selector(NSWindow.runToolbarCustomizationPalette(_:)), keyEquivalent: "")
         viewMenuItem.submenu = viewMenu
@@ -479,10 +480,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         refreshItem.isEnabled = true
     }
 
-    /// View ▸ Toolbar Size: same setting as Settings ▸ General ▸ Toolbar size.
-    @objc private func selectToolbarLayout(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let layout = ToolbarLayout(rawValue: raw) else { return }
+    /// View ▸ Show Title Bar: same setting as Settings ▸ General ▸ Title bar.
+    @objc private func toggleTitleBar(_ sender: NSMenuItem) {
+        var layout = config.toolbarLayout
+        layout.titleBar = layout.showsTitle ? .hidden : .full
+        setToolbarLayout(layout)
+    }
+
+    /// View ▸ Show Toolbar: `toggleToolbarShown` on the key window, but with a checkmark.
+    @objc private func toggleToolbar(_ sender: NSMenuItem) {
+        NSApp.keyWindow?.toggleToolbarShown(sender)
+    }
+
+    /// View ▸ Show Button Labels: same setting as Settings ▸ General ▸ Show button labels.
+    @objc private func toggleToolbarLabels(_ sender: NSMenuItem) {
+        var layout = config.toolbarLayout
+        layout.showsLabels.toggle()
         setToolbarLayout(layout)
     }
 
@@ -507,14 +520,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 // MARK: - Server menu refresh
 
+extension AppDelegate: NSMenuItemValidation {
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item {
+        case titleBarItem:
+            // With the toolbar hidden the title bar is always shown, so the item
+            // reads checked and can't be changed.
+            if NSApp.keyWindow?.toolbar?.isVisible == false {
+                item.state = .on
+                return false
+            }
+            item.state = config.toolbarLayout.showsTitle ? .on : .off
+        case toolbarLabelsItem: item.state = config.toolbarLayout.showsLabels ? .on : .off
+        case toolbarItem:
+            let toolbar = NSApp.keyWindow?.toolbar
+            item.state = toolbar?.isVisible == true ? .on : .off
+            return toolbar != nil
+        default: break
+        }
+        return true
+    }
+}
+
 extension AppDelegate: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         if menu === serverMenu { rebuildServerMenu() }
-        if menu === toolbarLayoutMenu {
-            for item in menu.items {
-                item.state = item.representedObject as? String == config.toolbarLayout.rawValue ? .on : .off
-            }
-        }
     }
 }
 

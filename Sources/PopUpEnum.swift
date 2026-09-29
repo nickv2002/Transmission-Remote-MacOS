@@ -6,7 +6,7 @@ protocol DisplayNamed {
 }
 
 extension TorrentFileRemoval: DisplayNamed {}
-extension ToolbarLayout: DisplayNamed {}
+extension TitleBarStyle: DisplayNamed {}
 
 /// Popup ⇄ `CaseIterable` enum bridging, so every enum-backed popup (Settings,
 /// the Add sheet) shares one index mapping instead of hand-rolling it.

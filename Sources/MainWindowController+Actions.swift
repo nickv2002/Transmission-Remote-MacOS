@@ -20,33 +20,34 @@ extension MainWindowController: NSToolbarDelegate {
         toolbar.delegate = self
         toolbar.allowsUserCustomization = true
         // The palette's Show: popup / right-click menu change the display mode;
-        // that maps onto the Toolbar size setting (`ToolbarLayout(iconOnly:)`),
-        // which stays the single source of truth and drives the rest of the layout.
+        // that maps onto the button-labels setting, which stays the single source
+        // of truth and drives the rest of the layout.
         toolbar.allowsDisplayModeCustomization = true
         displayModeObservation = toolbar.observeLayoutChanges(
             current: { [weak self] in self?.toolbarLayout ?? .default },
             onChange: { [weak self] in self?.onToolbarLayoutChange?($0) })
+        // Hiding the toolbar must bring the title back (and re-hide it on show).
+        toolbarVisibilityObservation = toolbar.observeVisibility { [weak self] in
+            guard let self else { return }
+            self.applyToolbarLayout(self.toolbarLayout)
+        }
         toolbar.autosavesConfiguration = true
         toolbar.centeredItemIdentifiers = [ToolbarID.server]
         window?.toolbar = toolbar
     }
 
-    /// Default: the "Transmission Remote" title row (with the app icon) above
-    /// a labelled toolbar row. Compact: title hidden, one icon-only row with the
-    /// app icon beside the server dropdown. The style matters as much as the
-    /// display mode: labels only show in the `.expanded` style. Applied after
-    /// the toolbar is attached, so it wins over any autosaved display mode.
+    /// Title bar (full or hidden) and button labels (shown or tooltips) are
+    /// independent. The style matters as much as the display mode: labels only
+    /// show in the `.expanded` style. Applied after the toolbar is attached, so
+    /// it wins over any autosaved display mode.
     func applyToolbarLayout(_ layout: ToolbarLayout) {
         guard let window else { return }
         toolbarLayout = layout
         window.apply(toolbarLayout: layout)
-        serverIcon?.image = serverIconImage
-        serverSwitcherOffset?.constant = serverSwitcherDrop
         window.toolbar?.items.forEach(updateToolTip)
     }
 
-    /// Compact hides the labels, so it shows them as tooltips instead. Default
-    /// has no tooltips, since the labels are already visible.
+    /// Hidden labels show as tooltips instead; visible labels need none.
     private func updateToolTip(_ item: NSToolbarItem) {
         let tips = toolbarLayout.showsToolTips
         switch item.itemIdentifier {
@@ -87,18 +88,18 @@ extension MainWindowController: NSToolbarDelegate {
             item.searchField.target = self
             item.searchField.action = #selector(searchChanged(_:))
             item.searchField.searchMenuTemplate = searchModeMenu()
-            searchField = item.searchField
+            item.preferredWidthForSearchField = 220
+            item.visibilityPriority = .high
+            // The palette also asks for an item (flag false); only the live one is ours.
+            if flag { searchField = item.searchField }
             return item
         }
 
         // Server-switching dropdown, centered in the toolbar row.
         if itemIdentifier == ToolbarID.server {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            // No label under the dropdown in the default layout; the palette
-            // (Customize Toolbar) still names it.
-            item.label = ""
-            item.paletteLabel = "Server"
-            item.view = makeServerSwitcher()
+            item.label = "Server"
+            item.view = makeServerSwitcher(live: flag)
             return item
         }
 
@@ -136,26 +137,14 @@ extension MainWindowController: NSToolbarDelegate {
         return item
     }
 
-    /// Compact has no title, so the dropdown carries the app icon. Default
-    /// already shows the app icon in the title, so it gets a server symbol.
     private var serverIconImage: NSImage? {
-        toolbarLayout.serverIconIsAppIcon
-            ? NSApp.applicationIconImage
-            : NSImage(systemSymbolName: "externaldrive.connected.to.line.below",
-                      accessibilityDescription: "Server")
+        NSImage(systemSymbolName: "externaldrive.connected.to.line.below",
+                accessibilityDescription: "Server")
     }
 
-    /// In default, AppKit lines a view item up with the button icons, above
-    /// the label row. The switcher has no label, so drop it by half a label
-    /// line (plus the small icon–label gap) to center it on the whole row.
-    /// Compact has no label row.
-    private var serverSwitcherDrop: CGFloat {
-        guard toolbarLayout.hasLabelRow else { return 0 }
-        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        return ceil(font.ascender - font.descender + font.leading) / 2 + 2
-    }
-
-    private func makeServerSwitcher() -> NSView {
+    /// `live` is false for the Customize Toolbar palette's copy, which must not
+    /// take over the references the live switcher is updated through.
+    private func makeServerSwitcher(live: Bool) -> NSView {
         // A borderless button so, in default, clicking the drive icon opens
         // the dropdown too.
         let icon = NSButton(image: NSImage(), target: self, action: #selector(serverIconClicked(_:)))
@@ -164,35 +153,20 @@ extension MainWindowController: NSToolbarDelegate {
         icon.image = serverIconImage
         icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
-        serverIcon = icon
 
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
         popup.isBordered = false
         popup.font = .titleBarFont(ofSize: 0)
         popup.target = self
         popup.action = #selector(serverPopupChanged(_:))
-        serverPopup = popup
-        updateServerPopup()
+        if live { serverPopup = popup }
+        popup.addItems(withTitles: refresh.availableServerNames)
+        popup.selectItem(withTitle: refresh.currentServerName)
 
         let stack = NSStackView(views: [icon, popup])
         stack.orientation = .horizontal
         stack.spacing = 4
-        stack.translatesAutoresizingMaskIntoConstraints = false
-
-        // The container keeps the stack's size for toolbar layout; the stack
-        // is drawn offset inside it (container doesn't clip).
-        let container = NSView()
-        container.addSubview(stack)
-        let offset = stack.centerYAnchor.constraint(equalTo: container.centerYAnchor,
-                                                    constant: serverSwitcherDrop)
-        serverSwitcherOffset = offset
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            stack.heightAnchor.constraint(equalTo: container.heightAnchor),
-            offset,
-        ])
-        return container
+        return stack
     }
 
     /// Sync the switcher's items and selection with the configured servers.
@@ -207,7 +181,6 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     @objc private func serverIconClicked(_ sender: NSButton) {
-        guard !toolbarLayout.serverIconIsAppIcon else { return }   // default only
         serverPopup?.performClick(sender)
     }
 

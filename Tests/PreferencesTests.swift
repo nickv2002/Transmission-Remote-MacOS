@@ -111,9 +111,18 @@ final class PreferencesTests: XCTestCase {
     }
 
     func testToolbarLayoutRoundTrip() throws {
-        let original = AppConfig(servers: [.localhost], refreshSeconds: 4, toolbarLayout: .compact)
+        let layout = ToolbarLayout(titleBar: .hidden, showsLabels: false)
+        let original = AppConfig(servers: [.localhost], refreshSeconds: 4, toolbarLayout: layout)
         let decoded = try PreferencesStore.decode(PreferencesStore.encode(original))
-        XCTAssertEqual(decoded.toolbarLayout, .compact)
+        XCTAssertEqual(decoded.toolbarLayout, layout)
+    }
+
+    func testLegacyCompactToolbarLayoutMeansLabelsOffButTitleKept() throws {
+        let compact = try JSONDecoder().decode(AppConfig.self, from: Data(#"{"toolbarLayout":"compact"}"#.utf8))
+        XCTAssertEqual(compact.toolbarLayout, ToolbarLayout(titleBar: .full, showsLabels: false))
+        let mixed = try JSONDecoder().decode(
+            AppConfig.self, from: Data(#"{"toolbarLayout":"compact","titleBar":"hidden","toolbarLabels":true}"#.utf8))
+        XCTAssertEqual(mixed.toolbarLayout, ToolbarLayout(titleBar: .hidden, showsLabels: true))
     }
 
     func testServerLookupAndNames() {

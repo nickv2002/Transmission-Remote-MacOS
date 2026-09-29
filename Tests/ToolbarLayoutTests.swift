@@ -1,32 +1,27 @@
 import AppKit
 import XCTest
 
+@MainActor
 final class ToolbarLayoutTests: XCTestCase {
     func testDefaultLayoutShowsTitleAndLabelRowWithoutTooltips() {
         let l = ToolbarLayout.default
-        XCTAssertFalse(l.isCompact)
         XCTAssertTrue(l.showsTitle)
-        XCTAssertTrue(l.hasLabelRow)
         XCTAssertFalse(l.showsToolTips)
-        XCTAssertFalse(l.serverIconIsAppIcon)
     }
 
-    func testCompactLayoutHidesTitleAndUsesTooltipsAndAppIcon() {
-        let l = ToolbarLayout.compact
-        XCTAssertTrue(l.isCompact)
-        XCTAssertFalse(l.showsTitle)
-        XCTAssertFalse(l.hasLabelRow)
+    func testHidingLabelsKeepsTheTitleAndUsesTooltips() {
+        let l = ToolbarLayout(titleBar: .full, showsLabels: false)
+        XCTAssertTrue(l.showsTitle)
         XCTAssertTrue(l.showsToolTips)
-        XCTAssertTrue(l.serverIconIsAppIcon)
     }
 
-    func testIconOnlyDisplayModeMapsToCompact() {
-        XCTAssertEqual(ToolbarLayout(iconOnly: true), .compact)
-        XCTAssertEqual(ToolbarLayout(iconOnly: false), .default)
+    func testHiddenTitleBarKeepsLabelChoice() {
+        let labelled = ToolbarLayout(titleBar: .hidden, showsLabels: true)
+        XCTAssertFalse(labelled.showsTitle)
     }
 
-    func testDisplayNamesAreDistinctAndOrdered() {
-        XCTAssertEqual(ToolbarLayout.allCases.map(\.displayName), ["Default", "Compact"])
+    func testTitleBarDisplayNamesAreDistinctAndOrdered() {
+        XCTAssertEqual(TitleBarStyle.allCases.map(\.displayName), ["Full", "Hidden"])
     }
 
     // MARK: - PopUpEnum
@@ -50,6 +45,6 @@ final class ToolbarLayoutTests: XCTestCase {
 
     func testSelectedCaseFallsBackWhenNothingSelected() {
         let popup = NSPopUpButton()   // no items: index is -1
-        XCTAssertEqual(popup.selectedCase(default: ToolbarLayout.compact), .compact)
+        XCTAssertEqual(popup.selectedCase(default: TitleBarStyle.hidden), .hidden)
     }
 }
