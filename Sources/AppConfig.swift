@@ -87,6 +87,20 @@ enum ToolbarLayout: String, Codable, Sendable, CaseIterable {
         case .compact: return "Compact"
         }
     }
+
+    // Layout decisions live here (Foundation-only, so tested); the window
+    // controller just maps them onto AppKit.
+
+    var isCompact: Bool { self == .compact }
+    /// Compact drops the title row; the dropdown's icon stands in for it.
+    var showsTitle: Bool { !isCompact }
+    /// Compact hides button labels, so it shows them as tooltips instead.
+    var showsToolTips: Bool { isCompact }
+    /// Compact has no title, so the server dropdown carries the app icon;
+    /// default already shows it there and uses a server symbol instead.
+    var serverIconIsAppIcon: Bool { isCompact }
+    /// Only default has a label row that the label-less dropdown must offset.
+    var hasLabelRow: Bool { !isCompact }
 }
 
 /// App configuration: the list of named servers, the active one, and the poll

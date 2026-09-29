@@ -33,6 +33,8 @@ final class MainWindowController: NSWindowController {
     /// In-flight files fetch, so a new selection can cancel a stale one.
     var filesFetchTask: Task<Void, Never>?
 
+    /// The applied title bar + toolbar layout (see `applyToolbarLayout`).
+    var toolbarLayout: ToolbarLayout = .default
     /// Server-switching dropdown in the toolbar (nil until the toolbar builds it).
     var serverPopup: NSPopUpButton?
     /// Icon beside the dropdown: the app icon in compact, a server symbol in default.
