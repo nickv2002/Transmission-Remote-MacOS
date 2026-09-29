@@ -211,5 +211,17 @@
         length="4446364"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.09.29.2</title>
+      <sparkle:version>2026.09.29.2</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 29 Sep 2026 23:04:13 +0000</pubDate>
+      <description><![CDATA[<ul><li>Sync toolbar display mode with layout, drop tabbing, clear sidebar on server switch</li><li>Address PR #15 review: DRY popup/layout logic, View menu, drop retargeting, tests</li><li>Document title bar, toolbar layout, and server UX</li><li>Use outline symbols for toolbar actions</li><li>Add View menu with toolbar size options</li><li>Add title bar server dropdown and toolbar size</li><li>Add ⌘1–⌘0 shortcuts for switching servers</li><li>Allow reordering servers in Settings</li><li>Add Manage Servers… to the Server menu</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.29.2/Transmission.Remote-2026.09.29.2.zip"
+        sparkle:edSignature="5LIfV1Z6B6asovOqdovi8GmpCZvL9akjVccQGUgxePtF5LrScwwB2Ng+dyIrA+KIREZIj+Fz6pifzqSdbSjmDw=="
+        length="4468204"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
