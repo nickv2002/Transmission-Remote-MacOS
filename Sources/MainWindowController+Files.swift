@@ -270,31 +270,22 @@ extension MainWindowController {
         }
     }
 
-    /// Re-sort the current list after the user clicks a column header.
-    func filesSortDescriptorsDidChange() {
+    /// Re-sort the current list after the user clicks a column header. Header
+    /// clicks cycle ascending → descending → unsorted (server file order), since
+    /// AppKit never clears a descriptor on its own.
+    func filesSortDescriptorsDidChange(from old: [NSSortDescriptor]) {
+        if let new = filesTable.sortDescriptors.first, let prev = old.first,
+           new.key == prev.key, new.ascending, !prev.ascending {
+            filesTable.sortDescriptors = []  // re-enters via the delegate and re-sorts
+            return
+        }
         applyFetchedFiles(files)
     }
 
     private func sortedFiles(_ list: [TorrentFile]) -> [TorrentFile] {
-        guard let descriptor = filesTable.sortDescriptors.first,
-              let key = descriptor.key, let column = FileColumn(rawValue: key) else { return list }
-        func order(_ a: TorrentFile, _ b: TorrentFile) -> ComparisonResult {
-            switch column {
-            case .name: return a.name.localizedStandardCompare(b.name)
-            case .size: return a.length < b.length ? .orderedAscending : a.length > b.length ? .orderedDescending : .orderedSame
-            case .progress: return a.percentDone < b.percentDone ? .orderedAscending : a.percentDone > b.percentDone ? .orderedDescending : .orderedSame
-            case .priority:
-                // Matches the displayed text: unwanted files show "Skip".
-                let (x, y) = (a.wanted ? a.priorityRaw : -2, b.wanted ? b.priorityRaw : -2)
-                return x < y ? .orderedAscending : x > y ? .orderedDescending : .orderedSame
-            case .wanted: return .orderedSame
-            }
-        }
-        return list.sorted { a, b in
-            let result = order(a, b)
-            if result == .orderedSame { return a.index < b.index }
-            return (result == .orderedAscending) == descriptor.ascending
-        }
+        let descriptor = filesTable.sortDescriptors.first
+        let key = descriptor?.key.flatMap(TorrentFileSortKey.init(rawValue:))
+        return TorrentFileSort.sorted(list, by: key, ascending: descriptor?.ascending ?? true)
     }
 
     /// Reload the files table, preserving the user's selection and focus.
@@ -302,9 +293,8 @@ extension MainWindowController {
     /// `NSTableView.reloadData()` drops `selectedRowIndexes` on this toolchain
     /// (the main table works around the same thing via `restoreSelection`), so a
     /// poll/RPC refresh would silently deselect the file the user picked. The file
-    /// list keeps a stable order across refreshes (Transmission indexes files), so
-    /// restoring by row index reselects the same files; indexes past the new row
-    /// count are dropped.
+    /// list is re-sorted on every refresh, so rows can move; this restores by row
+    /// index as a first pass and `applyFetchedFiles` then re-selects by file index.
     private func reloadFilesData() {
         let restoreFocus = window?.firstResponder === filesTable
         let selection = filesTable.selectedRowIndexes
