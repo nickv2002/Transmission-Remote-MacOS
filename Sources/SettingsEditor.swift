@@ -82,6 +82,19 @@ struct SettingsEditor: Equatable {
         }
     }
 
+    /// Move the server at `index` to sit before the server currently at
+    /// `destination` (a drop position: 0...count, in pre-move indices). Returns
+    /// the server's new index, or nil if either index is out of range.
+    @discardableResult
+    mutating func moveServer(from index: Int, to destination: Int) -> Int? {
+        guard working.servers.indices.contains(index),
+              (0...working.servers.count).contains(destination) else { return nil }
+        let server = working.servers.remove(at: index)
+        let newIndex = destination > index ? destination - 1 : destination
+        working.servers.insert(server, at: newIndex)
+        return newIndex
+    }
+
     /// Replace the server at `index` with `candidate`. When `normalizeName` is
     /// true (end-of-edit), the name is trimmed, kept non-empty, and kept unique —
     /// otherwise it's taken as-is (live per-keystroke). If the name changes and it
