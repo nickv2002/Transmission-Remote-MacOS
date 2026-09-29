@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.09.29.1 — 2026-09-29
+
+- Files sort: extract testable TorrentFileSort, add unsorted third click, fix stale comment
+- Make Files tab columns sortable (#14)
+- lossless compress other image files
+
 ## 2026.09.27.1 — 2026-09-27
 
 - compress replacement dock icon
