@@ -208,6 +208,19 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.path))
     }
 
+    func testFirstRunIsReportedOnlyWhenNothingExistsAndNothingMigrates() throws {
+        let store = tmp.appendingPathComponent("preferences.json")
+        XCTAssertTrue(try PreferencesStore.loadReportingFirstRun(storeURL: store, legacyURL: nil).isFirstRun)
+        // The seeded store now exists, so the next launch isn't a first run.
+        XCTAssertFalse(try PreferencesStore.loadReportingFirstRun(storeURL: store, legacyURL: nil).isFirstRun)
+
+        let migratedStore = tmp.appendingPathComponent("migrated.json")
+        let legacy = tmp.appendingPathComponent("config.jsonc")
+        try #"{"servers":[{"name":"Legacy","host":"l","port":1}]}"#
+            .write(to: legacy, atomically: true, encoding: .utf8)
+        XCTAssertFalse(try PreferencesStore.loadReportingFirstRun(storeURL: migratedStore, legacyURL: legacy).isFirstRun)
+    }
+
     func testNativeStoreTakesPrecedenceOverLegacy() throws {
         // When both exist, the native store wins (no re-migration).
         let store = tmp.appendingPathComponent("preferences.json")

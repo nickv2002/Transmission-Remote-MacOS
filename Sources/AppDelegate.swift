@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingURLs: [URL] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        var isFirstRun = false
         // Single-window app: keeps AppKit from adding Show Tab Bar / Show All Tabs
         // to the View menu.
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -51,7 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMainMenu()
 
         do {
-            config = try PreferencesStore.load()
+            (config, isFirstRun) = try PreferencesStore.loadReportingFirstRun()
         } catch {
             presentStartupError(error)
             return
@@ -78,6 +79,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onToolbarLayoutChange = { [weak self] in self?.setToolbarLayout($0) }
         controller.showWindow(nil)
         rebuildServerMenu()
+
+        // First launch: the placeholder server can't work, so send the user
+        // straight to the Servers tab to add theirs.
+        if isFirstRun, !TestIsolation.isActive { showSettings(serversTab: true) }
 
         // Flush any files opened before the controller existed (cold launch via
         // double-clicking a .torrent, where `application(_:open:)` fires first).
