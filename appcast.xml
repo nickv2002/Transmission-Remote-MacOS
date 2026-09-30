@@ -223,5 +223,17 @@
         length="4468204"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.09.29.3</title>
+      <sparkle:version>2026.09.29.3</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 30 Sep 2026 00:10:19 +0000</pubDate>
+      <description><![CDATA[<ul><li>Open Settings on the Servers tab on first launch</li><li>Split title bar and button labels, fix toolbar search and server item bugs</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.29.3/Transmission.Remote-2026.09.29.3.zip"
+        sparkle:edSignature="EIb/ZX1HlC6tXGsrCeTgisBqXYyCF7Btt4G2gXLiIJudQKVUHkyRZKlaTjqLchjNq0GjDtFrdBltxr46qcmCDQ=="
+        length="4470146"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>

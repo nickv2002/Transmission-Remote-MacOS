@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.09.29.3 — 2026-09-29
+
+- Open Settings on the Servers tab on first launch
+- Split title bar and button labels, fix toolbar search and server item bugs
+
 ## 2026.09.29.2 — 2026-09-29
 
 - Sync toolbar display mode with layout, drop tabbing, clear sidebar on server switch
