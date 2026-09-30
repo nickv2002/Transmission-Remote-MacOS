@@ -296,10 +296,17 @@ enum PreferencesStore {
     /// Load the stored preferences, migrating from legacy JSONC or seeding a
     /// default on first run. Always leaves a `preferences.json` on disk afterward.
     static func load() throws -> AppConfig {
+        try loadReportingFirstRun().config
+    }
+
+    /// Like `load()`, and also reports whether this launch had no stored settings
+    /// and nothing to migrate, so the built-in placeholder server was seeded and
+    /// the user still has to configure a real one.
+    static func loadReportingFirstRun() throws -> (config: AppConfig, isFirstRun: Bool) {
         if let override = overrideStoreURL {
-            return try load(storeURL: override, legacyURL: nil)
+            return try loadReportingFirstRun(storeURL: override, legacyURL: nil)
         }
-        return try load(storeURL: storeURL, legacyURL: legacyConfigURL)
+        return try loadReportingFirstRun(storeURL: storeURL, legacyURL: legacyConfigURL)
     }
 
     /// Persist the config as pretty-printed JSON, creating the support folder.
@@ -312,6 +319,11 @@ enum PreferencesStore {
     /// Load from `storeURL`, migrating from `legacyURL` (or the built-in default)
     /// when no native store exists yet, then persisting the result.
     static func load(storeURL: URL, legacyURL: URL?) throws -> AppConfig {
+        try loadReportingFirstRun(storeURL: storeURL, legacyURL: legacyURL).config
+    }
+
+    static func loadReportingFirstRun(storeURL: URL, legacyURL: URL?) throws
+        -> (config: AppConfig, isFirstRun: Bool) {
         if FileManager.default.fileExists(atPath: storeURL.path) {
             let data: Data
             do {
@@ -319,14 +331,15 @@ enum PreferencesStore {
             } catch {
                 throw ConfigError.unreadable(error.localizedDescription)
             }
-            return try decode(data)
+            return (try decode(data), false)
         }
 
         // First run for the native store: migrate the legacy JSONC if present,
         // otherwise start from the built-in default.
-        let migrated = (legacyURL.flatMap { try? loadLegacyJSONC(from: $0) }) ?? .default
+        let legacy = legacyURL.flatMap { try? loadLegacyJSONC(from: $0) }
+        let migrated = legacy ?? .default
         try save(migrated, to: storeURL)
-        return migrated
+        return (migrated, legacy == nil)
     }
 
     static func save(_ config: AppConfig, to url: URL) throws {
