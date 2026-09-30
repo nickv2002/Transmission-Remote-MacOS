@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.09.29.4 — 2026-09-29
+
+- remove view settings from settings screen, control them from view menu or toolbar
+
 ## 2026.09.29.3 — 2026-09-29
 
 - Open Settings on the Servers tab on first launch
