@@ -46,8 +46,6 @@ final class SettingsWindowController: NSWindowController {
     private let autoCheckBox = NSButton(checkboxWithTitle: "Automatically check for updates",
                                         target: nil, action: nil)
     private let removeFileMethodPopup = NSPopUpButton()
-    private let titleBarPopup = NSPopUpButton()
-    private let toolbarLabelsBox = NSButton(checkboxWithTitle: "Show button labels", target: nil, action: nil)
     private let showAddOptionsBox = NSButton(checkboxWithTitle: "Show options when adding torrents",
                                              target: nil, action: nil)
     private let clipboardBox = NSButton(checkboxWithTitle: "Add magnet links copied to the clipboard",
@@ -358,12 +356,6 @@ final class SettingsWindowController: NSWindowController {
         removeFileMethodPopup.action = #selector(removeFileMethodChanged)
         removeFileMethodPopup.configure(for: TorrentFileRemoval.self)
 
-        titleBarPopup.target = self
-        titleBarPopup.action = #selector(toolbarLayoutChanged)
-        titleBarPopup.configure(for: TitleBarStyle.self)
-        toolbarLabelsBox.target = self
-        toolbarLabelsBox.action = #selector(toolbarLayoutChanged)
-
         // A plain leading-aligned vertical stack: every row starts flush with
         // the "R" in "Refresh every:". (An NSGridView with several merged
         // full-width checkbox rows collapsed those rows onto one line.)
@@ -383,8 +375,6 @@ final class SettingsWindowController: NSWindowController {
             sectionHeader("General"),
             stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
             autoCheckBox,
-            stack([label("Title bar:"), titleBarPopup]),
-            toolbarLabelsBox,
         ]
 
         let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
@@ -605,18 +595,10 @@ final class SettingsWindowController: NSWindowController {
         onChange?(editor.setAutoCheckForUpdates(autoCheckBox.state == .on))
     }
 
-    /// Reflect a toolbar layout changed elsewhere (View menu) in the open
-    /// window, without touching pending server edits.
+    /// Keep the editor in step with a toolbar layout changed in the View menu,
+    /// without touching pending server edits.
     func showToolbarLayout(_ layout: ToolbarLayout) {
         editor.setToolbarLayout(layout)
-        titleBarPopup.select(layout.titleBar)
-        toolbarLabelsBox.state = layout.showsLabels ? .on : .off
-    }
-
-    @objc private func toolbarLayoutChanged() {
-        let layout = ToolbarLayout(titleBar: titleBarPopup.selectedCase(default: .full),
-                                   showsLabels: toolbarLabelsBox.state == .on)
-        onChange?(editor.setToolbarLayout(layout))
     }
 
     @objc private func removeFileMethodChanged() {
