@@ -432,6 +432,129 @@ struct TorrentFilesArguments: Decodable, Sendable {
     let torrents: [TorrentFilesEntry]
 }
 
+// MARK: - Peers RPC decoding
+
+/// One entry from a torrent's `peers` array (single-torrent `torrent-get`).
+/// Everything but `address` decodes tolerantly: daemons omit zero-valued
+/// fields (`rateToClient`/`rateToPeer`, sometimes `port`) — the legacy app
+/// guarded those with `IndexOfName`.
+struct TorrentPeer: Decodable, Sendable, Equatable, Identifiable {
+    let address: String
+    let port: Int
+    let clientName: String
+    let flagStr: String
+    let progress: Double
+    let rateToClient: Int64
+    let rateToPeer: Int64
+    let isEncrypted: Bool
+    let isIncoming: Bool
+    let isUTP: Bool
+    let isDownloadingFrom: Bool
+    let isUploadingTo: Bool
+
+    /// Address + port — unique per connected peer; the identity that survives
+    /// the table reloads each poll.
+    var id: String { "\(address):\(port)" }
+
+    private enum CodingKeys: String, CodingKey {
+        case address, port, clientName, flagStr, progress
+        case rateToClient, rateToPeer
+        case isEncrypted, isIncoming, isUTP
+        case isDownloadingFrom, isUploadingTo
+    }
+
+    init(address: String = "", port: Int = 0, clientName: String = "",
+         flagStr: String = "", progress: Double = 0,
+         rateToClient: Int64 = 0, rateToPeer: Int64 = 0,
+         isEncrypted: Bool = false, isIncoming: Bool = false, isUTP: Bool = false,
+         isDownloadingFrom: Bool = false, isUploadingTo: Bool = false) {
+        self.address = address
+        self.port = port
+        self.clientName = clientName
+        self.flagStr = flagStr
+        self.progress = progress
+        self.rateToClient = rateToClient
+        self.rateToPeer = rateToPeer
+        self.isEncrypted = isEncrypted
+        self.isIncoming = isIncoming
+        self.isUTP = isUTP
+        self.isDownloadingFrom = isDownloadingFrom
+        self.isUploadingTo = isUploadingTo
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        address = try c.decode(String.self, forKey: .address)
+        port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 0
+        clientName = try c.decodeIfPresent(String.self, forKey: .clientName) ?? ""
+        flagStr = try c.decodeIfPresent(String.self, forKey: .flagStr) ?? ""
+        progress = try c.decodeIfPresent(Double.self, forKey: .progress) ?? 0
+        rateToClient = try c.decodeIfPresent(Int64.self, forKey: .rateToClient) ?? 0
+        rateToPeer = try c.decodeIfPresent(Int64.self, forKey: .rateToPeer) ?? 0
+        isEncrypted = try c.decodeIfPresent(Bool.self, forKey: .isEncrypted) ?? false
+        isIncoming = try c.decodeIfPresent(Bool.self, forKey: .isIncoming) ?? false
+        isUTP = try c.decodeIfPresent(Bool.self, forKey: .isUTP) ?? false
+        isDownloadingFrom = try c.decodeIfPresent(Bool.self, forKey: .isDownloadingFrom) ?? false
+        isUploadingTo = try c.decodeIfPresent(Bool.self, forKey: .isUploadingTo) ?? false
+    }
+}
+
+/// One torrent's `peers` array from a single-torrent `torrent-get`.
+struct TorrentPeersEntry: Decodable, Sendable {
+    let id: Int
+    let peers: [TorrentPeer]
+}
+
+/// Decoded `arguments` for a single-torrent peers `torrent-get`.
+struct TorrentPeersArguments: Decodable, Sendable {
+    let torrents: [TorrentPeersEntry]
+}
+
+// MARK: - Peers sorting
+
+/// Sortable columns of the Peers tab. Raw values match `PeerColumn`
+/// identifiers (which are the `NSSortDescriptor` keys); sorting itself is the
+/// Foundation-only `sorted` below so it is unit-testable.
+enum PeerSortKey: String, Sendable {
+    case address, client, flags, progress, down, up
+
+    /// `ComparisonResult` for two `Comparable` values (Swift's `Comparable`
+    /// has no `compare`, unlike Foundation's `NSNumber`).
+    private static func compare<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+        if lhs < rhs { return .orderedAscending }
+        if lhs > rhs { return .orderedDescending }
+        return .orderedSame
+    }
+
+    /// Peers in the given order. `nil` key keeps the daemon's own order (the
+    /// third header-click state, mirroring the Files tab). Equal primary values
+    /// tie-break by address then port, always ascending, so the poll reloads
+    /// reorder identically instead of shuffling (`sorted` isn't stable).
+    static func sorted(_ peers: [TorrentPeer], by key: PeerSortKey?, ascending: Bool) -> [TorrentPeer] {
+        guard let key else { return peers }
+        return peers.sorted { a, b in
+            let order: ComparisonResult
+            switch key {
+            // Finder-style numeric-aware compare so IP addresses order by
+            // their digit runs ("10.0.0.2" before "10.0.0.10"), not
+            // lexicographically.
+            case .address: order = a.address.localizedStandardCompare(b.address)
+            case .client: order = a.clientName.localizedCaseInsensitiveCompare(b.clientName)
+            case .flags: order = a.flagStr.localizedCaseInsensitiveCompare(b.flagStr)
+            case .progress: order = compare(a.progress, b.progress)
+            case .down: order = compare(a.rateToClient, b.rateToClient)
+            case .up: order = compare(a.rateToPeer, b.rateToPeer)
+            }
+            if order != .orderedSame {
+                return ascending ? order == .orderedAscending : order == .orderedDescending
+            }
+            let byAddress = a.address.localizedStandardCompare(b.address)
+            if byAddress != .orderedSame { return byAddress == .orderedAscending }
+            return a.port < b.port
+        }
+    }
+}
+
 // MARK: - torrent-add
 
 /// The torrent named in a `torrent-add` response (under `torrent-added` or

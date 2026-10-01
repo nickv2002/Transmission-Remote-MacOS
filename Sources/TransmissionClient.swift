@@ -153,6 +153,15 @@ actor TransmissionClient {
         return response.arguments?.torrents.first?.files ?? []
     }
 
+    /// Fetch the peer list for one torrent (`peers`). Kept separate from the
+    /// list poll for the same reason as `fetchFiles` — the array is heavy and
+    /// only needed for the selected torrent.
+    func fetchPeers(id: Int) async throws -> [TorrentPeer] {
+        let args: [String: Any] = ["ids": [id], "fields": ["id", "peers"]]
+        let response: RPCResponse<TorrentPeersArguments> = try await send(method: "torrent-get", arguments: args)
+        return response.arguments?.torrents.first?.peers ?? []
+    }
+
     func setFilesWanted(id: Int, fileIndices: [Int], wanted: Bool) async throws {
         guard !fileIndices.isEmpty else { return }
         let key = wanted ? "files-wanted" : "files-unwanted"
