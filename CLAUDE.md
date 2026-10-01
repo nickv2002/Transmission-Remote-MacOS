@@ -19,9 +19,12 @@ sortable columns, **start / stop / force-start / rename / move / verify / queue-
 All `feature-ranking.md` items above "Other stuff not worth doing yet" are now
 implemented:
 
-- **Files tab** — tabbed detail pane (Info / Files); per-file table with a wanted
-  checkbox (`files-wanted`/`files-unwanted`), size, live progress, and priority
-  (`priority-*`). Fetched on demand per selected torrent, refreshed on the poll.
+- **Files tab** — tabbed detail pane (Info / Files); a directory-tree
+  `NSOutlineView` of the torrent's files with a tri-state wanted checkbox
+  (`files-wanted`/`files-unwanted`), aggregated size, live progress, and priority
+  (`priority-*`) — folder actions apply to every file beneath. Fetched on demand
+  per selected torrent, refreshed on the poll with expansion/selection preserved
+  by path; column sorting applies within each folder level.
 - **Add torrents** — Add toolbar pull-down + File-menu (⌘O file, ⌘L magnet/URL),
   drag-and-drop onto the window, and Dock/Open-With (`CFBundleDocumentTypes` in
   `Info.plist`). Shared options sheet (destination prefilled from session
@@ -128,7 +131,12 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `MainWindowController+Actions.swift` — toolbar (incl. Add pull-down, server
   dropdown, `applyToolbarLayout`), context menu, action methods, and the search
   toolbar item.
-- `MainWindowController+Files.swift` — the Files tab table + wanted/priority actions.
+- `MainWindowController+Files.swift` — the Files tab tree (NSOutlineView) +
+  wanted/priority actions (a folder's act on every file beneath it).
+- `TorrentFileTree.swift` — the Files tab's Foundation-only tree model
+  (`FileNode`: a leaf, or a folder aggregating its subtree) — build, per-level
+  sort, and the in-place poll merge that keeps AppKit's expansion/selection
+  alive across refreshes (tested).
 - `MainWindowController+Add.swift` — add-torrent flows (file/magnet/drag) + `DropView`.
 - `SidebarController.swift` — the source-list filter sidebar (`NSOutlineView`).
 - `Filtering.swift` — `StatusFilter` / `SidebarFilter` (filter predicates).
@@ -300,7 +308,7 @@ legacy app's per-connection `PathMap` (`main.pas` `MapRemoteToLocal`).
   with an example caption. `PathMapping.parse`/`.format` bridge text ↔ array; it
   flows through the existing live-sync/dirty/`SettingsEditor` path.
 - **Actions** (`MainWindowController+Actions.swift` / `+Files.swift`): right-click a
-  torrent (or a file in the Files tab) → **Reveal in Finder** / **Open**. The items
+  torrent (or a file or folder in the Files tab) → **Reveal in Finder** / **Open**. The items
   are **enabled only when a mapping matches** the target's remote path; if it maps
   but the local file isn't present (not mounted/synced) a **non-modal toast**
   (`MainWindowController.showToast`) appears instead of opening. Reveal uses
@@ -394,7 +402,9 @@ via `xctest` with no `TEST_HOST`.
 Coverage (~250 hermetic tests): `FuzzyMatch` (subsequence + ranking), `Formatters`
 (size/speed/percent/ratio/eta/dates), `Filtering` (every `StatusFilter` predicate,
 tints, `SidebarFilter`), `Models` (status/eta-display/normalizeDownloadDir/
-trackerHost/seed-ratio + RPC `torrent-get`/files decoding), `AppConfig` /
+trackerHost/seed-ratio + RPC `torrent-get`/files decoding), **`TorrentFileTree`**
+(tree build/grouping, folder aggregates, per-level sort + tie-breaks, in-place
+poll merge vs. structural rebuild), `AppConfig` /
 `PreferencesStore` (decode defaults, round-trip, migration, default seeding,
 native-store precedence), `ConnectionDiagnostics` (every `TransmissionError` maps
 to a field-targeted message), **`SettingsEditor`** (add/remove/edit/default/

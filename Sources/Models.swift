@@ -473,32 +473,8 @@ struct FreeSpaceArguments: Decodable, Sendable {
 // MARK: - Files sorting
 
 /// Sortable columns of the Files tab. Raw values match `FileColumn` identifiers
-/// (which are the `NSSortDescriptor` keys).
+/// (which are the `NSSortDescriptor` keys). Sorting itself lives in
+/// `TorrentFileTree.sorted` — folder nodes compare by their aggregates.
 enum TorrentFileSortKey: String, Sendable {
     case name, size, progress, priority
-}
-
-enum TorrentFileSort {
-    /// Sorts by `key` (ties fall back to file index, ascending, for a stable
-    /// order); `nil` restores the server's file-index order. Unwanted files sort
-    /// as "Skip" (below Low), matching the priority cell's text.
-    static func sorted(_ list: [TorrentFile], by key: TorrentFileSortKey?, ascending: Bool) -> [TorrentFile] {
-        guard let key else { return list.sorted { $0.index < $1.index } }
-        func compare<T: Comparable>(_ x: T, _ y: T) -> ComparisonResult {
-            x < y ? .orderedAscending : x > y ? .orderedDescending : .orderedSame
-        }
-        func order(_ a: TorrentFile, _ b: TorrentFile) -> ComparisonResult {
-            switch key {
-            case .name: return a.name.localizedStandardCompare(b.name)
-            case .size: return compare(a.length, b.length)
-            case .progress: return compare(a.percentDone, b.percentDone)
-            case .priority: return compare(a.wanted ? a.priorityRaw : -2, b.wanted ? b.priorityRaw : -2)
-            }
-        }
-        return list.sorted { a, b in
-            let result = order(a, b)
-            if result == .orderedSame { return a.index < b.index }
-            return (result == .orderedAscending) == ascending
-        }
-    }
 }

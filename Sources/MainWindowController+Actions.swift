@@ -313,14 +313,16 @@ extension MainWindowController: NSToolbarDelegate {
         if action == #selector(searchChanged(_:)) { return true }
         // Adding is always available (independent of the row selection).
         if action == #selector(addFile(_:)) || action == #selector(addLink(_:)) { return true }
-        // Files-tab Reveal/Open: enabled only when a mapping resolves the file path.
+        // Files-tab Reveal/Open: enabled only when a mapping resolves the
+        // targeted node's remote path (a folder resolves to its directory).
         if action == #selector(revealFileInFinder(_:)) || action == #selector(openFile(_:)) {
-            guard let remote = targetedFileRemotePath() else { return false }
+            guard let remote = targetedNodeRemotePath() else { return false }
             return refresh.activeServerConfig.hasPathMapping(forRemotePath: remote)
         }
-        // Files-tab Rename: enabled only when a single file is targeted.
+        // Files-tab Rename: enabled only when a single node is targeted
+        // (`torrent-rename-path` renames folders too).
         if action == #selector(renameFile(_:)) {
-            return targetedSingleFile() != nil
+            return targetedSingleNode() != nil
         }
         let selection = selectionForAction()
         guard !selection.isEmpty else { return false }
