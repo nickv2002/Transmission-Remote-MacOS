@@ -18,9 +18,9 @@ final class MainWindowController: NSWindowController {
     /// The toast currently on screen, if any, so a new toast can replace it at once.
     private weak var activeToast: ToastView?
 
-    /// Detail-pane tabs (Info / Files) and the per-file table.
+    /// Detail-pane tabs (Info / Files) and the per-file tree (NSOutlineView).
     let detailTabView = NSTabView()
-    let filesTable = FilesTableView()
+    let filesOutline = FilesOutlineView()
 
     /// Source-list sidebar of status / tracker / folder filter groups.
     let sidebar = SidebarController()
@@ -32,6 +32,13 @@ final class MainWindowController: NSWindowController {
     var filesTorrentId: Int?
     /// In-flight files fetch, so a new selection can cancel a stale one.
     var filesFetchTask: Task<Void, Never>?
+    /// The Files tab's tree view of `files` (the outline's top-level items).
+    var filesTopLevel: [FileNode] = []
+    /// Relative paths of folders the user has expanded — the expansion identity
+    /// that survives the tree rebuild each poll (session-only, not persisted).
+    var expandedFolderPaths: Set<String> = []
+    /// Open a newly selected torrent's single root folder once, on first build.
+    var filesAutoExpandRoot = false
 
     /// The applied title bar + toolbar layout (see `applyToolbarLayout`).
     var toolbarLayout: ToolbarLayout = .default
@@ -365,7 +372,7 @@ final class MainWindowController: NSWindowController {
         // Detail tabs: Info (the text above) + Files (per-file table).
         // Delegate is wired AFTER setup so that addTabViewItem / selectTabViewItem
         // during init cannot overwrite the user's saved tab preference.
-        let filesScroll = buildFilesTable()
+        let filesScroll = buildFilesOutline()
         let infoTab = NSTabViewItem(identifier: "info")
         infoTab.label = "Info"
         infoTab.view = detailScroll
@@ -585,9 +592,9 @@ final class MainWindowController: NSWindowController {
     private func applyTorrents(_ incoming: [Torrent]) {
         // Preserve the user's selection across reloads by id.
         let selectedIds = selectedTorrentIds()
-        // sidebar/table reloads can steal focus; save it so the files table
+        // sidebar/table reloads can steal focus; save it so the files outline
         // stays focused across polls when the user is working there.
-        let filesTableFocused = window?.firstResponder === filesTable
+        let filesOutlineFocused = window?.firstResponder === filesOutline
         let previousIds = displayed.map(\.id)
         torrents = incoming
         sortTorrents()
@@ -611,7 +618,7 @@ final class MainWindowController: NSWindowController {
         loadFilesIfNeeded()
         updateStatusBar(state: refresh.state)
         window?.toolbar?.validateVisibleItems()
-        if filesTableFocused { window?.makeFirstResponder(filesTable) }
+        if filesOutlineFocused { window?.makeFirstResponder(filesOutline) }
     }
 
     /// Recompute the rendered list from `torrents` + `filterText` + `searchMode`.
@@ -934,12 +941,14 @@ extension MainWindowController: NSMenuDelegate {}
 // MARK: - Table data source / delegate
 
 extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
+    /// The torrent list only asks this — the Files tab is an NSOutlineView,
+    /// served by the NSOutlineViewDataSource methods in +Files.swift.
     func numberOfRows(in tableView: NSTableView) -> Int {
-        tableView === filesTable ? files.count : displayed.count
+        displayed.count
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        if tableView === filesTable {
+        if tableView === filesOutline {
             filesSortDescriptorsDidChange(from: oldDescriptors)
             return
         }
@@ -955,7 +964,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        guard (notification.object as AnyObject) !== filesTable else { return }
+        guard (notification.object as AnyObject) !== filesOutline else { return }
         updateDetail()
         loadFilesIfNeeded()
         window?.toolbar?.validateVisibleItems()
@@ -963,7 +972,6 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard let tableColumn else { return nil }
-        if tableView === filesTable { return fileCell(for: tableColumn, row: row) }
         guard let column = Column(rawValue: tableColumn.identifier.rawValue),
               displayed.indices.contains(row) else { return nil }
         let t = displayed[row]
@@ -1041,11 +1049,9 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     /// there's no working drag technique for these files at all, and a promise
     /// would only cost the progress UI for the (large) majority of files that
     /// work fine while gaining nothing for the ones that don't.
+    /// Torrent-list rows only — an item in the Files tab tree drags out via
+    /// `outlineView(_:pasteboardWriterForItem:)` in +Files.swift.
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        if tableView === filesTable {
-            guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
-            return resolvedDragWriter(forRemotePath: torrent.remotePath(fileName: files[row].name))
-        }
         guard displayed.indices.contains(row) else { return nil }
         return resolvedDragWriter(forRemotePath: remotePath(for: displayed[row]))
     }
@@ -1055,7 +1061,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     /// or its own permissions would block the cross-process drag anyway (see
     /// `PathPermissions.blocksCrossProcessDrag` — this is a real macOS
     /// restriction, not something a different pasteboard technique gets around).
-    private func resolvedDragWriter(forRemotePath remotePath: String) -> NSPasteboardWriting {
+    func resolvedDragWriter(forRemotePath remotePath: String) -> NSPasteboardWriting {
         guard let local = resolvedExistingLocalURL(forRemotePath: remotePath),
               !PathPermissions.blocksCrossProcessDrag(atPath: local.path) else {
             return Self.unresolvedDragPlaceholder()
@@ -1073,21 +1079,17 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         return item
     }
 
-    /// Whether the given row (main table or Files tab) resolves to something a
-    /// Finder drag actually carries — used by `draggingSession(_:willBeginAt:
-    /// forRowIndexes:)` below to decide whether to warn. A file that exists but
-    /// isn't group/other-readable still fails here: see
-    /// `Self.blocksCrossProcessDrag(atPath:)`.
+    /// Whether the given torrent-list row resolves to something a Finder drag
+    /// actually carries — used by `draggingSession(_:willBeginAt:forRowIndexes:)`
+    /// below to decide whether to warn. The Files tab's matching item pass is in
+    /// +Files.swift. A file that exists but isn't group/other-readable still
+    /// fails here: see `Self.blocksCrossProcessDrag(atPath:)`.
     private func rowResolvesForDrag(_ tableView: NSTableView, row: Int) -> Bool {
         guard let url = resolvedURL(tableView, row: row) else { return false }
         return !PathPermissions.blocksCrossProcessDrag(atPath: url.path)
     }
 
     private func resolvedURL(_ tableView: NSTableView, row: Int) -> URL? {
-        if tableView === filesTable {
-            guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
-            return resolvedExistingLocalURL(forRemotePath: torrent.remotePath(fileName: files[row].name))
-        }
         guard displayed.indices.contains(row) else { return nil }
         return resolvedExistingLocalURL(forRemotePath: remotePath(for: displayed[row]))
     }
@@ -1096,15 +1098,11 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     /// "not available locally" wording Reveal/Open/Quick Look use (no mapping, or
     /// mapped but genuinely missing), or, for a file that exists but is
     /// owner-only, a distinct explanation of why the drag itself still can't work
-    /// (see `PathPermissions.blocksCrossProcessDrag`).
+    /// (see `PathPermissions.blocksCrossProcessDrag`). Torrent-list rows only.
     private func unresolvedDragMessage(_ tableView: NSTableView, row: Int) -> String? {
         if let url = resolvedURL(tableView, row: row) {
             guard PathPermissions.blocksCrossProcessDrag(atPath: url.path) else { return nil }
             return "Can't drag out — restrictive permissions on \(url.path): try Reveal in Finder instead"
-        }
-        if tableView === filesTable {
-            guard files.indices.contains(row), let torrent = selectedTorrents.first else { return nil }
-            return unavailableToastMessage(forRemotePath: torrent.remotePath(fileName: files[row].name))
         }
         guard displayed.indices.contains(row) else { return nil }
         return unavailableToastMessage(forRemotePath: remotePath(for: displayed[row]))
@@ -1280,13 +1278,13 @@ extension MainWindowController {
         }
     }
 
-    /// The local file/folder to preview for whichever table currently has focus:
-    /// the Files tab's targeted file, else the single selected torrent's resolved
-    /// remote path (a single-file torrent resolves to the file, a multi-file one to
-    /// its download folder — Quick Look previews folders natively).
+    /// The local file/folder to preview for whichever view currently has focus:
+    /// the Files tab's targeted node (a folder previews as a folder — Quick Look
+    /// handles directories natively), else the single selected torrent's resolved
+    /// remote path.
     func currentPreviewURL() -> URL? {
-        if window?.firstResponder === filesTable {
-            guard let remote = targetedFileRemotePath() else { return nil }
+        if window?.firstResponder === filesOutline {
+            guard let remote = targetedNodeRemotePath() else { return nil }
             return resolvedExistingLocalURL(forRemotePath: remote)
         }
         guard selectedTorrents.count == 1, let t = selectedTorrents.first else { return nil }
@@ -1319,7 +1317,7 @@ extension MainWindowController {
 
 extension MainWindowController: @preconcurrency QLPreviewPanelDataSource {
     /// Claims control of the shared panel on behalf of whichever table view is
-    /// first responder — called from `TorrentTableView`/`FilesTableView`'s own
+    /// first responder — called from `TorrentTableView`/`FilesOutlineView`'s own
     /// `acceptsPreviewPanelControl`/`beginPreviewPanelControl`/`endPreviewPanelControl`
     /// overrides, NOT from here. Those methods must be implemented on an object
     /// that's *already* in the responder chain when Quick Look searches it (the

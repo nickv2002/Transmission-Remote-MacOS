@@ -123,6 +123,7 @@ targets:
       - path: Sources/RecentFolders.swift
       - path: Sources/RefreshController.swift
       - path: Sources/TorrentFileRemover.swift
+      - path: Sources/TorrentFileTree.swift
       - path: Sources/TorrentLink.swift
       - path: Sources/ServerMenuSync.swift
       - path: Sources/PopUpEnum.swift
