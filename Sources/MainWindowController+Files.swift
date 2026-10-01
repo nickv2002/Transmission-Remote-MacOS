@@ -608,6 +608,7 @@ extension MainWindowController: NSTabViewDelegate {
             UserDefaults.standard.set(id, forKey: "DetailTabIdentifier")
         }
         loadFilesIfNeeded()
+        loadPeersIfNeeded()
     }
 }
 
