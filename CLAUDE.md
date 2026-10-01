@@ -19,12 +19,23 @@ sortable columns, **start / stop / force-start / rename / move / verify / queue-
 All `feature-ranking.md` items above "Other stuff not worth doing yet" are now
 implemented:
 
-- **Files tab** — tabbed detail pane (Info / Files); a directory-tree
+- **Files tab** — tabbed detail pane (Info / Files / Peers); a directory-tree
   `NSOutlineView` of the torrent's files with a tri-state wanted checkbox
   (`files-wanted`/`files-unwanted`), aggregated size, live progress, and priority
   (`priority-*`) — folder actions apply to every file beneath. Fetched on demand
   per selected torrent, refreshed on the poll with expansion/selection preserved
   by path; column sorting applies within each folder level.
+- **Peers tab** — a flat sortable `NSTableView` of the selected torrent's
+  connected peers: Address (`ip:port`), Client, Flags (`flagStr`), a progress
+  bar, and ↓/↑ rates. Fetched on demand per selected torrent
+  (`torrent-get` `["id","peers"]`, mirroring `fetchFiles`), only while the tab is
+  visible and exactly one torrent is selected; refreshed on the poll with
+  selection (by `address:port` identity) and focus preserved. Header clicks cycle
+  ascending → descending → unsorted (daemon order) like the Files tab; column
+  widths persist (`PeersColumnWidths`), sort is session-only. Peer decoding is
+  tolerant (daemons omit zero-valued fields); sorting lives in the
+  Foundation-only `PeerSortKey.sorted` (numeric-aware address compare, stable
+  address/port tie-break) and is unit-tested.
 - **Add torrents** — Add toolbar pull-down + File-menu (⌘O file, ⌘L magnet/URL),
   drag-and-drop onto the window, and Dock/Open-With (`CFBundleDocumentTypes` in
   `Info.plist`). Shared options sheet (destination prefilled from session
@@ -133,6 +144,9 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
   toolbar item.
 - `MainWindowController+Files.swift` — the Files tab tree (NSOutlineView) +
   wanted/priority actions (a folder's act on every file beneath it).
+- `MainWindowController+Peers.swift` — the Peers tab table (NSTableView):
+  on-demand per-torrent peers fetch + 3-state column sort (sort logic itself is
+  `PeerSortKey.sorted` in `Models.swift`).
 - `TorrentFileTree.swift` — the Files tab's Foundation-only tree model
   (`FileNode`: a leaf, or a folder aggregating its subtree) — build, per-level
   sort, and the in-place poll merge that keeps AppKit's expansion/selection
@@ -404,7 +418,9 @@ Coverage (~250 hermetic tests): `FuzzyMatch` (subsequence + ranking), `Formatter
 tints, `SidebarFilter`), `Models` (status/eta-display/normalizeDownloadDir/
 trackerHost/seed-ratio + RPC `torrent-get`/files decoding), **`TorrentFileTree`**
 (tree build/grouping, folder aggregates, per-level sort + tie-breaks, in-place
-poll merge vs. structural rebuild), `AppConfig` /
+poll merge vs. structural rebuild), **`TorrentPeer`** (peers RPC decoding incl.
+omitted-field defaults; per-column sort in both directions, numeric-aware IP
+address order, stable address/port tie-breaks), `AppConfig` /
 `PreferencesStore` (decode defaults, round-trip, migration, default seeding,
 native-store precedence), `ConnectionDiagnostics` (every `TransmissionError` maps
 to a field-targeted message), **`SettingsEditor`** (add/remove/edit/default/
