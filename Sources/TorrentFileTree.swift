@@ -172,10 +172,11 @@ enum TorrentFileTree {
     }
 
     /// Sort `nodes` and every folder's children (recursively) by `key`; ties
-    /// keep server order via `firstIndex`. Folders and files interleave by the
-    /// key, folders comparing by their aggregates.
+    /// keep server order via `firstIndex`. Folders always list before files
+    /// (in both directions) and compare among themselves by their aggregates.
     static func sorted(_ nodes: [FileNode], by key: TorrentFileSortKey, ascending: Bool) -> [FileNode] {
         let ordered = nodes.sorted { a, b in
+            if a.isFolder != b.isFolder { return a.isFolder }
             let result = compare(a, b, by: key)
             if result == .orderedSame { return a.firstIndex < b.firstIndex }
             return (result == .orderedAscending) == ascending

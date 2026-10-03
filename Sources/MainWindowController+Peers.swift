@@ -100,6 +100,7 @@ extension MainWindowController {
                 peers = []
                 reloadPeersData()
             }
+            updatePeersTabLabel()
             return
         }
 
@@ -109,6 +110,7 @@ extension MainWindowController {
             peersTorrentId = torrent.id
             peers = []
             reloadPeersData()
+            updatePeersTabLabel()
         }
 
         guard let client = refresh.activeClient else { return }
@@ -134,6 +136,7 @@ extension MainWindowController {
         })
         peers = fetched
         reloadPeersData()
+        updatePeersTabLabel()
         guard !selectedIds.isEmpty else { return }
         let rows = IndexSet((0..<peersTable.numberOfRows).filter {
             displayedPeers.indices.contains($0) && selectedIds.contains(displayedPeers[$0].id)
@@ -141,6 +144,12 @@ extension MainWindowController {
         if rows != peersTable.selectedRowIndexes {
             peersTable.selectRowIndexes(rows, byExtendingSelection: false)
         }
+    }
+
+    /// "Peers (N)" while a torrent's peers are loaded, plain "Peers" otherwise.
+    private func updatePeersTabLabel() {
+        guard let item = detailTabView.tabViewItems.first(where: { ($0.identifier as? String) == "peers" }) else { return }
+        item.label = peersTorrentId != nil && !peers.isEmpty ? "Peers (\(peers.count))" : "Peers"
     }
 
     /// Re-derive `displayedPeers` from `peers` (the daemon's order, or the

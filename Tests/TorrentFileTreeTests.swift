@@ -142,7 +142,16 @@ final class TorrentFileTreeTests: XCTestCase {
             file(1, "small/x", length: 10),
             file(2, "mid", length: 100),
         ], sortedBy: .size, ascending: true)
-        XCTAssertEqual(nodes.map(\.displayName), ["small", "mid", "big"])
+        // Folders first, then files; folders order by aggregate size.
+        XCTAssertEqual(nodes.map(\.displayName), ["small", "big", "mid"])
+    }
+
+    func testFoldersListBeforeFilesInBothDirections() {
+        let files = [file(0, "a.txt", length: 1), file(1, "z/x", length: 1), file(2, "b.txt", length: 9)]
+        XCTAssertEqual(build(files, sortedBy: .name, ascending: true).map(\.displayName), ["z", "a.txt", "b.txt"])
+        XCTAssertEqual(build(files, sortedBy: .name, ascending: false).map(\.displayName), ["z", "b.txt", "a.txt"])
+        // Unsorted keeps server order.
+        XCTAssertEqual(build(files, sortedBy: nil, ascending: true).map(\.displayName), ["a.txt", "z", "b.txt"])
     }
 
     func testProgressSortsByFraction() {
