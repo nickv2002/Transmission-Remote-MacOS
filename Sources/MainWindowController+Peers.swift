@@ -138,9 +138,7 @@ extension MainWindowController {
         reloadPeersData()
         updatePeersTabLabel()
         guard !selectedIds.isEmpty else { return }
-        let rows = IndexSet((0..<peersTable.numberOfRows).filter {
-            displayedPeers.indices.contains($0) && selectedIds.contains(displayedPeers[$0].id)
-        })
+        let rows = rowsToReselect(ids: selectedIds, in: displayedPeers)
         if rows != peersTable.selectedRowIndexes {
             peersTable.selectRowIndexes(rows, byExtendingSelection: false)
         }
@@ -169,8 +167,9 @@ extension MainWindowController {
     /// mirroring the Files tab, since AppKit never clears a descriptor on its
     /// own.
     func peersSortDescriptorsDidChange(from old: [NSSortDescriptor]) {
-        if let new = peersTable.sortDescriptors.first, let prev = old.first,
-           new.key == prev.key, new.ascending, !prev.ascending {
+        if HeaderSortCycle.shouldClear(oldKey: old.first?.key, oldAscending: old.first?.ascending,
+                                       newKey: peersTable.sortDescriptors.first?.key,
+                                       newAscending: peersTable.sortDescriptors.first?.ascending) {
             peersTable.sortDescriptors = []  // re-enters via the delegate and re-sorts
             return
         }
