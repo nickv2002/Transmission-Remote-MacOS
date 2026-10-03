@@ -454,10 +454,34 @@ extension TrackerStatsInfo {
 /// on a descending column (which AppKit flips back to ascending) is the cue
 /// to clear it.
 enum HeaderSortCycle {
+    /// `togglingKey` names a column that only flips ascending ↔ descending
+    /// (never clears), e.g. the Files tab's Name column.
     static func shouldClear(oldKey: String?, oldAscending: Bool?,
-                            newKey: String?, newAscending: Bool?) -> Bool {
+                            newKey: String?, newAscending: Bool?,
+                            togglingKey: String? = nil) -> Bool {
         guard let newKey, let oldKey, let newAscending, let oldAscending else { return false }
-        return newKey == oldKey && newAscending && !oldAscending
+        return newKey == oldKey && newKey != togglingKey && newAscending && !oldAscending
+    }
+}
+
+/// Orders overlapping async fetches: each fetch takes a ticket when it starts,
+/// and a result is applied only if no later-started fetch has already applied.
+/// A slow fetch begun before a change can then never overwrite the post-change
+/// refetch that finished first.
+struct FetchSequencer {
+    private var issued = 0
+    private var applied = 0
+
+    mutating func begin() -> Int {
+        issued += 1
+        return issued
+    }
+
+    /// True (and records it) when `ticket` is newer than anything applied so far.
+    mutating func shouldApply(_ ticket: Int) -> Bool {
+        guard ticket > applied else { return false }
+        applied = ticket
+        return true
     }
 }
 

@@ -61,11 +61,27 @@ extension MainWindowController {
         trackersTable.dataSource = self
         trackersTable.delegate = self
 
+        // Redraw the Update In countdown between polls.
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tickTrackerCountdown() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        trackersCountdownTimer = timer
+
         let scroll = NSScrollView()
         scroll.documentView = trackersTable
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         return scroll
+    }
+
+    /// Re-render just the Update In column from the already-fetched data.
+    private func tickTrackerCountdown() {
+        guard !displayedTrackers.isEmpty, trackersTable.window?.isVisible == true,
+              let col = trackersTable.tableColumns.firstIndex(where: { $0.identifier == TrackerColumn.updateIn.identifier })
+        else { return }
+        trackersTable.reloadData(forRowIndexes: IndexSet(0..<trackersTable.numberOfRows),
+                                 columnIndexes: IndexSet(integer: col))
     }
 
     private func restoreTrackersColumnWidths() {

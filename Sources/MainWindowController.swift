@@ -35,6 +35,8 @@ final class MainWindowController: NSWindowController {
     var filesTorrentId: Int?
     /// In-flight files fetch, so a new selection can cancel a stale one.
     var filesFetchTask: Task<Void, Never>?
+    /// Orders poll fetches against post-RPC refetches of the file list.
+    var filesFetchSequence = FetchSequencer()
     /// Peers currently shown in the Peers tab, and which torrent they belong
     /// to. `peers` holds the daemon's own order; `displayedPeers` is what the
     /// table renders (after the header sort) — the same model/view split as
@@ -51,6 +53,8 @@ final class MainWindowController: NSWindowController {
     var trackersTorrentId: Int?
     /// In-flight trackers fetch, so a new selection can cancel a stale one.
     var trackersFetchTask: Task<Void, Never>?
+    /// Ticks the Update In countdown between polls.
+    var trackersCountdownTimer: Timer?
     /// The Files tab's tree view of `files` (the outline's top-level items).
     var filesTopLevel: [FileNode] = []
     /// Relative paths of folders the user has expanded — the expansion identity
