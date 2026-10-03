@@ -307,6 +307,16 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertTrue(saved.addLinksFromClipboard)
     }
 
+    func testFilesFoldersFirstDefaultsOnAppliesImmediatelyAndSurvivesSave() {
+        var e = SettingsEditor(sample())
+        XCTAssertTrue(e.filesFoldersFirst)
+        let applied = e.setFilesFoldersFirst(false)
+        XCTAssertFalse(applied.filesFoldersFirst)
+        XCTAssertFalse(e.isDirty)
+        e.setRefreshSeconds(9)
+        XCTAssertFalse(e.save().filesFoldersFirst)
+    }
+
     func testRemoveTorrentFileSettingsSurviveOpenAndUnrelatedSave() {
         // The editor rebuilds AppConfig when it opens and on save; the removal
         // setting must carry through both rather than reset to its default.

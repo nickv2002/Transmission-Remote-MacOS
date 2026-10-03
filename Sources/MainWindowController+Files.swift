@@ -299,7 +299,7 @@ extension MainWindowController {
     /// selection and folder expansion. The sort or structure can move a node to
     /// another row, so the selection is restored by node path — files and
     /// folders alike — not by row.
-    private func applyFetchedFiles(_ fetched: [TorrentFile]) {
+    func applyFetchedFiles(_ fetched: [TorrentFile]) {
         let selectedPaths = Set(filesOutline.selectedRowIndexes.compactMap {
             (filesOutline.item(atRow: $0) as? FileNode)?.path
         })
@@ -317,10 +317,12 @@ extension MainWindowController {
 
     /// Re-sort the tree after the user clicks a column header. Header clicks
     /// cycle ascending → descending → unsorted (server file order), since
-    /// AppKit never clears a descriptor on its own.
+    /// AppKit never clears a descriptor on its own. The Name column is the
+    /// exception: it only flips between A→Z and Z→A.
     func filesSortDescriptorsDidChange(from old: [NSSortDescriptor]) {
         if let new = filesOutline.sortDescriptors.first, let prev = old.first,
-           new.key == prev.key, new.ascending, !prev.ascending {
+           new.key == prev.key, new.key != TorrentFileSortKey.name.rawValue,
+           new.ascending, !prev.ascending {
             filesOutline.sortDescriptors = []  // re-enters via the delegate and re-sorts
             return
         }
@@ -331,7 +333,8 @@ extension MainWindowController {
     private func buildFilesTree() -> [FileNode] {
         let descriptor = filesOutline.sortDescriptors.first
         let key = descriptor?.key.flatMap(TorrentFileSortKey.init(rawValue:))
-        return TorrentFileTree.build(from: files, sortedBy: key, ascending: descriptor?.ascending ?? true)
+        return TorrentFileTree.build(from: files, sortedBy: key, ascending: descriptor?.ascending ?? true,
+                                     foldersFirst: filesFoldersFirst)
     }
 
     /// Reload the files tree, preserving the user's selection, focus, and
@@ -385,14 +388,16 @@ extension MainWindowController {
         expand(filesTopLevel)
     }
 
-    /// Open a newly selected torrent's single root folder once, so the tab
-    /// shows the torrent's content instead of one collapsed row.
+    /// Open every top-level folder once when a newly selected torrent's tree
+    /// first builds (nested folders stay collapsed), so the tab shows content
+    /// instead of collapsed rows. A folder the user later collapses stays so.
     private func autoExpandRootIfNeeded() {
-        guard filesAutoExpandRoot else { return }
+        guard filesAutoExpandRoot, !filesTopLevel.isEmpty else { return }
         filesAutoExpandRoot = false
-        guard filesTopLevel.count == 1, let root = filesTopLevel.first, root.isFolder else { return }
-        expandedFolderPaths.insert(root.path)
-        filesOutline.expandItem(root)
+        for root in filesTopLevel where root.isFolder {
+            expandedFolderPaths.insert(root.path)
+            filesOutline.expandItem(root)
+        }
     }
 
     /// Run a files RPC then re-fetch the file list to reflect the change.
