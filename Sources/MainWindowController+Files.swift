@@ -315,6 +315,12 @@ extension MainWindowController {
         }
     }
 
+    /// NSOutlineView reports header clicks through its own data-source method;
+    /// the NSTableView one never fires for it.
+    func outlineView(_ outlineView: NSOutlineView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+        filesSortDescriptorsDidChange(from: oldDescriptors)
+    }
+
     /// Re-sort the tree after the user clicks a column header. Header clicks
     /// cycle ascending → descending → unsorted (server file order), since
     /// AppKit never clears a descriptor on its own. The Name column is the
