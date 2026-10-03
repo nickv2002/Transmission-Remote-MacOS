@@ -353,11 +353,128 @@ struct TrackerInfo: Codable, Sendable, Equatable {
     let announce: String
 }
 
-/// One entry from a torrent's `trackerStats` array — swarm-wide seeder/leecher
-/// counts as last reported by that tracker (`-1` means "unknown").
-struct TrackerStatsInfo: Codable, Sendable, Equatable {
+/// One entry from a torrent's `trackerStats` array — a tracker's announce URL,
+/// its last announce/scrape outcome, and the swarm-wide seeder/leecher counts
+/// it last reported (`-1` means "unknown"). Everything decodes tolerantly:
+/// daemons omit zero-valued fields.
+struct TrackerStatsInfo: Codable, Sendable, Equatable, Identifiable {
+    let id: Int
+    let announce: String
+    /// Transmission's `announceState`: 0 inactive, 1 waiting, 2 queued, 3 active.
+    let announceState: Int
+    let hasAnnounced: Bool
+    let lastAnnounceSucceeded: Bool
+    let lastAnnounceResult: String
+    let hasScraped: Bool
+    let lastScrapeSucceeded: Bool
+    let lastScrapeResult: String
+    /// Epoch seconds; `0` when no announce is scheduled.
+    let nextAnnounceTime: Double
     let seederCount: Int
     let leecherCount: Int
+
+    init(id: Int = 0, announce: String = "", announceState: Int = 0,
+         hasAnnounced: Bool = false, lastAnnounceSucceeded: Bool = false,
+         lastAnnounceResult: String = "", hasScraped: Bool = false,
+         lastScrapeSucceeded: Bool = false, lastScrapeResult: String = "",
+         nextAnnounceTime: Double = 0, seederCount: Int = -1, leecherCount: Int = -1) {
+        self.id = id
+        self.announce = announce
+        self.announceState = announceState
+        self.hasAnnounced = hasAnnounced
+        self.lastAnnounceSucceeded = lastAnnounceSucceeded
+        self.lastAnnounceResult = lastAnnounceResult
+        self.hasScraped = hasScraped
+        self.lastScrapeSucceeded = lastScrapeSucceeded
+        self.lastScrapeResult = lastScrapeResult
+        self.nextAnnounceTime = nextAnnounceTime
+        self.seederCount = seederCount
+        self.leecherCount = leecherCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        announce = try c.decodeIfPresent(String.self, forKey: .announce) ?? ""
+        announceState = try c.decodeIfPresent(Int.self, forKey: .announceState) ?? 0
+        hasAnnounced = try c.decodeIfPresent(Bool.self, forKey: .hasAnnounced) ?? false
+        lastAnnounceSucceeded = try c.decodeIfPresent(Bool.self, forKey: .lastAnnounceSucceeded) ?? false
+        lastAnnounceResult = try c.decodeIfPresent(String.self, forKey: .lastAnnounceResult) ?? ""
+        hasScraped = try c.decodeIfPresent(Bool.self, forKey: .hasScraped) ?? false
+        lastScrapeSucceeded = try c.decodeIfPresent(Bool.self, forKey: .lastScrapeSucceeded) ?? false
+        lastScrapeResult = try c.decodeIfPresent(String.self, forKey: .lastScrapeResult) ?? ""
+        nextAnnounceTime = try c.decodeIfPresent(Double.self, forKey: .nextAnnounceTime) ?? 0
+        seederCount = try c.decodeIfPresent(Int.self, forKey: .seederCount) ?? -1
+        leecherCount = try c.decodeIfPresent(Int.self, forKey: .leecherCount) ?? -1
+    }
+
+    /// True while an announce is queued or in flight.
+    var isUpdating: Bool { announceState == 2 || announceState == 3 }
+
+    /// The Status column (legacy `FillTrackersList`): "Updating" mid-announce,
+    /// "Working" after a successful one, otherwise the tracker's own error
+    /// text; empty before the first announce. A tracker whose announce worked
+    /// but whose scrape failed shows the scrape error — the "tracker doesn't
+    /// recognize this torrent" case.
+    var statusText: String {
+        if isUpdating { return "Updating" }
+        guard hasAnnounced else { return "" }
+        guard lastAnnounceSucceeded else { return lastAnnounceResult }
+        if hasScraped, !lastScrapeSucceeded, !lastScrapeResult.isEmpty { return lastScrapeResult }
+        return "Working"
+    }
+
+    /// Seconds until the next announce: `nil` when none is scheduled (or one is
+    /// in flight — see `isUpdating`), otherwise clamped to `>= 0`.
+    func secondsUntilNextAnnounce(now: Date = Date()) -> Int? {
+        guard !isUpdating, nextAnnounceTime > 0 else { return nil }
+        return max(0, Int(nextAnnounceTime - now.timeIntervalSince1970))
+    }
+}
+
+/// One torrent's `trackerStats` array from a single-torrent `torrent-get`.
+struct TorrentTrackersEntry: Decodable, Sendable {
+    let id: Int
+    let trackerStats: [TrackerStatsInfo]
+}
+
+/// Decoded `arguments` for a single-torrent trackers `torrent-get`.
+struct TorrentTrackersArguments: Decodable, Sendable {
+    let torrents: [TorrentTrackersEntry]
+}
+
+// MARK: - Trackers sorting
+
+/// Sortable columns of the Trackers tab; raw values match `TrackerColumn`
+/// identifiers (the `NSSortDescriptor` keys).
+enum TrackerSortKey: String, Sendable {
+    case name, status, updateIn, seeds, leechers
+
+    /// Trackers in the given order. `nil` keeps the daemon's order (the third
+    /// header-click state). Ties break by tracker id, always ascending.
+    /// "No next announce" sorts as 0, so unscheduled trackers cluster together.
+    static func sorted(_ trackers: [TrackerStatsInfo], by key: TrackerSortKey?, ascending: Bool,
+                       now: Date = Date()) -> [TrackerStatsInfo] {
+        guard let key else { return trackers }
+        func compare<T: Comparable>(_ l: T, _ r: T) -> ComparisonResult {
+            l < r ? .orderedAscending : (l > r ? .orderedDescending : .orderedSame)
+        }
+        return trackers.sorted { a, b in
+            let order: ComparisonResult
+            switch key {
+            case .name: order = a.announce.localizedStandardCompare(b.announce)
+            case .status: order = a.statusText.localizedCaseInsensitiveCompare(b.statusText)
+            case .updateIn: order = compare(a.secondsUntilNextAnnounce(now: now) ?? 0,
+                                            b.secondsUntilNextAnnounce(now: now) ?? 0)
+            case .seeds: order = compare(a.seederCount, b.seederCount)
+            case .leechers: order = compare(a.leecherCount, b.leecherCount)
+            }
+            if order != .orderedSame {
+                return ascending ? order == .orderedAscending : order == .orderedDescending
+            }
+            return a.id < b.id
+        }
+    }
 }
 
 /// Subset of `session-get` we care about for the MVP.

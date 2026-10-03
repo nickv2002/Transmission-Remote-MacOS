@@ -18,10 +18,11 @@ final class MainWindowController: NSWindowController {
     /// The toast currently on screen, if any, so a new toast can replace it at once.
     private weak var activeToast: ToastView?
 
-    /// Detail-pane tabs (Info / Files / Peers), the per-file tree
-    /// (NSOutlineView), and the peers table (NSTableView).
+    /// Detail-pane tabs (Info / Files / Trackers / Peers), the per-file tree
+    /// (NSOutlineView), and the trackers and peers tables (NSTableView).
     let detailTabView = NSTabView()
     let filesOutline = FilesOutlineView()
+    let trackersTable = NSTableView()
     let peersTable = NSTableView()
 
     /// Source-list sidebar of status / tracker / folder filter groups.
@@ -43,6 +44,13 @@ final class MainWindowController: NSWindowController {
     var peersTorrentId: Int?
     /// In-flight peers fetch, so a new selection can cancel a stale one.
     var peersFetchTask: Task<Void, Never>?
+    /// Trackers currently shown in the Trackers tab, and which torrent they
+    /// belong to — same model/view split as `peers`/`displayedPeers`.
+    var trackers: [TrackerStatsInfo] = []
+    var displayedTrackers: [TrackerStatsInfo] = []
+    var trackersTorrentId: Int?
+    /// In-flight trackers fetch, so a new selection can cancel a stale one.
+    var trackersFetchTask: Task<Void, Never>?
     /// The Files tab's tree view of `files` (the outline's top-level items).
     var filesTopLevel: [FileNode] = []
     /// Relative paths of folders the user has expanded — the expansion identity
@@ -387,11 +395,12 @@ final class MainWindowController: NSWindowController {
             detailContainer.topAnchor.constraint(equalTo: detailScroll.contentView.topAnchor),
         ])
 
-        // Detail tabs: Info (the text above) + Files (per-file tree) + Peers
-        // (per-peer table).
+        // Detail tabs: Info (the text above) + Files (per-file tree) + Trackers
+        // (per-tracker table) + Peers (per-peer table).
         // Delegate is wired AFTER setup so that addTabViewItem / selectTabViewItem
         // during init cannot overwrite the user's saved tab preference.
         let filesScroll = buildFilesOutline()
+        let trackersScroll = buildTrackersTable()
         let peersScroll = buildPeersTable()
         let infoTab = NSTabViewItem(identifier: "info")
         infoTab.label = "Info"
@@ -399,11 +408,15 @@ final class MainWindowController: NSWindowController {
         let filesTab = NSTabViewItem(identifier: "files")
         filesTab.label = "Files"
         filesTab.view = filesScroll
+        let trackersTab = NSTabViewItem(identifier: "trackers")
+        trackersTab.label = "Trackers"
+        trackersTab.view = trackersScroll
         let peersTab = NSTabViewItem(identifier: "peers")
         peersTab.label = "Peers"
         peersTab.view = peersScroll
         detailTabView.addTabViewItem(infoTab)
         detailTabView.addTabViewItem(filesTab)
+        detailTabView.addTabViewItem(trackersTab)
         detailTabView.addTabViewItem(peersTab)
         if let saved = UserDefaults.standard.string(forKey: "DetailTabIdentifier"),
            let item = detailTabView.tabViewItems.first(where: { ($0.identifier as? String) == saved }) {
@@ -617,7 +630,7 @@ final class MainWindowController: NSWindowController {
         // Preserve the user's selection across reloads by id.
         let selectedIds = selectedTorrentIds()
         // sidebar/table reloads can steal focus; save it so the files outline
-        // or peers table stays focused across polls when the user is working
+        // trackers/peers table stays focused across polls when the user is working
         // there.
         let detailResponder = window?.firstResponder
         let previousIds = displayed.map(\.id)
@@ -641,10 +654,11 @@ final class MainWindowController: NSWindowController {
         }
         updateDetail()
         loadFilesIfNeeded()
+        loadTrackersIfNeeded()
         loadPeersIfNeeded()
         updateStatusBar(state: refresh.state)
         window?.toolbar?.validateVisibleItems()
-        if detailResponder === filesOutline || detailResponder === peersTable {
+        if detailResponder === filesOutline || detailResponder === trackersTable || detailResponder === peersTable {
             window?.makeFirstResponder(detailResponder)
         }
     }
@@ -697,6 +711,7 @@ final class MainWindowController: NSWindowController {
         restoreSelection(ids)
         updateDetail()
         loadFilesIfNeeded()
+        loadTrackersIfNeeded()
         loadPeersIfNeeded()
         updateStatusBar(state: refresh.state)
     }
@@ -974,11 +989,16 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     /// an NSOutlineView, served by the NSOutlineViewDataSource methods in
     /// +Files.swift.
     func numberOfRows(in tableView: NSTableView) -> Int {
+        if tableView === trackersTable { return displayedTrackers.count }
         if tableView === peersTable { return displayedPeers.count }
         return displayed.count
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+        if tableView === trackersTable {
+            trackersSortDescriptorsDidChange(from: oldDescriptors)
+            return
+        }
         if tableView === peersTable {
             peersSortDescriptorsDidChange(from: oldDescriptors)
             return
@@ -997,14 +1017,20 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     func tableViewSelectionDidChange(_ notification: Notification) {
         // A Files/Peers row selection is not a torrent selection.
         guard (notification.object as AnyObject) !== filesOutline,
+              (notification.object as AnyObject) !== trackersTable,
               (notification.object as AnyObject) !== peersTable else { return }
         updateDetail()
         loadFilesIfNeeded()
+        loadTrackersIfNeeded()
         loadPeersIfNeeded()
         window?.toolbar?.validateVisibleItems()
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        if tableView === trackersTable {
+            guard displayedTrackers.indices.contains(row) else { return nil }
+            return trackerCell(for: tableColumn, tracker: displayedTrackers[row])
+        }
         if tableView === peersTable {
             guard displayedPeers.indices.contains(row) else { return nil }
             return peerCell(for: tableColumn, peer: displayedPeers[row])
@@ -1091,7 +1117,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     /// `outlineView(_:pasteboardWriterForItem:)` in +Files.swift, and a peer
     /// row has nothing local to drag at all.
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
-        if tableView === peersTable { return nil }
+        if tableView === peersTable || tableView === trackersTable { return nil }
         guard displayed.indices.contains(row) else { return nil }
         return resolvedDragWriter(forRemotePath: remotePath(for: displayed[row]))
     }
