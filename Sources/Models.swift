@@ -432,6 +432,41 @@ struct TrackerStatsInfo: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+extension TrackerStatsInfo {
+    /// The Update In cell: "Updating…" mid-announce, a countdown, or "–" when
+    /// nothing is scheduled.
+    func updateInText(now: Date = Date()) -> String {
+        if isUpdating { return "Updating…" }
+        guard let seconds = secondsUntilNextAnnounce(now: now) else { return "–" }
+        // `eta(0)` reads "Done"; an announce that is due now is "0s", not done.
+        return seconds == 0 ? "0s" : Formatters.eta(seconds)
+    }
+
+    /// Seeds / Leechers cells: blank while the tracker hasn't reported (`< 0`).
+    var seedsText: String { seederCount >= 0 ? "\(seederCount)" : "" }
+    var leechersText: String { leecherCount >= 0 ? "\(leecherCount)" : "" }
+}
+
+// MARK: - Detail-table helpers
+
+/// Header-click cycle shared by the detail tables: ascending → descending →
+/// unsorted. AppKit never clears a sort descriptor itself, so a second click
+/// on a descending column (which AppKit flips back to ascending) is the cue
+/// to clear it.
+enum HeaderSortCycle {
+    static func shouldClear(oldKey: String?, oldAscending: Bool?,
+                            newKey: String?, newAscending: Bool?) -> Bool {
+        guard let newKey, let oldKey, let newAscending, let oldAscending else { return false }
+        return newKey == oldKey && newAscending && !oldAscending
+    }
+}
+
+/// Rows to re-select after a reload, by identity (a sort or a poll can move
+/// items to other rows).
+func rowsToReselect<Item: Identifiable>(ids: Set<Item.ID>, in items: [Item]) -> IndexSet {
+    IndexSet(items.indices.filter { ids.contains(items[$0].id) })
+}
+
 /// One torrent's `trackerStats` array from a single-torrent `torrent-get`.
 struct TorrentTrackersEntry: Decodable, Sendable {
     let id: Int

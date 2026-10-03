@@ -137,9 +137,7 @@ extension MainWindowController {
         reloadTrackersData()
         updateTrackersTabLabel()
         guard !selectedIds.isEmpty else { return }
-        let rows = IndexSet((0..<trackersTable.numberOfRows).filter {
-            displayedTrackers.indices.contains($0) && selectedIds.contains(displayedTrackers[$0].id)
-        })
+        let rows = rowsToReselect(ids: selectedIds, in: displayedTrackers)
         if rows != trackersTable.selectedRowIndexes {
             trackersTable.selectRowIndexes(rows, byExtendingSelection: false)
         }
@@ -165,8 +163,9 @@ extension MainWindowController {
     /// Re-sort after a header click. Clicks cycle ascending → descending →
     /// unsorted (the daemon's order), mirroring the Peers and Files tabs.
     func trackersSortDescriptorsDidChange(from old: [NSSortDescriptor]) {
-        if let new = trackersTable.sortDescriptors.first, let prev = old.first,
-           new.key == prev.key, new.ascending, !prev.ascending {
+        if HeaderSortCycle.shouldClear(oldKey: old.first?.key, oldAscending: old.first?.ascending,
+                                       newKey: trackersTable.sortDescriptors.first?.key,
+                                       newAscending: trackersTable.sortDescriptors.first?.ascending) {
             trackersTable.sortDescriptors = []  // re-enters via the delegate and re-sorts
             return
         }
@@ -201,16 +200,9 @@ extension MainWindowController {
         switch column {
         case .name: value = tracker.announce
         case .status: value = tracker.statusText
-        case .updateIn:
-            if tracker.isUpdating {
-                value = "Updating…"
-            } else if let seconds = tracker.secondsUntilNextAnnounce() {
-                value = Formatters.eta(seconds)
-            } else {
-                value = "–"
-            }
-        case .seeds: value = tracker.seederCount >= 0 ? "\(tracker.seederCount)" : ""
-        case .leechers: value = tracker.leecherCount >= 0 ? "\(tracker.leecherCount)" : ""
+        case .updateIn: value = tracker.updateInText()
+        case .seeds: value = tracker.seedsText
+        case .leechers: value = tracker.leechersText
         }
         cell.textField?.stringValue = value
         cell.textField?.alignment = column.isNumeric ? .right : .left
