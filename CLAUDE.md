@@ -25,6 +25,16 @@ implemented:
   (`priority-*`) — folder actions apply to every file beneath. Fetched on demand
   per selected torrent, refreshed on the poll with expansion/selection preserved
   by path; column sorting applies within each folder level.
+- **Trackers tab** — a read-only sortable `NSTableView` between Files and Peers
+  (Tracker URL, Status, Update In, Seeds, Leechers), mirroring the legacy
+  `FillTrackersList`. Fetched on demand per selected torrent
+  (`torrent-get` `["id","trackerStats"]`, `fetchTrackers`), only while the tab is
+  visible and exactly one torrent is selected; selection (by tracker id) and focus
+  preserved across polls; 3-state header sort, widths persist
+  (`TrackersColumnWidths`). Status text/countdown (`TrackerStatsInfo.statusText`,
+  `secondsUntilNextAnnounce`; a failed scrape surfaces after a good announce) and
+  `TrackerSortKey.sorted` are Foundation-only and unit-tested
+  (`TorrentTrackerTests`). No add/edit/remove tracker actions.
 - **Peers tab** — a flat sortable `NSTableView` of the selected torrent's
   connected peers: Address (`ip:port`), Client, Flags (`flagStr`), a progress
   bar, and ↓/↑ rates. Fetched on demand per selected torrent
@@ -144,6 +154,7 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
   toolbar item.
 - `MainWindowController+Files.swift` — the Files tab tree (NSOutlineView) +
   wanted/priority actions (a folder's act on every file beneath it).
+- `MainWindowController+Trackers.swift` — the Trackers tab table (same shape as Peers; sort logic is `TrackerSortKey.sorted` in `Models.swift`).
 - `MainWindowController+Peers.swift` — the Peers tab table (NSTableView):
   on-demand per-torrent peers fetch + 3-state column sort (sort logic itself is
   `PeerSortKey.sorted` in `Models.swift`).

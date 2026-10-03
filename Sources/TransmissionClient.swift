@@ -162,6 +162,14 @@ actor TransmissionClient {
         return response.arguments?.torrents.first?.peers ?? []
     }
 
+    /// Per-tracker announce/scrape state for one torrent. On demand, like
+    /// `fetchPeers`, to keep the list poll light.
+    func fetchTrackers(id: Int) async throws -> [TrackerStatsInfo] {
+        let args: [String: Any] = ["ids": [id], "fields": ["id", "trackerStats"]]
+        let response: RPCResponse<TorrentTrackersArguments> = try await send(method: "torrent-get", arguments: args)
+        return response.arguments?.torrents.first?.trackerStats ?? []
+    }
+
     func setFilesWanted(id: Int, fileIndices: [Int], wanted: Bool) async throws {
         guard !fileIndices.isEmpty else { return }
         let key = wanted ? "files-wanted" : "files-unwanted"
