@@ -234,10 +234,12 @@ extension MainWindowController {
         guard let client = refresh.activeClient else { return }
         let id = torrent.id
         filesFetchTask?.cancel()
+        let ticket = filesFetchSequence.begin()
         filesFetchTask = Task { @MainActor in
             do {
                 let fetched = try await client.fetchFiles(id: id)
-                guard !Task.isCancelled, self.filesTorrentId == id else { return }
+                guard !Task.isCancelled, self.filesTorrentId == id,
+                      self.filesFetchSequence.shouldApply(ticket) else { return }
                 self.applyFetchedFiles(fetched)
             } catch {
                 // Silent: the list poll surfaces connection errors already.
@@ -326,9 +328,10 @@ extension MainWindowController {
     /// AppKit never clears a descriptor on its own. The Name column is the
     /// exception: it only flips between A→Z and Z→A.
     func filesSortDescriptorsDidChange(from old: [NSSortDescriptor]) {
-        if let new = filesOutline.sortDescriptors.first, let prev = old.first,
-           new.key == prev.key, new.key != TorrentFileSortKey.name.rawValue,
-           new.ascending, !prev.ascending {
+        if HeaderSortCycle.shouldClear(oldKey: old.first?.key, oldAscending: old.first?.ascending,
+                                       newKey: filesOutline.sortDescriptors.first?.key,
+                                       newAscending: filesOutline.sortDescriptors.first?.ascending,
+                                       togglingKey: TorrentFileSortKey.name.rawValue) {
             filesOutline.sortDescriptors = []  // re-enters via the delegate and re-sorts
             return
         }
@@ -412,8 +415,9 @@ extension MainWindowController {
         Task { @MainActor in
             do {
                 try await body(client)
+                let ticket = self.filesFetchSequence.begin()
                 let fetched = try await client.fetchFiles(id: id)
-                guard self.filesTorrentId == id else { return }
+                guard self.filesTorrentId == id, self.filesFetchSequence.shouldApply(ticket) else { return }
                 self.applyFetchedFiles(fetched)
             } catch {
                 self.showError(error)

@@ -35,6 +35,15 @@ final class HeaderSortCycleTests: XCTestCase {
                                                    newKey: "name", newAscending: false))
     }
 
+    func testTogglingKeyNeverClears() {
+        XCTAssertFalse(HeaderSortCycle.shouldClear(oldKey: "name", oldAscending: false,
+                                                   newKey: "name", newAscending: true,
+                                                   togglingKey: "name"))
+        XCTAssertTrue(HeaderSortCycle.shouldClear(oldKey: "size", oldAscending: false,
+                                                  newKey: "size", newAscending: true,
+                                                  togglingKey: "name"))
+    }
+
     func testSwitchingColumnsDoesNotClear() {
         XCTAssertFalse(HeaderSortCycle.shouldClear(oldKey: "name", oldAscending: false,
                                                    newKey: "status", newAscending: true))
@@ -107,5 +116,31 @@ final class TrackerTableReloadTests: XCTestCase, NSTableViewDataSource {
         table.selectRowIndexes(rowsToReselect(ids: selectedIds, in: rows), byExtendingSelection: false)
         XCTAssertEqual(table.selectedRow, -1)
         w.orderOut(nil)
+    }
+}
+
+final class FetchSequencerTests: XCTestCase {
+    func testLateOlderFetchIsDropped() {
+        var seq = FetchSequencer()
+        let poll = seq.begin()
+        let refetch = seq.begin()
+        XCTAssertTrue(seq.shouldApply(refetch))
+        XCTAssertFalse(seq.shouldApply(poll))
+    }
+
+    func testInOrderFetchesApply() {
+        var seq = FetchSequencer()
+        let a = seq.begin()
+        XCTAssertTrue(seq.shouldApply(a))
+        let b = seq.begin()
+        XCTAssertTrue(seq.shouldApply(b))
+    }
+}
+
+extension TrackerCellTextTests {
+    func testUpdateInCountsDownAsTimeAdvances() {
+        let t = TrackerStatsInfo(nextAnnounceTime: 1_090)
+        XCTAssertEqual(t.updateInText(now: now), "1m 30s")
+        XCTAssertEqual(t.updateInText(now: now.addingTimeInterval(31)), "59s")
     }
 }
