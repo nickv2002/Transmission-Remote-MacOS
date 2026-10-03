@@ -20,6 +20,7 @@ struct SettingsEditor: Equatable {
                                    removeTorrentFileMethod: config.removeTorrentFileMethod,
                                    showAddOptions: config.showAddOptions,
                                    addLinksFromClipboard: config.addLinksFromClipboard,
+                                   filesFoldersFirst: config.filesFoldersFirst,
                                    toolbarLayout: config.toolbarLayout)
         self.working = normalized
         self.savedBaseline = normalized
@@ -36,6 +37,7 @@ struct SettingsEditor: Equatable {
     var removeTorrentFileMethod: TorrentFileRemoval { working.removeTorrentFileMethod }
     var showAddOptions: Bool { working.showAddOptions }
     var addLinksFromClipboard: Bool { working.addLinksFromClipboard }
+    var filesFoldersFirst: Bool { working.filesFoldersFirst }
     var toolbarLayout: ToolbarLayout { working.toolbarLayout }
 
     func server(at index: Int) -> ServerConfig? {
@@ -51,6 +53,7 @@ struct SettingsEditor: Equatable {
                   removeTorrentFileMethod: working.removeTorrentFileMethod,
                   showAddOptions: working.showAddOptions,
                   addLinksFromClipboard: working.addLinksFromClipboard,
+                  filesFoldersFirst: working.filesFoldersFirst,
                   toolbarLayout: working.toolbarLayout)
     }
 
@@ -168,6 +171,11 @@ struct SettingsEditor: Equatable {
     @discardableResult
     mutating func setAddLinksFromClipboard(_ enabled: Bool) -> AppConfig {
         applyImmediately(\.addLinksFromClipboard, enabled)
+    }
+
+    @discardableResult
+    mutating func setFilesFoldersFirst(_ enabled: Bool) -> AppConfig {
+        applyImmediately(\.filesFoldersFirst, enabled)
     }
 
     @discardableResult

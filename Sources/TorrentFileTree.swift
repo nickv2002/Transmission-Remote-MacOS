@@ -145,7 +145,8 @@ enum TorrentFileTree {
     /// loose files beside folders become sibling rows; a single-file torrent
     /// becomes one leaf. `nil` key keeps the server's file order, otherwise
     /// siblings are sorted recursively by `key`.
-    static func build(from files: [TorrentFile], sortedBy key: TorrentFileSortKey?, ascending: Bool) -> [FileNode] {
+    static func build(from files: [TorrentFile], sortedBy key: TorrentFileSortKey?, ascending: Bool,
+                      foldersFirst: Bool = true) -> [FileNode] {
         var folders: [String: FileNode] = [:]
         var topLevel: [FileNode] = []
         for file in files {
@@ -168,21 +169,23 @@ enum TorrentFileTree {
             if let parent { parent.append(leaf) } else { topLevel.append(leaf) }
         }
         guard let key else { return topLevel }
-        return sorted(topLevel, by: key, ascending: ascending)
+        return sorted(topLevel, by: key, ascending: ascending, foldersFirst: foldersFirst)
     }
 
     /// Sort `nodes` and every folder's children (recursively) by `key`; ties
-    /// keep server order via `firstIndex`. Folders always list before files
-    /// (in both directions) and compare among themselves by their aggregates.
-    static func sorted(_ nodes: [FileNode], by key: TorrentFileSortKey, ascending: Bool) -> [FileNode] {
+    /// keep server order via `firstIndex`. With `foldersFirst`, folders always
+    /// list before files (in both directions); otherwise they interleave by the
+    /// key. Folders compare by their aggregates either way.
+    static func sorted(_ nodes: [FileNode], by key: TorrentFileSortKey, ascending: Bool,
+                       foldersFirst: Bool = true) -> [FileNode] {
         let ordered = nodes.sorted { a, b in
-            if a.isFolder != b.isFolder { return a.isFolder }
+            if foldersFirst, a.isFolder != b.isFolder { return a.isFolder }
             let result = compare(a, b, by: key)
             if result == .orderedSame { return a.firstIndex < b.firstIndex }
             return (result == .orderedAscending) == ascending
         }
         for node in ordered where node.isFolder {
-            node.children = sorted(node.children, by: key, ascending: ascending)
+            node.children = sorted(node.children, by: key, ascending: ascending, foldersFirst: foldersFirst)
         }
         return ordered
     }

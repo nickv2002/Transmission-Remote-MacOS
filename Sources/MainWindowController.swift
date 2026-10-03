@@ -69,6 +69,8 @@ final class MainWindowController: NSWindowController {
     var removeTorrentFileMethod: TorrentFileRemoval = .none
     /// Settings: show the Add options sheet, or add straight away (see `AppConfig`).
     var showAddOptions = true
+    /// Files tab: folders above files while a column sort is active.
+    var filesFoldersFirst = true
     /// Settings: pick up a torrent link copied to the clipboard on activation.
     var addLinksFromClipboard = false
 
@@ -239,6 +241,7 @@ final class MainWindowController: NSWindowController {
         self.refresh = RefreshController(config: config)
         self.removeTorrentFileMethod = config.removeTorrentFileMethod
         self.showAddOptions = config.showAddOptions
+        self.filesFoldersFirst = config.filesFoldersFirst
         self.addLinksFromClipboard = config.addLinksFromClipboard
 
         let window = NSWindow(
@@ -285,6 +288,10 @@ final class MainWindowController: NSWindowController {
         refresh.updateConfig(config)
         removeTorrentFileMethod = config.removeTorrentFileMethod
         showAddOptions = config.showAddOptions
+        if filesFoldersFirst != config.filesFoldersFirst {
+            filesFoldersFirst = config.filesFoldersFirst
+            applyFetchedFiles(files)
+        }
         if config.addLinksFromClipboard && !addLinksFromClipboard {
             // Just enabled: only react to copies made from now on.
             lastPasteboardChangeCount = NSPasteboard.general.changeCount

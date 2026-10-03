@@ -173,6 +173,16 @@ final class TorrentFileTreeTests: XCTestCase {
         XCTAssertEqual(nodes.map(\.displayName), ["b", "c", "d", "a"])
     }
 
+    func testFoldersFirstOffInterleavesBySortKey() {
+        let files = [file(0, "a.txt", length: 1), file(1, "z/x", length: 1), file(2, "b.txt", length: 9)]
+        let nodes = TorrentFileTree.build(from: files, sortedBy: .name, ascending: true, foldersFirst: false)
+        XCTAssertEqual(nodes.map(\.displayName), ["a.txt", "b.txt", "z"])
+        // The flag also applies inside folders.
+        let nested = TorrentFileTree.build(from: [file(0, "d/f.txt"), file(1, "d/a/x")],
+                                           sortedBy: .name, ascending: true, foldersFirst: false)
+        XCTAssertEqual(nested[0].children.map(\.displayName), ["a", "f.txt"])
+    }
+
     func testSortDescendsIntoFolders() {
         let nodes = build([
             file(0, "d/ep10"), file(1, "d/ep2"),

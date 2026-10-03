@@ -131,12 +131,15 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// info-hash) newly copied to the clipboard. Mirrors the legacy
     /// `LinksFromClipboard`, but off by default and never clears the clipboard.
     var addLinksFromClipboard: Bool
+    /// Files tab: when a column sort is active, list folders before files
+    /// (in both directions). Off interleaves them by the sort key.
+    var filesFoldersFirst: Bool
     /// Title bar shown/hidden and toolbar button labels shown/hidden.
     var toolbarLayout: ToolbarLayout
 
     enum CodingKeys: String, CodingKey {
         case servers, refreshSeconds, currentServer, autoCheckForUpdates
-        case removeTorrentFileMethod, showAddOptions, addLinksFromClipboard
+        case removeTorrentFileMethod, showAddOptions, addLinksFromClipboard, filesFoldersFirst
         case titleBar, toolbarLabels
         case toolbarLayout   // legacy single "default"/"compact" setting, decode-only
     }
@@ -146,6 +149,7 @@ struct AppConfig: Codable, Sendable, Equatable {
          removeTorrentFileMethod: TorrentFileRemoval = .none,
          showAddOptions: Bool = true,
          addLinksFromClipboard: Bool = false,
+         filesFoldersFirst: Bool = true,
          toolbarLayout: ToolbarLayout = .default) {
         self.servers = Self.dedupeNames(servers.isEmpty ? [.localhost] : servers)
         self.refreshSeconds = max(1, refreshSeconds)
@@ -154,6 +158,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.removeTorrentFileMethod = removeTorrentFileMethod
         self.showAddOptions = showAddOptions
         self.addLinksFromClipboard = addLinksFromClipboard
+        self.filesFoldersFirst = filesFoldersFirst
         self.toolbarLayout = toolbarLayout
     }
 
@@ -197,6 +202,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         removeTorrentFileMethod = methodRaw.flatMap(TorrentFileRemoval.init(rawValue:)) ?? .none
         showAddOptions = try c.decodeIfPresent(Bool.self, forKey: .showAddOptions) ?? true
         addLinksFromClipboard = try c.decodeIfPresent(Bool.self, forKey: .addLinksFromClipboard) ?? false
+        filesFoldersFirst = try c.decodeIfPresent(Bool.self, forKey: .filesFoldersFirst) ?? true
         // Raw string, like `removeTorrentFileMethod`: unknown values fall back.
         // The legacy `toolbarLayout` ("compact") only ever meant icon-only buttons
         // (and, wrongly, a hidden title), so it now maps to labels off.
@@ -219,6 +225,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         try c.encode(removeTorrentFileMethod, forKey: .removeTorrentFileMethod)
         try c.encode(showAddOptions, forKey: .showAddOptions)
         try c.encode(addLinksFromClipboard, forKey: .addLinksFromClipboard)
+        try c.encode(filesFoldersFirst, forKey: .filesFoldersFirst)
         try c.encode(toolbarLayout.titleBar, forKey: .titleBar)
         try c.encode(toolbarLayout.showsLabels, forKey: .toolbarLabels)
     }

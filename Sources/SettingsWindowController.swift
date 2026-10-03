@@ -48,6 +48,8 @@ final class SettingsWindowController: NSWindowController {
     private let removeFileMethodPopup = NSPopUpButton()
     private let showAddOptionsBox = NSButton(checkboxWithTitle: "Show options when adding torrents",
                                              target: nil, action: nil)
+    private let foldersFirstBox = NSButton(checkboxWithTitle: "List folders before files in the Files tab",
+                                          target: nil, action: nil)
     private let clipboardBox = NSButton(checkboxWithTitle: "Add magnet links copied to the clipboard",
                                         target: nil, action: nil)
     /// "Magnet links: <app>" / ".torrent files: <app>" status + Make Default,
@@ -363,6 +365,10 @@ final class SettingsWindowController: NSWindowController {
         showAddOptionsBox.action = #selector(showAddOptionsChanged)
         showAddOptionsBox.toolTip = "When off, clicked magnet links, opened .torrent files, drops, and "
             + "clipboard links are added straight away to the server's default folder and started."
+        foldersFirstBox.target = self
+        foldersFirstBox.action = #selector(foldersFirstChanged)
+        foldersFirstBox.toolTip = "When sorting the Files tab by a column, keep folders above files. "
+            + "Off mixes them by the sort order."
         clipboardBox.target = self
         clipboardBox.action = #selector(clipboardChanged)
         clipboardBox.toolTip = "When the app becomes active, add a magnet link, .torrent URL, or "
@@ -375,6 +381,7 @@ final class SettingsWindowController: NSWindowController {
             sectionHeader("General"),
             stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
             autoCheckBox,
+            foldersFirstBox,
         ]
 
         let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
@@ -533,6 +540,7 @@ final class SettingsWindowController: NSWindowController {
         autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
         removeFileMethodPopup.select(editor.removeTorrentFileMethod)
         showAddOptionsBox.state = editor.showAddOptions ? .on : .off
+        foldersFirstBox.state = editor.filesFoldersFirst ? .on : .off
         showToolbarLayout(editor.toolbarLayout)
         clipboardBox.state = editor.addLinksFromClipboard ? .on : .off
         reloadHandlerStatus()
@@ -569,6 +577,10 @@ final class SettingsWindowController: NSWindowController {
 
     // General controls apply immediately: no Save button on this pane, each
     // change is persisted + applied live as soon as it's made.
+
+    @objc private func foldersFirstChanged() {
+        onChange?(editor.setFilesFoldersFirst(foldersFirstBox.state == .on))
+    }
 
     @objc private func showAddOptionsChanged() {
         onChange?(editor.setShowAddOptions(showAddOptionsBox.state == .on))
