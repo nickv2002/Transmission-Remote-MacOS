@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026.10.02.1 — 2026-10-02
+
+- Detail tabs: tick tracker countdown, share header sort cycle with Files, order overlapping file fetches
+- Trackers/Peers tabs: extract cell text, sort cycle and reselect helpers; add tests
+- Trackers tab: sortable per-tracker status table in the detail pane (#17)
+- Files tab: handle header-click sorting via the NSOutlineView data-source method
+- Files tab: expand all top-level folders, folders-first setting, Name sort toggles A-Z/Z-A
+- Files tree lists folders before files when sorted; Peers tab shows peer count
+- Peers tab: sortable peer table in the detail pane (Info/Files/Peers)
+- Files tab: directory-tree view (NSOutlineView)
+
 ## 2026.09.29.4 — 2026-09-29
 
 - remove view settings from settings screen, control them from view menu or toolbar

@@ -247,5 +247,17 @@
         length="4468447"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.10.02.1</title>
+      <sparkle:version>2026.10.02.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Sat, 03 Oct 2026 06:28:19 +0000</pubDate>
+      <description><![CDATA[<ul><li>Detail tabs: tick tracker countdown, share header sort cycle with Files, order overlapping file fetches</li><li>Trackers/Peers tabs: extract cell text, sort cycle and reselect helpers; add tests</li><li>Trackers tab: sortable per-tracker status table in the detail pane (#17)</li><li>Files tab: handle header-click sorting via the NSOutlineView data-source method</li><li>Files tab: expand all top-level folders, folders-first setting, Name sort toggles A-Z/Z-A</li><li>Files tree lists folders before files when sorted; Peers tab shows peer count</li><li>Peers tab: sortable peer table in the detail pane (Info/Files/Peers)</li><li>Files tab: directory-tree view (NSOutlineView)</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.02.1/Transmission.Remote-2026.10.02.1.zip"
+        sparkle:edSignature="GZROQl9GRY2b5/OGzE23wdJe2uqhOviij3X0CLDlKOTuz6kvk7sCvApC5HXP2+b0He3kigLMJ5RPzO/GZFW6CQ=="
+        length="4556009"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
