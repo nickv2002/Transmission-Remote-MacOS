@@ -979,10 +979,6 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
-        if tableView === filesOutline {
-            filesSortDescriptorsDidChange(from: oldDescriptors)
-            return
-        }
         if tableView === peersTable {
             peersSortDescriptorsDidChange(from: oldDescriptors)
             return
