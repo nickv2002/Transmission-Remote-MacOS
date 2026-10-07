@@ -120,6 +120,7 @@ targets:
       - path: Sources/PathMapping.swift
       - path: Sources/SMBMountResolver.swift
       - path: Sources/InfoGridView.swift
+      - path: Sources/PieceMapView.swift
       - path: Sources/RecentFolders.swift
       - path: Sources/RefreshController.swift
       - path: Sources/TorrentFileRemover.swift

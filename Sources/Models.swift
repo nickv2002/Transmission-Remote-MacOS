@@ -777,3 +777,115 @@ struct FreeSpaceArguments: Decodable, Sendable {
 enum TorrentFileSortKey: String, Sendable {
     case name, size, progress, priority
 }
+
+// MARK: - Pieces RPC decoding
+
+/// A torrent's piece bitfield from a single-torrent `torrent-get` (`pieces`,
+/// `pieceCount`, `pieceSize`): one bit per piece, set when the daemon has it,
+/// most-significant bit first within each byte — the order the legacy app's
+/// `ProcessPieces` walks (`$80` shifted down). The base64 `pieces` string is
+/// decoded once at init; `pieceCount` bounds which bits count, so the padding
+/// bits of the last byte are ignored. Everything decodes tolerantly, since
+/// daemons omit zero-valued fields.
+struct TorrentPieces: Decodable, Sendable, Equatable {
+    let pieceCount: Int
+    let pieceSize: Int64
+    /// The decoded bitfield (`pieces`), possibly shorter than `pieceCount / 8`.
+    let bitfield: Data
+
+    private enum CodingKeys: String, CodingKey {
+        case pieceCount, pieceSize, pieces
+    }
+
+    init(pieceCount: Int, pieceSize: Int64 = 0, bitfield: Data = Data()) {
+        self.pieceCount = pieceCount
+        self.pieceSize = pieceSize
+        self.bitfield = bitfield
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        pieceCount = try c.decodeIfPresent(Int.self, forKey: .pieceCount) ?? 0
+        pieceSize = try c.decodeIfPresent(Int64.self, forKey: .pieceSize) ?? 0
+        let base64 = try c.decodeIfPresent(String.self, forKey: .pieces) ?? ""
+        bitfield = Data(base64Encoded: base64) ?? Data()
+    }
+
+    /// Whether the daemon has piece `index`. False outside `0..<pieceCount` or
+    /// beyond the end of a short bitfield.
+    func has(_ index: Int) -> Bool {
+        guard index >= 0, index < pieceCount else { return false }
+        let byteOffset = index >> 3
+        guard byteOffset < bitfield.count else { return false }
+        let byte = bitfield[bitfield.startIndex + byteOffset]
+        return byte & (0x80 >> UInt8(index & 7)) != 0
+    }
+
+    /// How many of the `pieceCount` pieces the daemon has.
+    var haveCount: Int {
+        guard pieceCount > 0 else { return 0 }
+        let fullBytes = pieceCount / 8
+        let tailBits = pieceCount % 8
+        var count = 0
+        for (i, byte) in bitfield.enumerated() {
+            if i < fullBytes {
+                count += byte.nonzeroBitCount
+            } else {
+                if tailBits > 0 {
+                    let mask = UInt8(0xFF) << UInt8(8 - tailBits)
+                    count += (byte & mask).nonzeroBitCount
+                }
+                break
+            }
+        }
+        return count
+    }
+
+    /// Share of pieces present in each of `columns` equal buckets across the
+    /// piece range — the per-pixel coverage the piece map draws. Pieces are
+    /// treated as a continuous span: with fewer columns than pieces a column
+    /// averages the pieces inside it, with more columns a piece spreads over
+    /// several (each 0 or 1), and a column straddling a boundary gets the
+    /// overlap-weighted mix. Empty when `columns` is zero; all zeros for a
+    /// torrent with no pieces (a magnet still fetching metadata).
+    func coverage(columns: Int) -> [Double] {
+        guard columns > 0 else { return [] }
+        guard pieceCount > 0 else { return Array(repeating: 0, count: columns) }
+        let perColumn = Double(pieceCount) / Double(columns)
+        var result = [Double](repeating: 0, count: columns)
+        for column in 0..<columns {
+            let lo = Double(column) * perColumn
+            let hi = Double(column + 1) * perColumn
+            var covered = 0.0
+            var piece = Int(lo.rounded(.down))
+            let last = min(pieceCount - 1, Int(hi.rounded(.up)) - 1)
+            while piece <= last {
+                if has(piece) {
+                    covered += min(hi, Double(piece + 1)) - max(lo, Double(piece))
+                }
+                piece += 1
+            }
+            // Snap float drift so a complete torrent is exactly 1 (the view merges
+            // equal-coverage columns into one fill) and an empty one exactly 0.
+            let share = covered / perColumn
+            result[column] = share > 1 - 1e-9 ? 1 : (share < 1e-9 ? 0 : share)
+        }
+        return result
+    }
+
+    /// "310 of 1203 pieces · 4.00 MB each" — the legacy `txPieces` caption,
+    /// used as the piece map's tooltip and accessibility description.
+    var summary: String {
+        guard pieceCount > 0 else { return "No pieces yet" }
+        var text = "\(haveCount) of \(pieceCount) pieces"
+        if pieceSize > 0 { text += " · \(Formatters.size(pieceSize)) each" }
+        return text
+    }
+}
+
+/// Decoded `arguments` for a single-torrent pieces `torrent-get`. Each entry
+/// is the flat torrent object (`id` + the three piece fields), so it decodes
+/// straight into `TorrentPieces`.
+struct TorrentPiecesArguments: Decodable, Sendable {
+    let torrents: [TorrentPieces]
+}

@@ -59,6 +59,19 @@ implemented:
   free space (`free-space` RPC).
 - **Info tab polish** — comment, full dates, error detail, downloaded/uploaded-ever,
   tracker, and a download/upload speed sparkline.
+- **Piece map** (fork addition, ported from the legacy `pbDownloaded`/`ProcessPieces`)
+  — a "Pieces" row above the Info grid: a thin classic progress bar, a map of which
+  pieces the daemon has beneath it, and the precise percentage at the right. The
+  bitfield (`torrent-get` `["id","pieces","pieceCount","pieceSize"]`,
+  `fetchPieces`) is fetched on demand like Peers — only while the Info tab is
+  visible and exactly one torrent is selected, refreshed on the poll; the classic
+  bar/percent come from the list poll itself so they move before the bitfield
+  lands. The row collapses (padding included) for none/multi selection. Decoding
+  (MSB-first bits, padding ignored), `haveCount`, the per-pixel
+  `coverage(columns:)` downsample (overlap-weighted, snapped to exact 0/1) and the
+  tooltip `summary` live in the Foundation-only `TorrentPieces` (`Models.swift`,
+  tested). The map tints each column by its coverage (floor 25% so a lone piece
+  in a busy column still shows) and merges equal-coverage runs into one fill.
 - **Persistence** — window frame, split positions, column order/width/visibility,
   and sort descriptor all persist across launches.
 
@@ -158,6 +171,11 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `MainWindowController+Peers.swift` — the Peers tab table (NSTableView):
   on-demand per-torrent peers fetch + 3-state column sort (sort logic itself is
   `PeerSortKey.sorted` in `Models.swift`).
+- `MainWindowController+Pieces.swift` — the Info tab's piece-map row: on-demand
+  per-torrent `pieces` fetch (`loadPiecesIfNeeded`, same gating as Peers) +
+  `updatePieceMap` (called from `updateDetail` every poll).
+- `PieceMapView.swift` — the row itself (caption, classic bar + piece map,
+  percent label); collapses to zero height via its own constraint (tested).
 - `TorrentFileTree.swift` — the Files tab's Foundation-only tree model
   (`FileNode`: a leaf, or a folder aggregating its subtree) — build, per-level
   sort, and the in-place poll merge that keeps AppKit's expansion/selection
@@ -431,7 +449,10 @@ trackerHost/seed-ratio + RPC `torrent-get`/files decoding), **`TorrentFileTree`*
 (tree build/grouping, folder aggregates, per-level sort + tie-breaks, in-place
 poll merge vs. structural rebuild), **`TorrentPeer`** (peers RPC decoding incl.
 omitted-field defaults; per-column sort in both directions, numeric-aware IP
-address order, stable address/port tie-breaks), `AppConfig` /
+address order, stable address/port tie-breaks), **`TorrentPieces`** (bitfield decoding,
+`has`/`haveCount` with padding ignored, `coverage(columns:)` exact/averaged/
+spread/straddling cases, `summary`) + **`PieceMapView`** (collapse/expand,
+percent label, tooltip), `AppConfig` /
 `PreferencesStore` (decode defaults, round-trip, migration, default seeding,
 native-store precedence), `ConnectionDiagnostics` (every `TransmissionError` maps
 to a field-targeted message), **`SettingsEditor`** (add/remove/edit/default/

@@ -8,6 +8,8 @@ final class MainWindowController: NSWindowController {
 
     let tableView = TorrentTableView()
     private let infoGrid = InfoGridView()
+    /// The Info tab's piece-map row above the grid (`+Pieces.swift`).
+    let pieceMap = PieceMapView()
     private let statusLabel = NSTextField(labelWithString: "")
 
     /// Bottom-left fetch indicator: an animated spinner while a poll is in flight,
@@ -46,6 +48,12 @@ final class MainWindowController: NSWindowController {
     var peersTorrentId: Int?
     /// In-flight peers fetch, so a new selection can cancel a stale one.
     var peersFetchTask: Task<Void, Never>?
+    /// The piece bitfield shown by the Info tab's map, and which torrent it
+    /// belongs to.
+    var pieces: TorrentPieces?
+    var piecesTorrentId: Int?
+    /// In-flight pieces fetch, so a new selection can cancel a stale one.
+    var piecesFetchTask: Task<Void, Never>?
     /// Trackers currently shown in the Trackers tab, and which torrent they
     /// belong to — same model/view split as `peers`/`displayedPeers`.
     var trackers: [TrackerStatsInfo] = []
@@ -379,13 +387,23 @@ final class MainWindowController: NSWindowController {
         infoGrid.onCopy = { [weak self] value in self?.showToast("Copied: \(value)") }
         infoGrid.update(with: [])
         let detailScroll = NSScrollView()
-        let detailContainer = NSView()
+        // Flipped so a short Info page sits at the TOP of a tall pane — a plain
+        // (non-flipped) document view anchors to the clip view's bottom and left a
+        // blank band above the grid.
+        let detailContainer = FlippedView()
+        detailContainer.addSubview(pieceMap)
         detailContainer.addSubview(infoGrid)
+        pieceMap.translatesAutoresizingMaskIntoConstraints = false
         infoGrid.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
+            // The piece-map row sits above the grid; it collapses to zero height
+            // (padding included) when no single torrent is selected.
+            pieceMap.leadingAnchor.constraint(equalTo: detailContainer.leadingAnchor, constant: 10),
+            pieceMap.trailingAnchor.constraint(equalTo: detailContainer.trailingAnchor, constant: -10),
+            pieceMap.topAnchor.constraint(equalTo: detailContainer.topAnchor, constant: 8),
             infoGrid.leadingAnchor.constraint(equalTo: detailContainer.leadingAnchor, constant: 10),
             infoGrid.trailingAnchor.constraint(equalTo: detailContainer.trailingAnchor, constant: -10),
-            infoGrid.topAnchor.constraint(equalTo: detailContainer.topAnchor, constant: 8),
+            infoGrid.topAnchor.constraint(equalTo: pieceMap.bottomAnchor),
             // Pin the bottom too so the scroll content fits the grid exactly (no
             // trailing blank space).
             infoGrid.bottomAnchor.constraint(equalTo: detailContainer.bottomAnchor, constant: -8),
@@ -660,6 +678,7 @@ final class MainWindowController: NSWindowController {
         loadFilesIfNeeded()
         loadTrackersIfNeeded()
         loadPeersIfNeeded()
+        loadPiecesIfNeeded()
         updateStatusBar(state: refresh.state)
         window?.toolbar?.validateVisibleItems()
         if detailResponder === filesOutline || detailResponder === trackersTable || detailResponder === peersTable {
@@ -717,6 +736,7 @@ final class MainWindowController: NSWindowController {
         loadFilesIfNeeded()
         loadTrackersIfNeeded()
         loadPeersIfNeeded()
+        loadPiecesIfNeeded()
         updateStatusBar(state: refresh.state)
     }
 
@@ -914,6 +934,7 @@ final class MainWindowController: NSWindowController {
 
     private func updateDetail() {
         infoGrid.update(with: selectedTorrents)
+        updatePieceMap()
     }
 
     /// Text shown for a torrent in a given column (shared by the cell view and the
@@ -938,7 +959,7 @@ final class MainWindowController: NSWindowController {
     }
 
     /// Colour the progress bar by torrent state (native polish).
-    private func progressColor(for t: Torrent) -> NSColor {
+    func progressColor(for t: Torrent) -> NSColor {
         if t.hasError { return .systemRed }
         switch t.status {
         case .stopped: return .systemGray
@@ -1027,6 +1048,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         loadFilesIfNeeded()
         loadTrackersIfNeeded()
         loadPeersIfNeeded()
+        loadPiecesIfNeeded()
         window?.toolbar?.validateVisibleItems()
     }
 
@@ -1410,4 +1432,10 @@ extension MainWindowController: @preconcurrency QLPreviewPanelDataSource {
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
         currentPreviewURL() as NSURL?
     }
+}
+
+/// An `NSView` with a top-left origin, for scroll-view document views whose
+/// content should hug the top rather than the bottom.
+final class FlippedView: NSView {
+    override var isFlipped: Bool { true }
 }
