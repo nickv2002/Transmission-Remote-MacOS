@@ -41,6 +41,33 @@ final class TorrentPiecesTests: XCTestCase {
         XCTAssertEqual(p.haveCount, 0)
     }
 
+    func testDecodeBoundsHostilePieceCountByBitfield() {
+        // A daemon claiming Int.max pieces with a one-byte bitfield must neither
+        // hang `coverage` nor trap on Double→Int conversion; the count is bounded
+        // by the bits actually sent. Negative values clamp to zero.
+        let hostile = pieces(["pieceCount": Int.max, "pieceSize": -5, "pieces": base64([0xF0])])
+        XCTAssertEqual(hostile.pieceCount, 8)
+        XCTAssertEqual(hostile.pieceSize, 0)
+        XCTAssertEqual(hostile.haveCount, 4)
+        XCTAssertEqual(hostile.coverage(columns: 2), [1, 0])
+        XCTAssertEqual(hostile.summary, "4 of 8 pieces")
+        let negative = pieces(["pieceCount": -3, "pieces": base64([0xFF])])
+        XCTAssertEqual(negative.pieceCount, 0)
+        XCTAssertEqual(negative.coverage(columns: 3), [0, 0, 0])
+        // Legitimate counts (bitfield padded to whole bytes) are unchanged.
+        XCTAssertEqual(pieces(["pieceCount": 1017, "pieces": base64([UInt8](repeating: 0xFF, count: 128))]).pieceCount, 1017)
+    }
+
+    func testCoverageNeverWalksPastShortBitfield() {
+        // Memberwise init keeps the reported count, but coverage only walks the
+        // bits present: 1 byte of data behind a 1_000_000-piece claim stays fast.
+        let p = TorrentPieces(pieceCount: 1_000_000, bitfield: Data([0xFF]))
+        let c = p.coverage(columns: 4)
+        XCTAssertEqual(c.count, 4)
+        XCTAssertEqual(c[0], 8.0 / 250_000.0, accuracy: 1e-12)
+        XCTAssertEqual(c[1...3].max(), 0)
+    }
+
     func testDecodeArgumentsWrapper() {
         let json: [String: Any] = [
             "torrents": [["id": 3, "pieceCount": 2, "pieceSize": 16, "pieces": base64([0xC0])]]

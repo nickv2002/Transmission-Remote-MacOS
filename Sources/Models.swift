@@ -805,10 +805,16 @@ struct TorrentPieces: Decodable, Sendable, Equatable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        pieceCount = try c.decodeIfPresent(Int.self, forKey: .pieceCount) ?? 0
-        pieceSize = try c.decodeIfPresent(Int64.self, forKey: .pieceSize) ?? 0
         let base64 = try c.decodeIfPresent(String.self, forKey: .pieces) ?? ""
         bitfield = Data(base64Encoded: base64) ?? Data()
+        // Only bits the bitfield actually carries can be "present", so bound the
+        // reported count by them: a hostile or buggy daemon claiming billions of
+        // pieces must not turn `coverage` into a main-thread hang (or overflow
+        // its Double→Int conversions). A real daemon sends ⌈pieceCount/8⌉ bytes,
+        // so legitimate counts are unchanged.
+        let reported = try c.decodeIfPresent(Int.self, forKey: .pieceCount) ?? 0
+        pieceCount = max(0, min(reported, bitfield.count * 8))
+        pieceSize = max(0, try c.decodeIfPresent(Int64.self, forKey: .pieceSize) ?? 0)
     }
 
     /// Whether the daemon has piece `index`. False outside `0..<pieceCount` or
@@ -851,6 +857,9 @@ struct TorrentPieces: Decodable, Sendable, Equatable {
     func coverage(columns: Int) -> [Double] {
         guard columns > 0 else { return [] }
         guard pieceCount > 0 else { return Array(repeating: 0, count: columns) }
+        // Pieces past the end of the bitfield are absent; never walk them (the
+        // memberwise init doesn't bound `pieceCount` the way decoding does).
+        let walkable = min(pieceCount, bitfield.count * 8)
         let perColumn = Double(pieceCount) / Double(columns)
         var result = [Double](repeating: 0, count: columns)
         for column in 0..<columns {
@@ -858,7 +867,7 @@ struct TorrentPieces: Decodable, Sendable, Equatable {
             let hi = Double(column + 1) * perColumn
             var covered = 0.0
             var piece = Int(lo.rounded(.down))
-            let last = min(pieceCount - 1, Int(hi.rounded(.up)) - 1)
+            let last = min(walkable - 1, Int(hi.rounded(.up)) - 1)
             while piece <= last {
                 if has(piece) {
                     covered += min(hi, Double(piece + 1)) - max(lo, Double(piece))
