@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.10.1 — 2026-10-10
+
+- Piece map: add Settings > General toggle (showPieceMap), tests for gate and checkbox
+- Bound TorrentPieces.pieceCount by the bitfield to prevent a hostile-daemon hang
+- Info tab: add piece map row (classic bar + per-piece map), port of legacy pbDownloaded
+
 ## 2026.10.02.1 — 2026-10-02
 
 - Detail tabs: tick tracker countdown, share header sort cycle with Files, order overlapping file fetches

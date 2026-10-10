@@ -259,5 +259,17 @@
         length="4556009"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.10.10.1</title>
+      <sparkle:version>2026.10.10.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Sat, 10 Oct 2026 18:27:41 +0000</pubDate>
+      <description><![CDATA[<ul><li>Piece map: add Settings > General toggle (showPieceMap), tests for gate and checkbox</li><li>Bound TorrentPieces.pieceCount by the bitfield to prevent a hostile-daemon hang</li><li>Info tab: add piece map row (classic bar + per-piece map), port of legacy pbDownloaded</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.10.1/Transmission.Remote-2026.10.10.1.zip"
+        sparkle:edSignature="Mqt/CRsumrMne2yeNh++1kqWKY3srIwCsw+/eZFMHabRxwM/OGGw9z+rnoLy0De8tuShd9A/boQwHyvRS4aMCg=="
+        length="4582840"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
