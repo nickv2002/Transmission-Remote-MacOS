@@ -91,6 +91,8 @@ final class MainWindowController: NSWindowController {
     var showAddOptions = true
     /// Files tab: folders above files while a column sort is active.
     var filesFoldersFirst = true
+    /// Settings → General: show the Info tab's piece-map row (`+Pieces.swift`).
+    var showPieceMap = true
     /// Settings: pick up a torrent link copied to the clipboard on activation.
     var addLinksFromClipboard = false
 
@@ -262,6 +264,7 @@ final class MainWindowController: NSWindowController {
         self.removeTorrentFileMethod = config.removeTorrentFileMethod
         self.showAddOptions = config.showAddOptions
         self.filesFoldersFirst = config.filesFoldersFirst
+        self.showPieceMap = config.showPieceMap
         self.addLinksFromClipboard = config.addLinksFromClipboard
 
         let window = NSWindow(
@@ -311,6 +314,11 @@ final class MainWindowController: NSWindowController {
         if filesFoldersFirst != config.filesFoldersFirst {
             filesFoldersFirst = config.filesFoldersFirst
             applyFetchedFiles(files)
+        }
+        if showPieceMap != config.showPieceMap {
+            showPieceMap = config.showPieceMap
+            loadPiecesIfNeeded()
+            updatePieceMap()
         }
         if config.addLinksFromClipboard && !addLinksFromClipboard {
             // Just enabled: only react to copies made from now on.

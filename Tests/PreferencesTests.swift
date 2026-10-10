@@ -102,6 +102,15 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(decoded.addLinksFromClipboard)
     }
 
+    func testShowPieceMapDefaultsOnAndRoundTrips() throws {
+        let cfg = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))
+        XCTAssertTrue(cfg.showPieceMap)
+        let original = AppConfig(servers: [.localhost], refreshSeconds: 4, showPieceMap: false)
+        let decoded = try PreferencesStore.decode(PreferencesStore.encode(original))
+        XCTAssertEqual(decoded, original)
+        XCTAssertFalse(decoded.showPieceMap)
+    }
+
     func testToolbarLayoutDefaultsToDefault() throws {
         // Configs from before the setting, and unknown values, get the default.
         let old = try JSONDecoder().decode(AppConfig.self, from: Data("{}".utf8))

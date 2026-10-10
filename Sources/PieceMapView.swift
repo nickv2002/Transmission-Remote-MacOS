@@ -19,6 +19,12 @@ final class PieceMapView: NSView {
     /// grid's own row gap, so the row reads as its first line.
     static let bottomPadding: CGFloat = 8
 
+    /// Whether the bitfield should be fetched (and the row shown): the Settings
+    /// toggle is on, the Info tab is visible, and exactly one torrent is selected.
+    static func isActive(enabled: Bool, infoTabVisible: Bool, selectionCount: Int) -> Bool {
+        enabled && infoTabVisible && selectionCount == 1
+    }
+
     private let caption = NSTextField(labelWithString: "PIECES")
     private let percentLabel = NSTextField(labelWithString: "")
     private let bars = BarsView()

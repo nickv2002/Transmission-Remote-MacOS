@@ -16,7 +16,9 @@ extension MainWindowController {
     func loadPiecesIfNeeded() {
         let isInfoTabVisible = detailTabView.selectedTabViewItem?.identifier as? String == "info"
         let selection = selectedTorrents
-        guard isInfoTabVisible, selection.count == 1, let torrent = selection.first else {
+        guard PieceMapView.isActive(enabled: showPieceMap, infoTabVisible: isInfoTabVisible,
+                                    selectionCount: selection.count),
+              let torrent = selection.first else {
             if piecesTorrentId != nil || pieces != nil {
                 piecesFetchTask?.cancel()
                 piecesTorrentId = nil
@@ -53,7 +55,9 @@ extension MainWindowController {
     /// fetched bitfield (if it belongs to that torrent) into the row; collapse
     /// it for an empty or multi-torrent selection.
     func updatePieceMap() {
-        guard selectedTorrents.count == 1, let t = selectedTorrents.first else {
+        guard PieceMapView.isActive(enabled: showPieceMap, infoTabVisible: true,
+                                    selectionCount: selectedTorrents.count),
+              let t = selectedTorrents.first else {
             pieceMap.update(progress: nil, pieces: nil, color: .controlAccentColor)
             return
         }

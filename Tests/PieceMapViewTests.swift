@@ -18,6 +18,15 @@ final class PieceMapViewTests: XCTestCase {
         return view
     }
 
+    func testIsActiveRequiresToggleInfoTabAndSingleSelection() {
+        XCTAssertTrue(PieceMapView.isActive(enabled: true, infoTabVisible: true, selectionCount: 1))
+        XCTAssertFalse(PieceMapView.isActive(enabled: false, infoTabVisible: true, selectionCount: 1),
+                       "toggle off → no row, no fetch")
+        XCTAssertFalse(PieceMapView.isActive(enabled: true, infoTabVisible: false, selectionCount: 1))
+        XCTAssertFalse(PieceMapView.isActive(enabled: true, infoTabVisible: true, selectionCount: 0))
+        XCTAssertFalse(PieceMapView.isActive(enabled: true, infoTabVisible: true, selectionCount: 2))
+    }
+
     func testStartsCollapsedAndHidden() {
         let view = sized(PieceMapView())
         XCTAssertTrue(view.isCollapsed)

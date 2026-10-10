@@ -72,6 +72,9 @@ implemented:
   tooltip `summary` live in the Foundation-only `TorrentPieces` (`Models.swift`,
   tested). The map tints each column by its coverage (floor 25% so a lone piece
   in a busy column still shows) and merges equal-coverage runs into one fill.
+  **Settings ▸ General ▸ "Show piece map in the Info tab"** (`showPieceMap`, default
+  on, applies immediately) hides the row and stops the `pieces` fetch; the gate is
+  `PieceMapView.isActive` (tested).
 - **Persistence** — window frame, split positions, column order/width/visibility,
   and sort descriptor all persist across launches.
 
