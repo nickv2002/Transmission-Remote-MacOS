@@ -162,6 +162,16 @@ actor TransmissionClient {
         return response.arguments?.torrents.first?.peers ?? []
     }
 
+    /// The piece bitfield (`pieces` + `pieceCount` + `pieceSize`) for one
+    /// torrent, feeding the Info tab's piece map. On demand, like `fetchPeers`,
+    /// since the bitfield grows with the torrent and only the selected one
+    /// needs it. Nil when the daemon returns no such torrent.
+    func fetchPieces(id: Int) async throws -> TorrentPieces? {
+        let args: [String: Any] = ["ids": [id], "fields": ["id", "pieces", "pieceCount", "pieceSize"]]
+        let response: RPCResponse<TorrentPiecesArguments> = try await send(method: "torrent-get", arguments: args)
+        return response.arguments?.torrents.first
+    }
+
     /// Per-tracker announce/scrape state for one torrent. On demand, like
     /// `fetchPeers`, to keep the list poll light.
     func fetchTrackers(id: Int) async throws -> [TrackerStatsInfo] {

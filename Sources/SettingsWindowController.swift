@@ -50,6 +50,8 @@ final class SettingsWindowController: NSWindowController {
                                              target: nil, action: nil)
     private let foldersFirstBox = NSButton(checkboxWithTitle: "List folders before files in the Files tab",
                                           target: nil, action: nil)
+    private let pieceMapBox = NSButton(checkboxWithTitle: "Show piece map in the Info tab",
+                                        target: nil, action: nil)
     private let clipboardBox = NSButton(checkboxWithTitle: "Add magnet links copied to the clipboard",
                                         target: nil, action: nil)
     /// "Magnet links: <app>" / ".torrent files: <app>" status + Make Default,
@@ -369,6 +371,10 @@ final class SettingsWindowController: NSWindowController {
         foldersFirstBox.action = #selector(foldersFirstChanged)
         foldersFirstBox.toolTip = "When sorting the Files tab by a column, keep folders above files. "
             + "Off mixes them by the sort order."
+        pieceMapBox.target = self
+        pieceMapBox.action = #selector(pieceMapChanged)
+        pieceMapBox.toolTip = "Show the progress bar and map of downloaded pieces at the top of the "
+            + "Info tab. Off also stops fetching the piece bitfield."
         clipboardBox.target = self
         clipboardBox.action = #selector(clipboardChanged)
         clipboardBox.toolTip = "When the app becomes active, add a magnet link, .torrent URL, or "
@@ -382,6 +388,7 @@ final class SettingsWindowController: NSWindowController {
             stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
             autoCheckBox,
             foldersFirstBox,
+            pieceMapBox,
         ]
 
         let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
@@ -541,6 +548,7 @@ final class SettingsWindowController: NSWindowController {
         removeFileMethodPopup.select(editor.removeTorrentFileMethod)
         showAddOptionsBox.state = editor.showAddOptions ? .on : .off
         foldersFirstBox.state = editor.filesFoldersFirst ? .on : .off
+        pieceMapBox.state = editor.showPieceMap ? .on : .off
         showToolbarLayout(editor.toolbarLayout)
         clipboardBox.state = editor.addLinksFromClipboard ? .on : .off
         reloadHandlerStatus()
@@ -580,6 +588,10 @@ final class SettingsWindowController: NSWindowController {
 
     @objc private func foldersFirstChanged() {
         onChange?(editor.setFilesFoldersFirst(foldersFirstBox.state == .on))
+    }
+
+    @objc private func pieceMapChanged() {
+        onChange?(editor.setShowPieceMap(pieceMapBox.state == .on))
     }
 
     @objc private func showAddOptionsChanged() {

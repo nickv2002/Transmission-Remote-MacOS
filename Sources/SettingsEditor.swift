@@ -21,6 +21,7 @@ struct SettingsEditor: Equatable {
                                    showAddOptions: config.showAddOptions,
                                    addLinksFromClipboard: config.addLinksFromClipboard,
                                    filesFoldersFirst: config.filesFoldersFirst,
+                                   showPieceMap: config.showPieceMap,
                                    toolbarLayout: config.toolbarLayout)
         self.working = normalized
         self.savedBaseline = normalized
@@ -38,6 +39,7 @@ struct SettingsEditor: Equatable {
     var showAddOptions: Bool { working.showAddOptions }
     var addLinksFromClipboard: Bool { working.addLinksFromClipboard }
     var filesFoldersFirst: Bool { working.filesFoldersFirst }
+    var showPieceMap: Bool { working.showPieceMap }
     var toolbarLayout: ToolbarLayout { working.toolbarLayout }
 
     func server(at index: Int) -> ServerConfig? {
@@ -54,6 +56,7 @@ struct SettingsEditor: Equatable {
                   showAddOptions: working.showAddOptions,
                   addLinksFromClipboard: working.addLinksFromClipboard,
                   filesFoldersFirst: working.filesFoldersFirst,
+                  showPieceMap: working.showPieceMap,
                   toolbarLayout: working.toolbarLayout)
     }
 
@@ -176,6 +179,11 @@ struct SettingsEditor: Equatable {
     @discardableResult
     mutating func setFilesFoldersFirst(_ enabled: Bool) -> AppConfig {
         applyImmediately(\.filesFoldersFirst, enabled)
+    }
+
+    @discardableResult
+    mutating func setShowPieceMap(_ enabled: Bool) -> AppConfig {
+        applyImmediately(\.showPieceMap, enabled)
     }
 
     @discardableResult
