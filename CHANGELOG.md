@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.11.1 — 2026-10-11
+
+- Notarize: strip AppleDouble entries from release zip
+- Add one-sentence release summary to GitHub release notes
+
 ## 2026.10.10.1 — 2026-10-10
 
 - Piece map: add Settings > General toggle (showPieceMap), tests for gate and checkbox

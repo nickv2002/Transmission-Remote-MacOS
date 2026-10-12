@@ -271,5 +271,17 @@
         length="4582840"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.10.11.1</title>
+      <sparkle:version>2026.10.11.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 12 Oct 2026 03:42:06 +0000</pubDate>
+      <description><![CDATA[<ul><li>Notarize: strip AppleDouble entries from release zip</li><li>Add one-sentence release summary to GitHub release notes</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.11.1/Transmission.Remote-2026.10.11.1.zip"
+        sparkle:edSignature="yVvuEtZHBH0u5m4/sKnK6sK09g7tYnQ57dNL7t8yoRo51eUUoTvJJLhGkiUe+VJUQ5uW2GyFmctnyqx2BZzUBQ=="
+        length="4526175"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
