@@ -61,6 +61,13 @@ spctl --assess --type execute --verbose "$app_path"
 echo "==> zipping stapled app for release"
 mkdir -p "$dist_dir"
 rm -f "$dist_zip"
-ditto -c -k --keepParent "$app_path" "$dist_zip"
+# --norsrc/--noextattr/--noqtn/--noacl: keep AppleDouble "._*" entries out of the zip.
+# Plain unzip / Archive Utility extract them as real files inside the bundle, which
+# breaks the code-signature seal ("app is damaged"); only ditto hid them.
+ditto -c -k --keepParent --norsrc --noextattr --noqtn --noacl "$app_path" "$dist_zip"
+if unzip -l "$dist_zip" | grep -q '/\._'; then
+  echo "error: $dist_zip contains AppleDouble (._*) entries" >&2
+  exit 1
+fi
 
 echo "==> notarized artifact: $dist_zip"
