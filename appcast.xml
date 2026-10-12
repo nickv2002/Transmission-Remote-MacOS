@@ -15,8 +15,8 @@
       <description><![CDATA[<ul><li>Add Sparkle 2.x in-app auto-updater</li><li>Persist detail tab selection and Files column widths across launches</li><li>Color file progress bars green at 100%, accent otherwise</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.06.28.2/Transmission.Remote-2026.06.28.2.zip"
-        sparkle:edSignature="cZk4Kk7qyvWVpUi4pA6MN+DkFF50xb42A3BIMFsLPEwn5YbQlcTEDJE56de+j111RKbN2ujQVQE0nY6v2aeoCQ=="
-        length="3189312"
+        sparkle:edSignature="ckegs0UZqm+mTEd3RyDv0yil6av2iwprkdZ+76vkfXl+KDOh7u24zC74nqAmy+Ahop9zeyMUlObB6TMKMTzaBg=="
+        length="3137346"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -27,8 +27,8 @@
       <description><![CDATA[<ul><li>Add Copy Name / Copy Remote Path actions and ⌘⇧M for Move</li><li>Show one decimal place on progress % when the column is wide enough</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.06.29.1/Transmission.Remote-2026.06.29.1.zip"
-        sparkle:edSignature="eK5AuFrMhSnPYlAjAEK4EQr0LP1oi9zBtgmz0M21TPBtJQh/vugX2GdPi/mccn5XRiN/LheazPFAwLbizXw4BA=="
-        length="3191951"
+        sparkle:edSignature="2mroC8LMNjm84jkdyrKZ9VaW/Mf9Ky6GDK5hbu6cjlT+ukD+12Qh2Gv+nSKhLnOKwKzZtAsZAsW5beUdsjscAA=="
+        length="3139985"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -39,8 +39,8 @@
       <description><![CDATA[<ul><li>Wire up double-click to open in the Files tab</li><li>Fix Sparkle download URLs: GitHub sanitizes spaces to dots in asset names</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.06.30.1/Transmission.Remote-2026.06.30.1.zip"
-        sparkle:edSignature="BI0VxX1yZbgzBkdsph0xq5nbQQXruMB3tx2V1Vh0FSJZm8QUrSxUqarJEeAyWpU2HuyP/9c4ntdi+VrCLdO6AA=="
-        length="3192207"
+        sparkle:edSignature="GzhqxG5iyJVowfc/AlkqK6najv2ghJzNzDQp3eGvmsri5f8qJ/n7Rl85HyNoUVpmQp0Ay+lIAaZ1tQOiXoW5BQ=="
+        length="3140241"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -51,8 +51,8 @@
       <description><![CDATA[<ul><li>Stop full reloadData() on every poll disrupting double-click</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.06.30.2/Transmission.Remote-2026.06.30.2.zip"
-        sparkle:edSignature="HVMiFFCfOihx5ahkiHGv7ID+kt4fWwu7d0WkK2t4Tzpb0hFxGnvN1DdFEdpeSekH0Hl2BNGF3GTsWTkAo7kBCA=="
-        length="3193962"
+        sparkle:edSignature="uctRC3A2GUgcEM4H+ToRl5elxBo7m58jYvB6Wht9treFIpl3Lm3KBRtCcnQZntzZByPCnLDSTDgqD8lrDGIBCA=="
+        length="3141996"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -63,8 +63,8 @@
       <description><![CDATA[<ul><li>Reformat asset catalog JSON and unwrap a CLAUDE.md line</li><li>Fix reconnect-endpoint ambiguity and spinner flicker in RefreshController</li><li>Add Browse… button to Move dialog with remote path reverse-mapping</li><li>Remove hard wrapping from markdown files via oxfmt</li><li>Disable hard wrapping for markdown files in .editorconfig</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.07.03.1/Transmission.Remote-2026.07.03.1.zip"
-        sparkle:edSignature="rDgMCRhNIDvIydOTMYQoT98X7u1ooJ9JK3Xvan+6zng8JksLMRHcPC7/AEkPhPUdoRPS247vFb91TwBEG7w9Ag=="
-        length="3201605"
+        sparkle:edSignature="YoBUuFx7Mr23qtNDf8MaCFbeAa5jvph37M4lk1O0dy5JhyirbEz8VWygiG14KSmUM1sFWAAR7GvHxttyGn0qBw=="
+        length="3149639"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -75,8 +75,8 @@
       <description><![CDATA[<ul><li>Screenshots for readme</li><li>Fix .torrent opened at cold launch being dropped before the window loads</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.07.06.1/Transmission.Remote-2026.07.06.1.zip"
-        sparkle:edSignature="6fwTbLeXCQJYU4j9QBjEDKfm7RZdHyIPaDmzuTTBXD39x6ZF93h+dZuGNEE1ja2SV5Wc28v2h8xt/s4IxHDIAw=="
-        length="3202340"
+        sparkle:edSignature="jzHwR2Ypvz4ToXLug9t0adNNpJ8PNhSglsUeOJM0qKYvpM0gh+DwtQm/bpi/gDVhG4virdGV2v9I9YhJSyhVAg=="
+        length="3150374"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -87,8 +87,8 @@
       <description><![CDATA[<ul><li>Revert drag-out to plain file URLs, restoring Finder's native copy progress</li><li>Switch drag-out to a file promise, and warn when a file's own permissions will block it</li><li>Warn on drag-out attempts that would produce nothing, and unify remote-path resolution</li><li>Tighten Settings layout: smaller General/divider gap, flush-left auto-update checkbox, add/remove buttons bottom-aligned with Test/Save row</li><li>Fix path-mapping resolution to use longest prefix, not list order</li><li>Actually fix drag-out to Finder: override sourceOperationMaskFor, not just the setter</li><li>Reorder Settings window: General first, then a Server Settings section with Test/Save Server anchored below the form</li><li>Replace Settings tabs with always-visible Servers/General panes, right-size the server list to match the detail form</li><li>Fix drag-out to Finder: table views never granted an outside-app drag mask</li><li>Make Cancel the default button on the Remove confirmation sheet</li><li>Fix beachball on Space: Quick Look responder-chain splice caused an infinite loop</li><li>Fix Quick Look: checkbox stole Space in Files tab, silent no-op in list view</li><li>Add Quick Look (Space) for the resolved local file in both tables</li><li>Close three accessibility gaps: toast announcements, Reduce Motion, progress bar value</li><li>Persist Settings window position across opens</li><li>Add Copy Magnet Link to the torrent context menu</li><li>Support dragging a torrent/file row out to Finder as a copy</li><li>Bind Delete/Backspace to Remove in the torrent table</li><li>Fix make dev opening two app copies from stale DerivedData dirs</li><li>Add auto-check-for-updates preference with first-run prompt</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.07.08.1/Transmission.Remote-2026.07.08.1.zip"
-        sparkle:edSignature="8jUees+j2xJ6B5m9E+ewJ1JtTA7JWrAJsQqH0PcxHvFgCMcDEnO1SbofSC5Fc3QIm6ducrf65Ag7fnWYmBxSDg=="
-        length="3228361"
+        sparkle:edSignature="ArdZjqddA/n/o0PalkrOeNeThJPYw84PSx035nvJbeIZ/2pUZoQybhsng7De29Bux51iu6JDHvNrvjmWRlK5Aw=="
+        length="3176395"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -99,8 +99,8 @@
       <description><![CDATA[<ul><li>Give the live client a real operational timeout instead of the probe timeout</li><li>Rewrite the 2026.07.08.1 changelog section as user-facing feature bullets</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.07.24.1/Transmission.Remote-2026.07.24.1.zip"
-        sparkle:edSignature="1N+Z58zXJ3lvCnTVMFxe4rVshgJrQYCmyffwrKGDNpyuT/iDxUBFxDcIxPbjDKJ3BPxTwGC4cRcEgu7KSxQdBw=="
-        length="3228347"
+        sparkle:edSignature="R2LZEAhKEoLhKgPxp2g4ZlvUUzrS2kkuHY+s8WoeeTK7QlOEBc96zMvQ+xI6Yx2Tqf7E2o4UwUqu0s2ka6+4Ag=="
+        length="3176381"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -111,8 +111,8 @@
       <description><![CDATA[<ul><li>Add a "move data" checkbox to the Move Torrent sheet</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.08.10.1/Transmission.Remote-2026.08.10.1.zip"
-        sparkle:edSignature="hROJJGMW0lACq0AJVWAKiKXjZVW45i8YeYlIgu3vMh9LGDo5CWVqmm8WrJLZX9xH6ujYHQpF7W4jLzlLKz26Bg=="
-        length="3230436"
+        sparkle:edSignature="HGUg7KBnXNXF71If08dpjpf9V0asiY8TZTne8myL95/pGvoWF/VGq1+X/SsXkRZTH4nbLAEZoK7qILPSOibAAA=="
+        length="3178470"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -123,8 +123,8 @@
       <description><![CDATA[<ul><li>Always show the active server name in the window title</li><li>Add Help menu with searchable menu items and GitHub link</li><li>Add Reannounce action and DRY up simple per-selection RPC actions</li><li>Fix Move Torrent to move all selected torrents, not just the first</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.08.25.1/Transmission.Remote-2026.08.25.1.zip"
-        sparkle:edSignature="pzlrNbVvATyvHQzwX5t0leA5AdHsl59bHnV4ZoaIHYsPqYpFXqAd+SNyg6s1O3PAnnWGBFrjxzI1KatqqxCDCg=="
-        length="3229931"
+        sparkle:edSignature="/V0vcyJqsfPr6sYa4SR+NHwl2UxGWMY57On3etptn/vE+QWicKCqhV7dAK/kDrCRYpFGF7MBzh4MfydXecoKBQ=="
+        length="3177965"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -135,8 +135,8 @@
       <description><![CDATA[<ul><li>Broaden RecentFolders test coverage; fix whitespace-only entry leak</li><li>Share destination-folder history between Add and Move dialogs</li><li>Remember recently-used destination folders when adding torrents</li><li>Add Seeds and Peers columns to the main torrent list</li><li>Show real recheck progress instead of stale percentDone while checking</li><li>Refactor README.md for improved formatting</li><li>Auto-document zip SHA256 and code signature in release notes</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.17.1/Transmission.Remote-2026.09.17.1.zip"
-        sparkle:edSignature="ShsbUvOSiaS8SYCpsM424rbc5Tyg0LDVSBqa/NQr3kAiYQL1ABpJqvibYPJuNF33HH3EODoLxWJJ5sVGy4tFAw=="
-        length="3230388"
+        sparkle:edSignature="ZRtqyu21nWbLWcqXHqVYUmG2rsEIo3k4Bn+EzcXrMFG4xbIXshI2pENV6KP8BAWLDykZam5apOqg8o9hDjFJCA=="
+        length="3178422"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -147,8 +147,8 @@
       <description><![CDATA[<ul><li>Fix concurrency/correctness bugs; add Docker Transmission test fixture</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.17.2/Transmission.Remote-2026.09.17.2.zip"
-        sparkle:edSignature="SUULXCjtgrQ6J2DmyHDB3QSnYLgiYcZ6K8jTj3IuPvdtznzo0adCM1SD/MT4ukB8OIctvJYAfBkMbChzOGTTBQ=="
-        length="3237363"
+        sparkle:edSignature="CNdp9fKxXorztonAqx8B4qCg5QaMSh3AcgkY9nQY4M1XeK1p2GIjlPkshs+JQuTXgIeq9RESremUi40+9Zo/CQ=="
+        length="3185397"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -159,8 +159,8 @@
       <description><![CDATA[<ul><li>Collapse remove-torrent-file setting to a single 3-way choice</li><li>Add option to remove .torrent files after adding (#10)</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.22.1/Transmission.Remote-2026.09.22.1.zip"
-        sparkle:edSignature="4QdYawd/DipPLfohSrQBA/gN92lL/D4LsNk6o7BkNUJ5poWcV8bdPsEPrsAHmPsGUVb0eCZG7k/qMSsqKk1iBg=="
-        length="3248891"
+        sparkle:edSignature="okWmEjo6qJzWsx5vz8WbB4pPJmbLHbAh/rp8n+3c+0dPXOfnbOhOn/8d1K1qmx+pJ8WbZ5RcKSGFa7paD/ZUDw=="
+        length="3196925"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -171,8 +171,8 @@
       <description><![CDATA[<ul><li>Add magnet/torrent link handling, clipboard pickup, and default-app registration (#11)</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.25.1/Transmission.Remote-2026.09.25.1.zip"
-        sparkle:edSignature="1HjpEdyafRLsMTxkVjJ+13/CPJ4ZR7ArP23KQA1mi8HZoDW75cczsfPCUoK29nODLPeI2mcGMMFIfmXsXV4jDA=="
-        length="3282194"
+        sparkle:edSignature="HGQblLhVch6nn0NvMxmZ2YnyhUFSjgGj3grzsuiqxVBAFbJc8a/AxlhOnUI7oidlJLC8CH4OuP1gP0e8COH8Aw=="
+        length="3230228"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -183,8 +183,8 @@
       <description><![CDATA[<ul><li>Add AppleScript support for torrents, preferences, and menu actions</li><li>Settings polish: no reconnect on General edits, General tab first, clearer handler labels</li><li>Split Settings into Servers/General tabs; fix cross-pane dirty bug</li><li>Accept smb:// URLs as path-mapping targets (issue #12)</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.25.2/Transmission.Remote-2026.09.25.2.zip"
-        sparkle:edSignature="UnNpHS4OSg9LPCup2b8IpNp3JtCeCZPpjMratSnVqaW3kjebQ4X0wAlKaNQ13ke7PrbODUaS0zTnMRVlID9VBA=="
-        length="3339560"
+        sparkle:edSignature="EPRiWKAt8SBFXTlJ4/PBHumxOo+KSRRrV8SBCPGTE1kqUZ5F6rflqbW0xvGImYVJ0YyfjLSP19a6jjZZ0NX1AA=="
+        length="3287252"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -195,8 +195,8 @@
       <description><![CDATA[<ul><li>compress replacement dock icon</li><li>Show the classic freeform icon in the Dock and Finder (escape squircle jail)</li><li>Update server menu items in-place when the server list is unchanged</li><li>Add AppleScript-driven test coverage and test-isolation launch hook</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.27.1/Transmission.Remote-2026.09.27.1.zip"
-        sparkle:edSignature="kDqfXMjMUY8rdiVRMARmKfH+TMdnLy29v+4duJX2/kdVz8ci6jhLqJoHtMArwRyvX1y8/nj5d2XU+3xVPGw5DA=="
-        length="4432654"
+        sparkle:edSignature="+3cIATYbYYYBTo1yoaxSUQ+k5gfti5KURn+eA4JY40wVpmNoNLzSbp8HitrkE2T4Xw0F6N/PwOpTYnByY5slDg=="
+        length="4375972"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -207,8 +207,8 @@
       <description><![CDATA[<ul><li>Files sort: extract testable TorrentFileSort, add unsorted third click, fix stale comment</li><li>Make Files tab columns sortable (#14)</li><li>lossless compress other image files</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.29.1/Transmission.Remote-2026.09.29.1.zip"
-        sparkle:edSignature="zDEuyEHavuqjqVmpfSpQ60AIJlAy3mwtt9wjw5iOo2qwPoc8Ikqod7/FP3RfeZGN36kdkjYmFRxwB6vite4CBg=="
-        length="4446364"
+        sparkle:edSignature="j0oVaxsYcAqnwD9PlgVkPcK5BeExfZXtN+W0mTQaxKfWUJ4rl8GlTD5OTPOKC3gPeRl+sgwKrD0jkk26nTyKDQ=="
+        length="4389682"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -219,8 +219,8 @@
       <description><![CDATA[<ul><li>Sync toolbar display mode with layout, drop tabbing, clear sidebar on server switch</li><li>Address PR #15 review: DRY popup/layout logic, View menu, drop retargeting, tests</li><li>Document title bar, toolbar layout, and server UX</li><li>Use outline symbols for toolbar actions</li><li>Add View menu with toolbar size options</li><li>Add title bar server dropdown and toolbar size</li><li>Add ⌘1–⌘0 shortcuts for switching servers</li><li>Allow reordering servers in Settings</li><li>Add Manage Servers… to the Server menu</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.29.2/Transmission.Remote-2026.09.29.2.zip"
-        sparkle:edSignature="5LIfV1Z6B6asovOqdovi8GmpCZvL9akjVccQGUgxePtF5LrScwwB2Ng+dyIrA+KIREZIj+Fz6pifzqSdbSjmDw=="
-        length="4468204"
+        sparkle:edSignature="WElkZr5m7wpuwiCvcNPueZmGD/uIwYRvrG6i0EsBabdQZgZtqs9GNub9Sb6r8h5BENjoNsaiaENfBrdQRcvIAQ=="
+        length="4411522"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -231,8 +231,8 @@
       <description><![CDATA[<ul><li>Open Settings on the Servers tab on first launch</li><li>Split title bar and button labels, fix toolbar search and server item bugs</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.29.3/Transmission.Remote-2026.09.29.3.zip"
-        sparkle:edSignature="EIb/ZX1HlC6tXGsrCeTgisBqXYyCF7Btt4G2gXLiIJudQKVUHkyRZKlaTjqLchjNq0GjDtFrdBltxr46qcmCDQ=="
-        length="4470146"
+        sparkle:edSignature="HK2Z+e3TO7xllfkTNqODfMMKG5HMZ4sgpS5pvgjnORdiWdZmt51PSRxGUJcPzXQ4BoP8HAY77fCMhyj+/NZpBg=="
+        length="4413464"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -243,8 +243,8 @@
       <description><![CDATA[<ul><li>remove view settings from settings screen, control them from view menu or toolbar</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.09.29.4/Transmission.Remote-2026.09.29.4.zip"
-        sparkle:edSignature="oJdII0dpRmSCg+FnEsb5TdtZS/odndqbMMH2iKg717QExHhvU8+KuZj2pUG60vHBb/nBByKfhCaQ4VPyzQHEDQ=="
-        length="4468447"
+        sparkle:edSignature="1vWqNmPjmsTeitR0tkFpH/pXYbZL1Pqi+7OTfGxLtdww8XXbFXdK94dimsn1686VUs3tQ6F+y/bpei6IFx0zCw=="
+        length="4411765"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -255,8 +255,8 @@
       <description><![CDATA[<ul><li>Detail tabs: tick tracker countdown, share header sort cycle with Files, order overlapping file fetches</li><li>Trackers/Peers tabs: extract cell text, sort cycle and reselect helpers; add tests</li><li>Trackers tab: sortable per-tracker status table in the detail pane (#17)</li><li>Files tab: handle header-click sorting via the NSOutlineView data-source method</li><li>Files tab: expand all top-level folders, folders-first setting, Name sort toggles A-Z/Z-A</li><li>Files tree lists folders before files when sorted; Peers tab shows peer count</li><li>Peers tab: sortable peer table in the detail pane (Info/Files/Peers)</li><li>Files tab: directory-tree view (NSOutlineView)</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.02.1/Transmission.Remote-2026.10.02.1.zip"
-        sparkle:edSignature="GZROQl9GRY2b5/OGzE23wdJe2uqhOviij3X0CLDlKOTuz6kvk7sCvApC5HXP2+b0He3kigLMJ5RPzO/GZFW6CQ=="
-        length="4556009"
+        sparkle:edSignature="s0flMiZmUQ4IQkB/A+DRWA5zvLVXRzgd9Q8ovCc+sNuY/9/usYFraKwRQlgHmQj6YSxkoRICMxGO56pm7yzABQ=="
+        length="4499327"
         type="application/octet-stream"/>
     </item>
     <item>
@@ -267,8 +267,8 @@
       <description><![CDATA[<ul><li>Piece map: add Settings > General toggle (showPieceMap), tests for gate and checkbox</li><li>Bound TorrentPieces.pieceCount by the bitfield to prevent a hostile-daemon hang</li><li>Info tab: add piece map row (classic bar + per-piece map), port of legacy pbDownloaded</li></ul>]]></description>
       <enclosure
         url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.10.1/Transmission.Remote-2026.10.10.1.zip"
-        sparkle:edSignature="Mqt/CRsumrMne2yeNh++1kqWKY3srIwCsw+/eZFMHabRxwM/OGGw9z+rnoLy0De8tuShd9A/boQwHyvRS4aMCg=="
-        length="4582840"
+        sparkle:edSignature="ylls8YR8k1yHxhyx49qcklJ9NnLLXoApA93JAdRGP8JM4yhsxVjrt233TXyDoI+bSMT9l5vgffi9GsWLMkLfDw=="
+        length="4526158"
         type="application/octet-stream"/>
     </item>
     <item>
