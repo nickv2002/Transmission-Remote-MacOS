@@ -24,6 +24,14 @@ prev_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
 
 echo "==> releasing ${tag} (previous tag: ${prev_tag:-none})"
 
+# Drafted now, while the owner is still at the terminal, so any manual prompt
+# happens before the long build. Stored apart from the changelog body, which
+# changelog.sh rewrites. Fails open: no file means no summary on the release.
+mkdir -p build
+release_summary_file="build/release-summary.md"
+rm -f "$release_summary_file"
+scripts/release_summary.sh "$version" "$prev_tag" "$release_summary_file"
+
 echo "==> updating project.yml version"
 sed -i '' -E "s/MARKETING_VERSION: \"[^\"]*\"/MARKETING_VERSION: \"${version}\"/" project.yml
 sed -i '' -E "s/CURRENT_PROJECT_VERSION: \"[^\"]*\"/CURRENT_PROJECT_VERSION: \"${version}\"/" project.yml
@@ -64,9 +72,15 @@ git push
 git push --tags
 
 echo "==> creating GitHub release"
+release_body_file="build/release-body.md"
+if [[ -s "$release_summary_file" ]]; then
+  { cat "$release_summary_file"; echo; cat build/release-notes.md; } > "$release_body_file"
+else
+  cp build/release-notes.md "$release_body_file"
+fi
 gh release create "$tag" "dist/Transmission.Remote-${version}.zip" \
   --repo nickv2002/Transmission-Remote-MacOS \
-  --title "${version}" --notes-file build/release-notes.md
+  --title "${version}" --notes-file "$release_body_file"
 
 scripts/install_local.sh
 
