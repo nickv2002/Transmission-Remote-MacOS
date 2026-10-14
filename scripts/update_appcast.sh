@@ -1,12 +1,15 @@
 #!/bin/bash
 # Prepends a new release entry to appcast.xml.
-# Usage: update_appcast.sh <version> <download_url> <ed_signature> <file_size_bytes>
+# Usage: update_appcast.sh <version> <download_url> <ed_signature> <file_size_bytes> [summary_file]
+# If summary_file exists and is non-empty, its text is shown as a paragraph above
+# the changelog bullets (the top of the Sparkle update dialog).
 set -euo pipefail
 
-version="${1:?usage: update_appcast.sh <version> <download_url> <signature> <length>}"
+version="${1:?usage: update_appcast.sh <version> <download_url> <signature> <length> [summary_file]}"
 download_url="${2:?}"
 signature="${3:?}"
 length="${4:?}"
+summary_file="${5:-}"
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 appcast="${repo_root}/appcast.xml"
@@ -28,6 +31,14 @@ if [[ -n "$notes_lines" ]]; then
   notes_html+="</ul>"
 else
   notes_html="<ul><li>See CHANGELOG for details.</li></ul>"
+fi
+
+if [[ -n "$summary_file" && -s "$summary_file" ]]; then
+  summary_html=$(python3 -I -c '
+import html, sys
+print(html.escape(" ".join(open(sys.argv[1], encoding="utf-8").read().split()), quote=False))
+' "$summary_file")
+  notes_html="<p>${summary_html}</p>${notes_html}"
 fi
 
 new_item=$(cat <<ITEM

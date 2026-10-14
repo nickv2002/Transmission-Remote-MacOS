@@ -58,7 +58,7 @@ fi
 file_size=$(/usr/bin/stat -f%z "$zip_path")
 download_url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v${version}/${zip_name}"
 
-scripts/update_appcast.sh "$version" "$download_url" "$signature" "$file_size"
+scripts/update_appcast.sh "$version" "$download_url" "$signature" "$file_size" "$release_summary_file"
 
 echo "==> committing version bump + changelog + appcast"
 git add project.yml CHANGELOG.md appcast.xml

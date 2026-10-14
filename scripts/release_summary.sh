@@ -1,6 +1,6 @@
 #!/bin/bash
 # Writes a one-paragraph human summary of a release to <out-file>, to be placed
-# at the top of the GitHub release body.
+# at the top of the GitHub release body and the Sparkle appcast description.
 #
 # Usage: scripts/release_summary.sh <version> <prev-tag> <out-file>
 #
