@@ -465,6 +465,10 @@ final class MainWindowController: NSWindowController {
 
         // Sidebar filter groups, then the table/detail split, side by side.
         sidebar.onFilterChange = { [weak self] filter in self?.applyFilter(filter) }
+        refresh.onFreeSpaceChanged = { [weak self] in
+            guard let self else { return }
+            self.updateStatusBar(state: self.refresh.state)
+        }
         let mainSplit = NSSplitView()
         mainSplit.isVertical = true
         mainSplit.dividerStyle = .thin
@@ -745,7 +749,17 @@ final class MainWindowController: NSWindowController {
         loadTrackersIfNeeded()
         loadPeersIfNeeded()
         loadPiecesIfNeeded()
+        updateFreeSpaceTarget()
         updateStatusBar(state: refresh.state)
+    }
+
+    /// Point the free-space figure at the folder in view (issue #20).
+    private func updateFreeSpaceTarget() {
+        var sidebarFolder: String?
+        if case .folder(let dir) = activeFilter { sidebarFolder = dir }
+        let selection = selectedTorrentIds().compactMap { id in torrents.first { $0.id == id } }
+        let path = FreeSpaceTarget.path(selection: selection, sidebarFolder: sidebarFolder, defaultDir: nil)
+        refresh.freeSpacePath = path
     }
 
     /// Live filtering as the user types in the toolbar search field.
@@ -804,7 +818,13 @@ final class MainWindowController: NSWindowController {
         var parts = [count]
         if !breakdown.isEmpty { parts.append(breakdown) }
         if !rates.isEmpty { parts.append(rates) }
-        if let free = refresh.freeSpace, free >= 0 { parts.append("Free: \(Formatters.size(free))") }
+        if let free = refresh.freeSpace, free >= 0 {
+            var text = "Free: \(Formatters.size(free))"
+            if let dir = refresh.freeSpacePath, dir != refresh.defaultDownloadDir {
+                text += " (\((dir as NSString).lastPathComponent))"
+            }
+            parts.append(text)
+        }
         parts.append(connection)
         statusLabel.stringValue = parts.joined(separator: "      ")
     }
@@ -1053,6 +1073,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
               (notification.object as AnyObject) !== trackersTable,
               (notification.object as AnyObject) !== peersTable else { return }
         updateDetail()
+        updateFreeSpaceTarget()
+        updateStatusBar(state: refresh.state)
         loadFilesIfNeeded()
         loadTrackersIfNeeded()
         loadPeersIfNeeded()

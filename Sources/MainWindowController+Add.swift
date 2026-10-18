@@ -229,11 +229,21 @@ extension MainWindowController {
         destField.widthAnchor.constraint(equalToConstant: 460).isActive = true
         stack.addArrangedSubview(destField)
 
-        if let free = refresh.freeSpace, free >= 0 {
-            let freeLabel = makeLabel("Free space on server: \(Formatters.size(free))")
-            freeLabel.textColor = .secondaryLabelColor
-            stack.addArrangedSubview(freeLabel)
-        }
+        // Free space follows the typed destination (issue #20): it may be on a
+        // different filesystem than the daemon's default dir.
+        let freeLabel = makeLabel("")
+        freeLabel.textColor = .secondaryLabelColor
+        let defaultFreeText: String? = {
+            guard let free = refresh.freeSpace, free >= 0, refresh.freeSpaceDir == destField.stringValue
+            else { return nil }
+            return "Free space on server: \(Formatters.size(free))"
+        }()
+        freeLabel.stringValue = defaultFreeText ?? ""
+        freeLabel.isHidden = defaultFreeText == nil
+        stack.addArrangedSubview(freeLabel)
+        let freeSpaceUpdater = FreeSpaceLabelUpdater(field: destField, label: freeLabel,
+                                                     client: refresh.activeClient)
+        freeSpaceUpdater.refresh()
 
         let startCheck = NSButton(checkboxWithTitle: "Start when added", target: nil, action: nil)
         startCheck.state = .on
@@ -272,7 +282,7 @@ extension MainWindowController {
         alert.window.initialFirstResponder = linkField ?? destField
 
         alert.beginSheetModal(for: window) { [weak self] response in
-            defer { onFinish?() }
+            defer { onFinish?(); withExtendedLifetime(freeSpaceUpdater) {} }
             destField.validateEditing()
             guard response == .alertFirstButtonReturn else { return }
             let dest = destField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -415,5 +425,56 @@ final class DropView: NSView {
             return true
         }
         return false
+    }
+}
+
+/// Keeps the Add sheet's "Free space" label in step with the destination combo
+/// box: re-queries `free-space` (debounced) whenever the path is typed or picked.
+@MainActor
+private final class FreeSpaceLabelUpdater: NSObject {
+    private let field: NSComboBox
+    private let label: NSTextField
+    private let client: TransmissionClient?
+    private var task: Task<Void, Never>?
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+
+    init(field: NSComboBox, label: NSTextField, client: TransmissionClient?) {
+        self.field = field
+        self.label = label
+        self.client = client
+        super.init()
+        let center = NotificationCenter.default
+        for name in [NSControl.textDidChangeNotification, NSComboBox.selectionDidChangeNotification] {
+            observers.append(center.addObserver(forName: name, object: field, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh() }
+            })
+        }
+    }
+
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        task?.cancel()
+    }
+
+    func refresh() {
+        task?.cancel()
+        guard let client else { return }
+        // A picked combo item isn't in `stringValue` until the selection settles.
+        let index = field.indexOfSelectedItem
+        let typed = index >= 0 ? (field.itemObjectValue(at: index) as? String ?? field.stringValue) : field.stringValue
+        let path = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !path.isEmpty else { label.isHidden = true; return }
+        task = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            let free = try? await client.freeSpace(path: path)
+            guard !Task.isCancelled, let self else { return }
+            if let free, free >= 0 {
+                self.label.stringValue = "Free space on server: \(Formatters.size(free))"
+                self.label.isHidden = false
+            } else {
+                self.label.isHidden = true
+            }
+        }
     }
 }

@@ -303,6 +303,16 @@ final class FixtureTransmissionTests: XCTestCase {
         if let bytes { XCTAssertGreaterThanOrEqual(bytes, 0) }
     }
 
+    /// Issue #20: a path on a different mount must report that mount's space, not
+    /// the default download dir's. `/othermount` is a 64 MB tmpfs in the fixture.
+    func testFreeSpaceDiffersPerMount() async throws {
+        let other = try await client.freeSpace(path: "/othermount")
+        let downloads = try await client.freeSpace(path: "/downloads")
+        let otherBytes = try XCTUnwrap(other)
+        XCTAssertLessThanOrEqual(otherBytes, 64 * 1024 * 1024)
+        XCTAssertNotEqual(otherBytes, try XCTUnwrap(downloads))
+    }
+
     func testFetchSessionReturnsDownloadDir() async throws {
         let info = try await client.fetchSession()
         XCTAssertNotNil(info.downloadDir)

@@ -769,6 +769,16 @@ struct FreeSpaceArguments: Decodable, Sendable {
     }
 }
 
+/// Which server path to ask `free-space` about (issue #20).
+enum FreeSpaceTarget {
+    /// One selected torrent → its own folder; otherwise the sidebar folder filter;
+    /// otherwise the daemon's default download dir.
+    static func path(selection: [Torrent], sidebarFolder: String?, defaultDir: String?) -> String? {
+        if selection.count == 1 { return selection[0].normalizedDownloadDir }
+        return sidebarFolder ?? defaultDir
+    }
+}
+
 // MARK: - Files sorting
 
 /// Sortable columns of the Files tab. Raw values match `FileColumn` identifiers

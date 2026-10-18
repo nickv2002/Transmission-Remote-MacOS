@@ -18,6 +18,8 @@ final class RefreshController {
     /// Called when a poll starts/finishes (true = a fetch is in flight). Fires only
     /// on transitions so rapid polls don't thrash the UI.
     var onFetchingChanged: ((Bool) -> Void)?
+    /// Fired when free space is re-queried outside a poll (the target path changed).
+    var onFreeSpaceChanged: (() -> Void)?
 
     private var config: AppConfig
     private var client: TransmissionClient?
@@ -51,8 +53,22 @@ final class RefreshController {
     /// prefill the Add-torrent destination. Updated on each session handshake.
     private(set) var defaultDownloadDir: String?
 
-    /// Free space (bytes) for `defaultDownloadDir`, refreshed on each poll.
+    /// Free space (bytes) for `freeSpaceDir`, refreshed on each poll.
     private(set) var freeSpace: Int64?
+
+    /// Server path whose free space is shown (issue #20): the selected torrent's /
+    /// sidebar folder, or nil for `defaultDownloadDir`. Changing it refreshes just
+    /// the free-space figure straight away.
+    var freeSpacePath: String? {
+        didSet {
+            guard freeSpacePath != oldValue else { return }
+            freeSpace = nil
+            refreshFreeSpace()
+        }
+    }
+
+    /// The path `freeSpace` describes.
+    var freeSpaceDir: String? { freeSpacePath ?? defaultDownloadDir }
     private var loopTask: Task<Void, Never>?
     private var paused = false
     /// Set once the first handshake succeeds. Until then, connection errors keep
@@ -319,6 +335,17 @@ final class RefreshController {
         "\(s.useHTTPS ? "https" : "http")://\(s.host):\(s.port)"
     }
 
+    /// Re-query only the free-space figure (path changed between polls).
+    private func refreshFreeSpace() {
+        guard let client, let dir = freeSpaceDir else { return }
+        Task { [weak self] in
+            let free = try? await client.freeSpace(path: dir)
+            guard let self, self.freeSpaceDir == dir else { return }
+            self.freeSpace = free
+            self.onFreeSpaceChanged?()
+        }
+    }
+
     /// Poll torrents (+ free space). Returns false if the request failed, so the
     /// caller can re-resolve a reachable host.
     @discardableResult
@@ -333,7 +360,7 @@ final class RefreshController {
         do {
             // Fetch torrents and free space concurrently so free space no longer
             // adds a serial round-trip in front of the first paint.
-            let dir = defaultDownloadDir
+            let dir = freeSpaceDir
             async let torrentsTask = client.fetchTorrents(fields: fields)
             async let freeTask: Int64? = {
                 guard let dir else { return nil }
