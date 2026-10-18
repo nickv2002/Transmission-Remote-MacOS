@@ -283,5 +283,17 @@
         length="4526175"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.10.18.1</title>
+      <sparkle:version>2026.10.18.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 18 Oct 2026 17:36:28 +0000</pubDate>
+      <description><![CDATA[<p>Free space now shows for the folder you're viewing, not just the default download folder; update dialogs lead with this release's summary.</p><ul><li>Show free space for the folder in view, not just the default dir (#20)</li><li>Show release summary at top of Sparkle update dialog</li><li>Appcast: update signatures/lengths for re-uploaded clean release zips</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.18.1/Transmission.Remote-2026.10.18.1.zip"
+        sparkle:edSignature="CNEnqvWYRbM16o7K54L7oRMZiU/c+QrsaNCB1Kj/oEciidWn58sFhMJtX7fDIyFK42yRY8tbaBJi56skTb9hDA=="
+        length="4536720"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>

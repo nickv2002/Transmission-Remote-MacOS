@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.18.1 — 2026-10-18
+
+- Show free space for the folder in view, not just the default dir (#20)
+- Show release summary at top of Sparkle update dialog
+- Appcast: update signatures/lengths for re-uploaded clean release zips
+
 ## 2026.10.11.1 — 2026-10-11
 
 - Notarize: strip AppleDouble entries from release zip
