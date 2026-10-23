@@ -295,5 +295,17 @@
         length="4536720"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.10.22.1</title>
+      <sparkle:version>2026.10.22.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 23 Oct 2026 00:50:43 +0000</pubDate>
+      <description><![CDATA[<p>Adds a sortable Uploaded column to the torrent list, so you can sort torrents by how much data you've uploaded.</p><ul><li>Add sortable Uploaded column (#21)</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.22.1/Transmission.Remote-2026.10.22.1.zip"
+        sparkle:edSignature="FhqoZkOutQasOYqtApcQbLqrT2QusIiR8spu2qbVkcZaBhLsG+TCuQztXU+ysIt6EK8yCZwCnLCRqRFaTTTsCA=="
+        length="4537225"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
