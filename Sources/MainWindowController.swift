@@ -208,7 +208,7 @@ final class MainWindowController: NSWindowController {
 
     // Column identifiers double as sort keys.
     private enum Column: String, CaseIterable {
-        case queue, name, size, status, progress, down, up, eta, ratio, ratioLimit, added, tracker, seeds, peers
+        case queue, name, size, status, progress, down, up, eta, ratio, uploaded, ratioLimit, added, tracker, seeds, peers
 
         var title: String {
             switch self {
@@ -221,6 +221,7 @@ final class MainWindowController: NSWindowController {
             case .up: return "↑ Speed"
             case .eta: return "ETA"
             case .ratio: return "Ratio"
+            case .uploaded: return "Uploaded"
             case .ratioLimit: return "Ratio Limit"
             case .added: return "Added"
             case .tracker: return "Tracker"
@@ -239,6 +240,7 @@ final class MainWindowController: NSWindowController {
             case .down, .up: return 80
             case .eta: return 70
             case .ratio: return 60
+            case .uploaded: return 80
             case .ratioLimit: return 80
             case .added: return 130
             case .tracker: return 150
@@ -249,7 +251,7 @@ final class MainWindowController: NSWindowController {
         /// Columns hidden by default (still toggleable from the header menu).
         var hiddenByDefault: Bool {
             switch self {
-            case .size, .ratioLimit, .added, .tracker, .seeds, .peers: return true
+            case .size, .uploaded, .ratioLimit, .added, .tracker, .seeds, .peers: return true
             default: return false
             }
         }
@@ -851,6 +853,7 @@ final class MainWindowController: NSWindowController {
             case .up: result = a.rateUpload < b.rateUpload
             case .eta: result = a.eta < b.eta
             case .ratio: result = a.uploadRatio < b.uploadRatio
+            case .uploaded: result = a.uploadedEver < b.uploadedEver
             case .ratioLimit: result = a.effectiveRatioLimit < b.effectiveRatioLimit
             case .added: result = a.addedDate < b.addedDate
             case .tracker: result = (a.trackerHost ?? "").localizedCaseInsensitiveCompare(b.trackerHost ?? "") == .orderedAscending
@@ -978,6 +981,7 @@ final class MainWindowController: NSWindowController {
         case .up: return Formatters.speed(t.rateUpload)
         case .eta: return t.etaDisplay
         case .ratio: return Formatters.ratio(t.uploadRatio)
+        case .uploaded: return Formatters.size(t.uploadedEver)
         case .ratioLimit: return t.seedRatioDisplay
         case .added: return Formatters.date(t.addedDate)
         case .tracker: return t.trackerHost ?? "—"
@@ -1140,7 +1144,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             return c
         }()
 
-        let rightAligned: Set<Column> = [.queue, .size, .down, .up, .eta, .ratio, .ratioLimit]
+        let rightAligned: Set<Column> = [.queue, .size, .down, .up, .eta, .ratio, .uploaded, .ratioLimit]
         cell.textField?.stringValue = cellText(for: column, torrent: t)
         cell.textField?.alignment = rightAligned.contains(column) ? .right : .left
         return cell
