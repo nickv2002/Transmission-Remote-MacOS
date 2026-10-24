@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MainWindowController(config: config)
         windowController = controller
         controller.onToolbarLayoutChange = { [weak self] in self?.setToolbarLayout($0) }
+        controller.onEditPresets = { [weak self] in self?.showSettings(serversTab: true) }
         controller.showWindow(nil)
         rebuildServerMenu()
 
@@ -462,6 +463,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let name = item.representedObject as? String
                 item.state = (name == active) ? .on : .off
             }
+            refreshSpeedSubmenu(controller)
             return
         }
 
@@ -483,6 +485,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                               action: #selector(refreshNow(_:)), keyEquivalent: "r")
         refreshItem.target = self
         refreshItem.isEnabled = true
+        serverMenu.addItem(.separator())
+        let speedItem = serverMenu.addItem(withTitle: "Speed Limits", action: nil, keyEquivalent: "")
+        speedItem.tag = Self.speedMenuItemTag
+        refreshSpeedSubmenu(controller)
+    }
+
+    private static let speedMenuItemTag = 7001
+
+    /// Rebuild the Server ▸ Speed Limits submenu so it reflects the live session.
+    private func refreshSpeedSubmenu(_ controller: MainWindowController) {
+        guard let item = serverMenu.items.first(where: { $0.tag == Self.speedMenuItemTag }) else { return }
+        item.submenu = controller.makeSpeedLimitsMenu()
     }
 
     /// View ▸ Show Title Bar: same setting as Settings ▸ General ▸ Title bar.

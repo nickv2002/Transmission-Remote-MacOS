@@ -20,6 +20,8 @@ final class RefreshController {
     var onFetchingChanged: ((Bool) -> Void)?
     /// Fired when free space is re-queried outside a poll (the target path changed).
     var onFreeSpaceChanged: (() -> Void)?
+    /// Fired whenever the cached `session` changes (poll, limit edit, server switch).
+    var onSessionChanged: (() -> Void)?
 
     private var config: AppConfig
     private var client: TransmissionClient?
@@ -52,6 +54,14 @@ final class RefreshController {
     /// The daemon's default download directory (from `session-get`), used to
     /// prefill the Add-torrent destination. Updated on each session handshake.
     private(set) var defaultDownloadDir: String?
+
+    /// Latest `session-get` for the active server (speed limits, turtle mode).
+    /// Refreshed on every poll and right after a limit change; nil until the first
+    /// handshake and cleared on a server switch so old limits never show.
+    private(set) var session: SessionInfo?
+
+    /// Rolling whole-server rate samples for the status-bar sparkline.
+    private(set) var rateHistory = RateHistory()
 
     /// Free space (bytes) for `freeSpaceDir`, refreshed on each poll.
     private(set) var freeSpace: Int64?
@@ -171,6 +181,23 @@ final class RefreshController {
         }
     }
 
+    /// Runs a `session-set` through `action`, then refetches the session straight
+    /// away so menus and the status bar don't lag a poll behind. Returns an error
+    /// message on failure.
+    func updateSession(_ action: @Sendable (TransmissionClient) async throws -> Void) async -> String? {
+        guard let client else { return "Not connected." }
+        do {
+            try await action(client)
+            if let fresh = try? await client.fetchSession() {
+                session = fresh
+                onSessionChanged?()
+            }
+            return nil
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
     /// The host candidate currently in use (after failover resolution), for status.
     private(set) var resolvedServer: ServerConfig?
 
@@ -212,6 +239,9 @@ final class RefreshController {
         client = nil
         resolvedServer = nil
         hasFetchedTorrentsOnce = false
+        session = nil
+        rateHistory.removeAll()
+        onSessionChanged?()
         state = .connecting
         loopTask = Task { [weak self] in
             await self?.runLoop()
@@ -307,6 +337,8 @@ final class RefreshController {
         client = (try? TransmissionClient(server: resolved.server, timeout: operationalTimeout)) ?? resolved.client
         resolvedServer = resolved.server
         defaultDownloadDir = resolved.info.downloadDir
+        session = resolved.info
+        onSessionChanged?()
         hasConnectedOnce = true
         if !TestIsolation.isActive {
             UserDefaults.standard.set(resolved.server.connectionKey, forKey: lastGoodHostKey)
@@ -366,8 +398,17 @@ final class RefreshController {
                 guard let dir else { return nil }
                 return try? await client.freeSpace(path: dir)
             }()
+            // Best-effort: a daemon that can't answer this must not fail the poll.
+            async let sessionTask: SessionInfo? = try? await client.fetchSession()
             let torrents = try await torrentsTask
             freeSpace = await freeTask
+            if let fresh = await sessionTask {
+                session = fresh
+                onSessionChanged?()
+            }
+            rateHistory.append(
+                down: torrents.reduce(0) { $0 + $1.rateDownload },
+                up: torrents.reduce(0) { $0 + $1.rateUpload })
             if firstFetch {
                 perfLog("first list: \(torrents.count) torrents, fetch \(ms(since: started)) (slim)")
                 hasFetchedTorrentsOnce = true

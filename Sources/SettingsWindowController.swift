@@ -36,6 +36,8 @@ final class SettingsWindowController: NSWindowController {
     private let rpcPathField = NSTextField()
     private let usernameField = NSTextField()
     private let passwordField = NSSecureTextField()
+    private let downPresetsField = NSTextField()
+    private let upPresetsField = NSTextField()
     private let pathMappingsView = PlaceholderTextView()   // multi-line: one `remote=local` per line
     private let removeButton = NSButton()
     private var detailFields: [NSControl] = []
@@ -257,7 +259,8 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func buildServerForm() -> NSView {
-        for field in [nameField, hostField, portField, rpcPathField, usernameField, passwordField] {
+        for field in [nameField, hostField, portField, rpcPathField, usernameField, passwordField,
+                      downPresetsField, upPresetsField] {
             field.target = self
             field.action = #selector(serverFieldChanged)   // fires on end-editing (Tab/Return/focus loss)
             field.delegate = self                            // controlTextDidChange → live per-keystroke
@@ -279,8 +282,17 @@ final class SettingsWindowController: NSWindowController {
         rpcPathField.placeholderString = "/transmission/rpc"
         usernameField.placeholderString = "(none)"
 
+        downPresetsField.placeholderString = SpeedPresets.format(SpeedPresets.defaults)
+        upPresetsField.placeholderString = SpeedPresets.format(SpeedPresets.defaults)
+        let presetsCaption = label("Speed-limit menu choices in KB/s, comma-separated. The limits themselves are stored on the server.")
+        presetsCaption.font = .systemFont(ofSize: 10)
+        presetsCaption.textColor = .secondaryLabelColor
+        presetsCaption.lineBreakMode = .byWordWrapping
+        presetsCaption.maximumNumberOfLines = 0
+
         detailFields = [nameField, hostField, portField, httpsCheckbox,
-                        rpcPathField, usernameField, passwordField]
+                        rpcPathField, usernameField, passwordField,
+                        downPresetsField, upPresetsField]
 
         let mappingsScroll = buildPathMappingsEditor()
         let caption = label("Remote→local, one per line.\ne.g.  /video=/Volumes/Video\nLocal side also accepts smb://host/share/path, resolved to wherever that share is currently mounted.")
@@ -299,6 +311,9 @@ final class SettingsWindowController: NSWindowController {
             [label("Password:"), passwordField],
             [label("Path Mappings:"), mappingsScroll],
             [NSView(), caption],
+            [label("Download Presets:"), downPresetsField],
+            [label("Upload Presets:"), upPresetsField],
+            [NSView(), presetsCaption],
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
         grid.column(at: 0).xPlacement = .trailing
@@ -483,6 +498,7 @@ final class SettingsWindowController: NSWindowController {
             rpcPathField.stringValue = ""; usernameField.stringValue = ""; passwordField.stringValue = ""
             httpsCheckbox.state = .off
             pathMappingsView.string = ""
+            downPresetsField.stringValue = ""; upPresetsField.stringValue = ""
             return
         }
         nameField.stringValue = s.name
@@ -493,6 +509,8 @@ final class SettingsWindowController: NSWindowController {
         usernameField.stringValue = s.username ?? ""
         passwordField.stringValue = s.password ?? ""
         pathMappingsView.string = PathMapping.format(s.pathMappings)
+        downPresetsField.stringValue = SpeedPresets.format(s.downSpeedPresets)
+        upPresetsField.stringValue = SpeedPresets.format(s.upSpeedPresets)
     }
 
     @objc private func addServer() {
@@ -658,7 +676,9 @@ final class SettingsWindowController: NSWindowController {
             rpcPath: path.isEmpty ? "/transmission/rpc" : path,
             username: usernameField.stringValue.isEmpty ? nil : usernameField.stringValue,
             password: passwordField.stringValue.isEmpty ? nil : passwordField.stringValue,
-            pathMappings: PathMapping.parse(pathMappingsView.string))
+            pathMappings: PathMapping.parse(pathMappingsView.string),
+            downSpeedPresets: SpeedPresets.parse(downPresetsField.stringValue),
+            upSpeedPresets: SpeedPresets.parse(upPresetsField.stringValue))
     }
 
     /// Sync the selected server from the form's current text on every keystroke,

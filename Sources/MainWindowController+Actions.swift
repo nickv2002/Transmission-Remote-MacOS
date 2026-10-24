@@ -13,10 +13,11 @@ extension MainWindowController: NSToolbarDelegate {
         static let remove = NSToolbarItem.Identifier("remove")
         static let search = NSToolbarItem.Identifier("search")
         static let server = NSToolbarItem.Identifier("server")
+        static let speedLimits = NSToolbarItem.Identifier("speedLimits")
     }
 
     func buildToolbar() {
-        let toolbar = NSToolbar(identifier: "MainToolbar2")
+        let toolbar = NSToolbar(identifier: "MainToolbar3")
         toolbar.delegate = self
         toolbar.allowsUserCustomization = true
         // The palette's Show: popup / right-click menu change the display mode;
@@ -32,7 +33,7 @@ extension MainWindowController: NSToolbarDelegate {
             self.applyToolbarLayout(self.toolbarLayout)
         }
         toolbar.autosavesConfiguration = true
-        toolbar.centeredItemIdentifiers = [ToolbarID.server]
+        toolbar.centeredItemIdentifiers = [ToolbarID.server, ToolbarID.speedLimits]
         window?.toolbar = toolbar
     }
 
@@ -52,6 +53,7 @@ extension MainWindowController: NSToolbarDelegate {
         let tips = toolbarLayout.showsToolTips
         switch item.itemIdentifier {
         case ToolbarID.server: serverPopup?.toolTip = tips ? "Switch Server" : nil
+        case ToolbarID.speedLimits: updateSpeedLimitsItem()
         case ToolbarID.search: break   // its placeholder already explains it
         default: item.toolTip = tips && !item.label.isEmpty ? item.label : nil
         }
@@ -67,13 +69,13 @@ extension MainWindowController: NSToolbarDelegate {
         [ToolbarID.add, .space,
          ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
          ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         .flexibleSpace, ToolbarID.server, .flexibleSpace, ToolbarID.search]
+         .flexibleSpace, ToolbarID.server, ToolbarID.speedLimits, .flexibleSpace, ToolbarID.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [ToolbarID.add, ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
          ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         ToolbarID.search, ToolbarID.server, .space, .flexibleSpace]
+         ToolbarID.search, ToolbarID.server, ToolbarID.speedLimits, .space, .flexibleSpace]
     }
 
     func toolbar(_ toolbar: NSToolbar,
@@ -101,6 +103,11 @@ extension MainWindowController: NSToolbarDelegate {
             item.label = "Server"
             item.view = makeServerSwitcher(live: flag)
             return item
+        }
+
+        // Speed limits pull-down, next to the server switcher it belongs to.
+        if itemIdentifier == ToolbarID.speedLimits {
+            return makeSpeedLimitsItem(identifier: itemIdentifier, live: flag)
         }
 
         // The Add pull-down: primary click adds a file; the menu offers file/link.

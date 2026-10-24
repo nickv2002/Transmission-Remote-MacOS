@@ -536,14 +536,146 @@ enum TrackerSortKey: String, Sendable {
     }
 }
 
-/// Subset of `session-get` we care about for the MVP.
+/// Which direction a speed limit applies to.
+enum SpeedDirection: String, CaseIterable, Sendable {
+    case down, up
+}
+
+/// A speed limit as the daemon reports it: KB/s, or nil for unlimited.
+struct SpeedLimits: Equatable, Sendable {
+    var down: Int?
+    var up: Int?
+
+    subscript(direction: SpeedDirection) -> Int? {
+        get { direction == .down ? down : up }
+        set { if direction == .down { down = newValue } else { up = newValue } }
+    }
+}
+
+/// Subset of `session-get` we care about: version, download dir, and the
+/// speed-limit state. Speed fields are optional because older daemons omit them.
 struct SessionInfo: Codable, Sendable {
     let version: String
     let downloadDir: String?
+    let speedLimitDown: Int?
+    let speedLimitDownEnabled: Bool?
+    let speedLimitUp: Int?
+    let speedLimitUpEnabled: Bool?
+    let altSpeedEnabled: Bool?
+    let altSpeedDown: Int?
+    let altSpeedUp: Int?
+    /// Bytes per "KB" on this daemon (1000 on Transmission 4.x).
+    let speedBytes: Int?
+
+    init(
+        version: String, downloadDir: String? = nil,
+        speedLimitDown: Int? = nil, speedLimitDownEnabled: Bool? = nil,
+        speedLimitUp: Int? = nil, speedLimitUpEnabled: Bool? = nil,
+        altSpeedEnabled: Bool? = nil, altSpeedDown: Int? = nil, altSpeedUp: Int? = nil,
+        speedBytes: Int? = nil
+    ) {
+        self.version = version
+        self.downloadDir = downloadDir
+        self.speedLimitDown = speedLimitDown
+        self.speedLimitDownEnabled = speedLimitDownEnabled
+        self.speedLimitUp = speedLimitUp
+        self.speedLimitUpEnabled = speedLimitUpEnabled
+        self.altSpeedEnabled = altSpeedEnabled
+        self.altSpeedDown = altSpeedDown
+        self.altSpeedUp = altSpeedUp
+        self.speedBytes = speedBytes
+    }
 
     enum CodingKeys: String, CodingKey {
         case version
         case downloadDir = "download-dir"
+        case speedLimitDown = "speed-limit-down"
+        case speedLimitDownEnabled = "speed-limit-down-enabled"
+        case speedLimitUp = "speed-limit-up"
+        case speedLimitUpEnabled = "speed-limit-up-enabled"
+        case altSpeedEnabled = "alt-speed-enabled"
+        case altSpeedDown = "alt-speed-down"
+        case altSpeedUp = "alt-speed-up"
+        case units
+    }
+
+    private struct Units: Codable {
+        let speedBytes: Int?
+        enum CodingKeys: String, CodingKey { case speedBytes = "speed-bytes" }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(String.self, forKey: .version)
+        downloadDir = try c.decodeIfPresent(String.self, forKey: .downloadDir)
+        speedLimitDown = try c.decodeIfPresent(Int.self, forKey: .speedLimitDown)
+        speedLimitDownEnabled = try c.decodeIfPresent(Bool.self, forKey: .speedLimitDownEnabled)
+        speedLimitUp = try c.decodeIfPresent(Int.self, forKey: .speedLimitUp)
+        speedLimitUpEnabled = try c.decodeIfPresent(Bool.self, forKey: .speedLimitUpEnabled)
+        altSpeedEnabled = try c.decodeIfPresent(Bool.self, forKey: .altSpeedEnabled)
+        altSpeedDown = try c.decodeIfPresent(Int.self, forKey: .altSpeedDown)
+        altSpeedUp = try c.decodeIfPresent(Int.self, forKey: .altSpeedUp)
+        speedBytes = try c.decodeIfPresent(Units.self, forKey: .units)?.speedBytes
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(version, forKey: .version)
+        try c.encodeIfPresent(downloadDir, forKey: .downloadDir)
+        try c.encodeIfPresent(speedLimitDown, forKey: .speedLimitDown)
+        try c.encodeIfPresent(speedLimitDownEnabled, forKey: .speedLimitDownEnabled)
+        try c.encodeIfPresent(speedLimitUp, forKey: .speedLimitUp)
+        try c.encodeIfPresent(speedLimitUpEnabled, forKey: .speedLimitUpEnabled)
+        try c.encodeIfPresent(altSpeedEnabled, forKey: .altSpeedEnabled)
+        try c.encodeIfPresent(altSpeedDown, forKey: .altSpeedDown)
+        try c.encodeIfPresent(altSpeedUp, forKey: .altSpeedUp)
+        try c.encodeIfPresent(speedBytes.map { Units(speedBytes: $0) }, forKey: .units)
+    }
+
+    /// True when turtle ("alternative speed") mode is on.
+    var isTurtleOn: Bool { altSpeedEnabled ?? false }
+
+    /// The regular (non-turtle) limits; nil = unlimited.
+    var normalLimits: SpeedLimits {
+        SpeedLimits(
+            down: (speedLimitDownEnabled ?? false) ? speedLimitDown : nil,
+            up: (speedLimitUpEnabled ?? false) ? speedLimitUp : nil)
+    }
+
+    /// The turtle-mode limits (always finite on the daemon).
+    var turtleLimits: SpeedLimits { SpeedLimits(down: altSpeedDown, up: altSpeedUp) }
+
+    /// The limits actually in force right now.
+    var effectiveLimits: SpeedLimits { isTurtleOn ? turtleLimits : normalLimits }
+}
+
+/// Rolling window of whole-server (down, up) byte/s samples for the status-bar
+/// sparkline. Fed once per poll; cleared on a server switch.
+struct RateHistory: Equatable, Sendable {
+    static let defaultCapacity = 60
+
+    private(set) var down: [Int64] = []
+    private(set) var up: [Int64] = []
+    let capacity: Int
+
+    init(capacity: Int = RateHistory.defaultCapacity) {
+        self.capacity = max(1, capacity)
+    }
+
+    var count: Int { down.count }
+
+    mutating func append(down d: Int64, up u: Int64) {
+        down.append(d)
+        up.append(u)
+        if down.count > capacity {
+            down.removeFirst(down.count - capacity)
+            up.removeFirst(up.count - capacity)
+        }
+    }
+
+    mutating func removeAll() {
+        down.removeAll()
+        up.removeAll()
     }
 }
 

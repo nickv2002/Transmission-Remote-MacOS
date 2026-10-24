@@ -13,14 +13,20 @@ struct ServerConfig: Codable, Sendable, Equatable {
     /// Remote→local path-mapping rules (see `PathMapping`). Empty for servers that
     /// never need them; populated via the Settings screen.
     var pathMappings: [PathMapping]
+    /// Preset speed limits (KB/s) offered in this server's speed-limit menus.
+    var downSpeedPresets: [Int]
+    var upSpeedPresets: [Int]
 
     enum CodingKeys: String, CodingKey {
         case name, host, port, useHTTPS, rpcPath, username, password, pathMappings
+        case downSpeedPresets, upSpeedPresets
     }
 
     init(name: String, host: String, port: Int, useHTTPS: Bool, rpcPath: String,
          username: String? = nil, password: String? = nil,
-         pathMappings: [PathMapping] = []) {
+         pathMappings: [PathMapping] = [],
+         downSpeedPresets: [Int] = SpeedPresets.defaults,
+         upSpeedPresets: [Int] = SpeedPresets.defaults) {
         self.name = name
         self.host = host
         self.port = port
@@ -29,6 +35,8 @@ struct ServerConfig: Codable, Sendable, Equatable {
         self.username = username
         self.password = password
         self.pathMappings = pathMappings
+        self.downSpeedPresets = downSpeedPresets
+        self.upSpeedPresets = upSpeedPresets
     }
 
     init(from decoder: Decoder) throws {
@@ -43,6 +51,8 @@ struct ServerConfig: Codable, Sendable, Equatable {
         password = try c.decodeIfPresent(String.self, forKey: .password)
         // Backward-compatible: configs written before this feature have no key.
         pathMappings = try c.decodeIfPresent([PathMapping].self, forKey: .pathMappings) ?? []
+        downSpeedPresets = try c.decodeIfPresent([Int].self, forKey: .downSpeedPresets) ?? SpeedPresets.defaults
+        upSpeedPresets = try c.decodeIfPresent([Int].self, forKey: .upSpeedPresets) ?? SpeedPresets.defaults
     }
 
     /// The built-in default used when the config has no servers.

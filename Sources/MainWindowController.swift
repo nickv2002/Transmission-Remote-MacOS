@@ -11,6 +11,8 @@ final class MainWindowController: NSWindowController {
     /// The Info tab's piece-map row above the grid (`+Pieces.swift`).
     let pieceMap = PieceMapView()
     private let statusLabel = NSTextField(labelWithString: "")
+    /// Whole-server speed sparkline at the status bar's right edge.
+    private let rateSparkline = RateSparklineView()
 
     /// Bottom-left fetch indicator: an animated spinner while a poll is in flight,
     /// a static dot (tinted by connection state) when idle.
@@ -80,6 +82,10 @@ final class MainWindowController: NSWindowController {
     var toolbarVisibilityObservation: NSKeyValueObservation?
     /// Server-switching dropdown in the toolbar (nil until the toolbar builds it).
     var serverPopup: NSPopUpButton?
+    /// The live Speed Limits toolbar item (`+Speed.swift`); nil until the toolbar builds.
+    var speedLimitsItem: NSMenuToolbarItem?
+    /// Asks the app delegate to open Settings on the Servers tab (Edit Presets…).
+    var onEditPresets: (() -> Void)?
 
     /// Full sorted model — every torrent from the server.
     var torrents: [Torrent] = []
@@ -343,6 +349,7 @@ final class MainWindowController: NSWindowController {
         updateDetail()
         updateStatusBar(state: refresh.state)
         updateServerPopup()
+        updateSpeedLimitsItem()
     }
 
     // MARK: - Layout
@@ -467,6 +474,11 @@ final class MainWindowController: NSWindowController {
 
         // Sidebar filter groups, then the table/detail split, side by side.
         sidebar.onFilterChange = { [weak self] filter in self?.applyFilter(filter) }
+        refresh.onSessionChanged = { [weak self] in
+            guard let self else { return }
+            self.updateSpeedLimitsItem()
+            self.updateStatusBar(state: self.refresh.state)
+        }
         refresh.onFreeSpaceChanged = { [weak self] in
             guard let self else { return }
             self.updateStatusBar(state: self.refresh.state)
@@ -501,7 +513,10 @@ final class MainWindowController: NSWindowController {
         statusBar.addSubview(fetchSpinner)
         statusBar.addSubview(idleDot)
         statusBar.addSubview(statusLabel)
+        statusBar.addSubview(rateSparkline)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
+        rateSparkline.translatesAutoresizingMaskIntoConstraints = false
+        rateSparkline.menuProvider = { [weak self] in self?.makeSpeedLimitsMenu() ?? NSMenu() }
         NSLayoutConstraint.activate([
             fetchSpinner.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 10),
             fetchSpinner.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
@@ -511,7 +526,11 @@ final class MainWindowController: NSWindowController {
             idleDot.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
             idleDot.widthAnchor.constraint(equalToConstant: 12),
             statusLabel.leadingAnchor.constraint(equalTo: fetchSpinner.trailingAnchor, constant: 8),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusBar.trailingAnchor, constant: -10),
+            rateSparkline.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -10),
+            rateSparkline.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
+            rateSparkline.widthAnchor.constraint(equalToConstant: 96),
+            rateSparkline.heightAnchor.constraint(equalToConstant: 16),
+            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: rateSparkline.leadingAnchor, constant: -10),
             statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
         ])
         statusBar.translatesAutoresizingMaskIntoConstraints = false
@@ -790,8 +809,15 @@ final class MainWindowController: NSWindowController {
         let totalUp = torrents.reduce(Int64(0)) { $0 + $1.rateUpload }
         let down = Formatters.speed(totalDown)
         let up = Formatters.speed(totalUp)
-        let rates = [down.isEmpty ? nil : "↓ \(down)", up.isEmpty ? nil : "↑ \(up)"]
-            .compactMap { $0 }.joined(separator: "   ")
+        // A limit in force is shown even when idle ("↓ 0 KB/s (500 KB/s)") so the
+        // cap is always visible, as in the legacy status bar.
+        let downLimit = SpeedMenuModel.statusSuffix(session: refresh.session, direction: .down)
+        let upLimit = SpeedMenuModel.statusSuffix(session: refresh.session, direction: .up)
+        let rates = [
+            down.isEmpty && downLimit.isEmpty ? nil : "↓ \(down.isEmpty ? "0 KB/s" : down)\(downLimit)",
+            up.isEmpty && upLimit.isEmpty ? nil : "↑ \(up.isEmpty ? "0 KB/s" : up)\(upLimit)",
+        ].compactMap { $0 }.joined(separator: "   ")
+        rateSparkline.update(refresh.rateHistory)
 
         let count = displayed.count == torrents.count
             ? "\(torrents.count) torrents"

@@ -80,6 +80,34 @@ actor TransmissionClient {
         return info
     }
 
+    /// Sets (or clears, with nil) the regular speed limit for one direction in
+    /// KB/s. Like the legacy app, this also leaves turtle mode so the new limit
+    /// is the one in force.
+    func setSpeedLimit(_ direction: SpeedDirection, kbps: Int?) async throws {
+        try await sendIgnoringResult(
+            method: "session-set", arguments: Self.speedLimitArguments(direction, kbps: kbps))
+    }
+
+    /// Turns turtle ("alternative speed") mode on or off.
+    func setAltSpeedEnabled(_ enabled: Bool) async throws {
+        try await sendIgnoringResult(method: "session-set", arguments: ["alt-speed-enabled": enabled])
+    }
+
+    /// Sets the turtle-mode limit for one direction in KB/s.
+    func setAltSpeed(_ direction: SpeedDirection, kbps: Int) async throws {
+        try await sendIgnoringResult(
+            method: "session-set", arguments: ["alt-speed-\(direction.rawValue)": kbps])
+    }
+
+    nonisolated static func speedLimitArguments(_ direction: SpeedDirection, kbps: Int?) -> [String: Any] {
+        var args: [String: Any] = [
+            "speed-limit-\(direction.rawValue)-enabled": kbps != nil,
+            "alt-speed-enabled": false,
+        ]
+        if let kbps { args["speed-limit-\(direction.rawValue)"] = kbps }
+        return args
+    }
+
     func fetchTorrents(fields: [String] = Torrent.requestedFields) async throws -> [Torrent] {
         let args: [String: Any] = ["fields": fields]
         let response: RPCResponse<TorrentListArguments> = try await send(method: "torrent-get", arguments: args)

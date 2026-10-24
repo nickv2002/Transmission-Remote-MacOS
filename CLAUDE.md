@@ -130,6 +130,18 @@ servers 1–10 in Server-menu order; outline toolbar symbols. Both layouts were
 verified by window capture; menu items, tooltips, and clicks were not driven (no
 accessibility permission in that session).
 
+Round-5 (speed limits, no plan file): **Speed Limits toolbar pull-down** right of the server
+dropdown (both in `centeredItemIdentifiers`; autosave id bumped to `MainToolbar3`) and a matching
+**Server ▸ Speed Limits** submenu, both rendered from the Foundation-only `SpeedMenuModel`
+(`MainWindowController+Speed.swift`). Limits are **server-side** (`session-set`
+`speed-limit-*` / `alt-speed-*`, KB/s; setting a limit also leaves turtle mode, as legacy did); turtle
+mode is the "slow" profile (toggle + Turtle Down/Up submenus). Only the **preset lists**
+(`ServerConfig.downSpeedPresets`/`upSpeedPresets`, Settings ▸ Servers) are client-side, per server.
+`RefreshController` now polls `session-get` each tick (`session`, `onSessionChanged`), refetches right
+after a change (`updateSession`), and feeds `RateHistory` to the status-bar `RateSparklineView`;
+rates show the active limit, e.g. `↓ 1.2 MB/s (500 KB/s)`. Verified against a local mock RPC server
+(layout capture + `session-set` payloads); menu clicks were not driven.
+
 Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 
 - **Remove**'s data-deleting path and the per-file wanted/priority **writes** were
