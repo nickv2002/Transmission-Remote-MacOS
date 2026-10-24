@@ -528,7 +528,7 @@ final class MainWindowController: NSWindowController {
             statusLabel.leadingAnchor.constraint(equalTo: fetchSpinner.trailingAnchor, constant: 8),
             rateSparkline.trailingAnchor.constraint(equalTo: statusBar.trailingAnchor, constant: -10),
             rateSparkline.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
-            rateSparkline.widthAnchor.constraint(equalToConstant: 96),
+            rateSparkline.widthAnchor.constraint(equalToConstant: 110),
             rateSparkline.heightAnchor.constraint(equalToConstant: 16),
             statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: rateSparkline.leadingAnchor, constant: -10),
             statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
