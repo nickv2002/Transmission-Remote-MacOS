@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.24.1 — 2026-10-24
+
+- Add speed-limit control and global speed readout
+
 ## 2026.10.22.1 — 2026-10-22
 
 - Add sortable Uploaded column (#21)

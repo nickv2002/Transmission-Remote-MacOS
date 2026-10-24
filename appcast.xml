@@ -307,5 +307,17 @@
         length="4537225"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.10.24.1</title>
+      <sparkle:version>2026.10.24.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Sat, 24 Oct 2026 18:04:32 +0000</pubDate>
+      <description><![CDATA[<p>Adds a speed-limit control and a global speed readout, so you can set download and upload limits and see current transfer speeds at a glance.</p><ul><li>Add speed-limit control and global speed readout</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.24.1/Transmission.Remote-2026.10.24.1.zip"
+        sparkle:edSignature="VtRSpVnHGvgNoxC/LOEhEEoojqgR3nB1Q47sQAalG3dG+zolfPdttwFqFJExPQvgASAXISTK8NZakT12BwVmDA=="
+        length="5928611"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
