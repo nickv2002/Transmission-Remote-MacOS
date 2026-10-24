@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.24.2 — 2026-10-24
+
+- Label the status-bar speed graph and open the speed menu on click
+
 ## 2026.10.24.1 — 2026-10-24
 
 - Add speed-limit control and global speed readout
