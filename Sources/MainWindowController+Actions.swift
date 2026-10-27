@@ -1,8 +1,11 @@
 import AppKit
 
 /// Toolbar, context menu, and the start/stop/force-start/rename/move actions.
-extension MainWindowController: NSToolbarDelegate {
+extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMenuItemValidation {
     private enum ToolbarID {
+        static let transferControls = NSToolbarItem.Identifier("transferControls")
+        static let torrentControls = NSToolbarItem.Identifier("torrentControls")
+        static let serverControls = NSToolbarItem.Identifier("serverControls")
         static let add = NSToolbarItem.Identifier("add")
         static let start = NSToolbarItem.Identifier("start")
         static let stop = NSToolbarItem.Identifier("stop")
@@ -13,6 +16,7 @@ extension MainWindowController: NSToolbarDelegate {
         static let remove = NSToolbarItem.Identifier("remove")
         static let search = NSToolbarItem.Identifier("search")
         static let server = NSToolbarItem.Identifier("server")
+        static let serverOptions = NSToolbarItem.Identifier("serverOptions")
         static let speedLimits = NSToolbarItem.Identifier("speedLimits")
     }
 
@@ -32,9 +36,37 @@ extension MainWindowController: NSToolbarDelegate {
             guard let self else { return }
             self.applyToolbarLayout(self.toolbarLayout)
         }
-        toolbar.autosavesConfiguration = true
-        toolbar.centeredItemIdentifiers = [ToolbarID.server, ToolbarID.speedLimits]
+        toolbar.autosavesConfiguration = !TestIsolation.isActive
+        toolbar.centeredItemIdentifiers = [ToolbarID.serverControls, ToolbarID.server, ToolbarID.serverOptions, ToolbarID.speedLimits]
         window?.toolbar = toolbar
+        // Introduce the new item once without resetting the user's toolbar layout.
+        let introducedKey = "ServerOptionsToolbarIntroduced"
+        if !TestIsolation.isActive && !UserDefaults.standard.bool(forKey: introducedKey) {
+            if !toolbar.items.contains(where: { $0.itemIdentifier == ToolbarID.serverOptions }),
+               let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == ToolbarID.server }) {
+                toolbar.insertItem(withItemIdentifier: ToolbarID.serverOptions, at: index + 1)
+            }
+            UserDefaults.standard.set(true, forKey: introducedKey)
+        }
+        // Remove only the old default spacer after Add; preserve custom layouts.
+        let spacingKey = "ToolbarActionSpacingIntroduced"
+        if !TestIsolation.isActive && !UserDefaults.standard.bool(forKey: spacingKey) {
+            let prefix = toolbar.items.prefix(3).map(\.itemIdentifier)
+            if prefix == [ToolbarID.add, .space, ToolbarID.start] { toolbar.removeItem(at: 1) }
+            UserDefaults.standard.set(true, forKey: spacingKey)
+        }
+        let groupsKey = "GroupedToolbarIntroduced"
+        if !TestIsolation.isActive && !UserDefaults.standard.bool(forKey: groupsKey) {
+            let current = toolbar.items.map(\.itemIdentifier)
+            let grouped = ToolbarGroups.migrated(current)
+            if grouped != current {
+                for index in toolbar.items.indices.reversed() { toolbar.removeItem(at: index) }
+                for (index, identifier) in grouped.enumerated() {
+                    toolbar.insertItem(withItemIdentifier: identifier, at: index)
+                }
+            }
+            UserDefaults.standard.set(true, forKey: groupsKey)
+        }
     }
 
     /// Title bar (full or hidden) and button labels (shown or tooltips) are
@@ -50,6 +82,11 @@ extension MainWindowController: NSToolbarDelegate {
 
     /// Hidden labels show as tooltips instead; visible labels need none.
     private func updateToolTip(_ item: NSToolbarItem) {
+        if let group = item as? NSToolbarItemGroup {
+            group.subitems.forEach(updateToolTip)
+            (group as? SegmentedToolbarGroup)?.refreshContents()
+            return
+        }
         let tips = toolbarLayout.showsToolTips
         switch item.itemIdentifier {
         case ToolbarID.server: serverPopup?.toolTip = tips ? "Switch Server" : nil
@@ -66,21 +103,50 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [ToolbarID.add, .space,
-         ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
-         ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         .flexibleSpace, ToolbarID.server, ToolbarID.speedLimits, .flexibleSpace, ToolbarID.search]
+        [ToolbarID.add, .space, ToolbarID.transferControls, .space, ToolbarID.torrentControls,
+         .space, ToolbarID.remove, .flexibleSpace, ToolbarID.serverControls, .flexibleSpace, ToolbarID.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [ToolbarID.add, ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
+        [ToolbarID.transferControls, ToolbarID.torrentControls, ToolbarID.serverControls,
+         ToolbarID.add, ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
          ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         ToolbarID.search, ToolbarID.server, ToolbarID.speedLimits, .space, .flexibleSpace]
+         ToolbarID.search, ToolbarID.server, ToolbarID.serverOptions, ToolbarID.speedLimits, .space, .flexibleSpace]
     }
 
     func toolbar(_ toolbar: NSToolbar,
                  itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        let members: [NSToolbarItem.Identifier]
+        switch itemIdentifier {
+        case ToolbarID.transferControls: members = [ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart]
+        case ToolbarID.torrentControls: members = [ToolbarID.rename, ToolbarID.move, ToolbarID.verify]
+        default: members = []
+        }
+        if !members.isEmpty {
+            let items = members.compactMap { self.toolbar(toolbar, itemForItemIdentifier: $0, willBeInsertedIntoToolbar: flag) }
+            return ToolbarGroups.actions(identifier: itemIdentifier, items: items)
+        }
+        if itemIdentifier == ToolbarID.serverControls {
+            let server = NSMenuToolbarItem(itemIdentifier: ToolbarID.server)
+            server.label = "Server"
+            server.image = insetServerIconImage
+            server.menu = makeServerMenu()
+            server.autovalidates = false
+            let options = self.toolbar(toolbar, itemForItemIdentifier: ToolbarID.serverOptions,
+                                       willBeInsertedIntoToolbar: flag)!
+            let speed = makeSpeedLimitsItem(identifier: ToolbarID.speedLimits, live: flag)
+            let group = SegmentedToolbarGroup(identifier: itemIdentifier, items: [server, speed, options])
+            group.segments.setImageScaling(.scaleNone, forSegment: 0)
+            group.segments.setLabel(refresh.currentServerName, forSegment: 0)
+            group.segments.segmentDistribution = .fit
+            group.segments.setWidth(160, forSegment: 0)
+            group.segments.setWidth(118, forSegment: 1)
+            group.segments.setWidth(118, forSegment: 2)
+            group.alignsCaptionsToSegments = true
+            if flag { serverToolbarGroup = group }
+            return group
+        }
         // The live-filter search box.
         if itemIdentifier == ToolbarID.search {
             let item = NSSearchToolbarItem(itemIdentifier: itemIdentifier)
@@ -114,8 +180,9 @@ extension MainWindowController: NSToolbarDelegate {
         if itemIdentifier == ToolbarID.add {
             let item = NSMenuToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Add"
-            item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add")
-            item.isBordered = true
+            item.image = toolbarSymbol("plus", description: "Add")
+            item.possibleLabels = ["Add", "Force Start"]
+            item.isBordered = false
             item.target = self
             item.action = #selector(addFile(_:))
             item.menu = addMenu()
@@ -124,29 +191,55 @@ extension MainWindowController: NSToolbarDelegate {
 
         let spec: (label: String, symbol: String, action: Selector)?
         switch itemIdentifier {
+        case ToolbarID.serverOptions: spec = ("Server Options", "slider.horizontal.3", #selector(openServerOptions(_:)))
         case ToolbarID.start: spec = ("Start", "play", #selector(startSelected(_:)))
         case ToolbarID.stop: spec = ("Stop", "stop", #selector(stopSelected(_:)))
         case ToolbarID.forceStart: spec = ("Force Start", "forward", #selector(forceStartSelected(_:)))
         case ToolbarID.rename: spec = ("Rename", "square.and.pencil", #selector(renameSelected(_:)))
         case ToolbarID.move: spec = ("Move", "folder", #selector(moveSelected(_:)))
         case ToolbarID.verify: spec = ("Verify", "checkmark.shield", #selector(verifySelected(_:)))
-        case ToolbarID.remove: spec = ("Remove…", "trash", #selector(removeSelected(_:)))
+        case ToolbarID.remove: spec = ("Remove", "trash", #selector(removeSelected(_:)))
         default: spec = nil
         }
         guard let spec else { return nil }
 
         let item = NSToolbarItem(itemIdentifier: itemIdentifier)
         item.label = spec.label
-        item.image = NSImage(systemSymbolName: spec.symbol, accessibilityDescription: spec.label)
+        item.image = toolbarSymbol(spec.symbol, description: spec.label)
+        item.possibleLabels = [spec.label, "Force Start"]
         item.target = self
         item.action = spec.action
         item.isBordered = true
+        if itemIdentifier == ToolbarID.remove {
+            let group = ToolbarGroups.actions(identifier: itemIdentifier, items: [item])
+            group.segments.setWidth(60, forSegment: 0)
+            return group
+        }
         return item
     }
 
+    func toolbarSymbol(_ name: String, description: String) -> NSImage? {
+        NSImage(systemSymbolName: name, accessibilityDescription: description)?
+            .withSymbolConfiguration(.init(pointSize: 17, weight: .regular))
+    }
+
     private var serverIconImage: NSImage? {
-        NSImage(systemSymbolName: "externaldrive.connected.to.line.below",
-                accessibilityDescription: "Server")
+        toolbarSymbol("server.rack", description: "Switch Server")
+    }
+
+    /// Reserve leading space even when a long server name fills the segment.
+    /// The template image keeps AppKit's native tint and disabled appearance.
+    private var insetServerIconImage: NSImage? {
+        guard let symbol = serverIconImage else { return nil }
+        let inset: CGFloat = 10
+        let image = NSImage(size: NSSize(width: symbol.size.width + inset, height: symbol.size.height),
+                            flipped: false) { _ in
+            symbol.draw(at: NSPoint(x: inset, y: 0), from: .zero, operation: .sourceOver, fraction: 1)
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = symbol.accessibilityDescription
+        return image
     }
 
     /// `live` is false for the Customize Toolbar palette's copy, which must not
@@ -156,14 +249,15 @@ extension MainWindowController: NSToolbarDelegate {
         // the dropdown too.
         let icon = NSButton(image: NSImage(), target: self, action: #selector(serverIconClicked(_:)))
         icon.isBordered = false
-        icon.imageScaling = .scaleProportionallyUpOrDown
+        icon.imageScaling = .scaleProportionallyDown
         icon.image = serverIconImage
         icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
         icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
         popup.isBordered = false
-        popup.font = .titleBarFont(ofSize: 0)
+        popup.font = .systemFont(ofSize: NSFont.systemFontSize)
+        popup.setAccessibilityLabel("Server")
         popup.target = self
         popup.action = #selector(serverPopupChanged(_:))
         if live { serverPopup = popup }
@@ -172,19 +266,42 @@ extension MainWindowController: NSToolbarDelegate {
 
         let stack = NSStackView(views: [icon, popup])
         stack.orientation = .horizontal
-        stack.spacing = 4
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 6)
         return stack
     }
 
     /// Sync the switcher's items and selection with the configured servers.
     func updateServerPopup() {
-        guard let popup = serverPopup else { return }
-        let names = refresh.availableServerNames
-        if popup.itemTitles != names {
-            popup.removeAllItems()
-            popup.addItems(withTitles: names)
+        if let popup = serverPopup {
+            let names = refresh.availableServerNames
+            if popup.itemTitles != names {
+                popup.removeAllItems()
+                popup.addItems(withTitles: names)
+            }
+            popup.selectItem(withTitle: refresh.currentServerName)
         }
-        popup.selectItem(withTitle: refresh.currentServerName)
+        if let group = serverToolbarGroup {
+            (group.subitems.first as? NSMenuToolbarItem)?.menu = makeServerMenu()
+            group.segments.setLabel(refresh.currentServerName, forSegment: 0)
+            group.refreshContents()
+        }
+    }
+
+    private func makeServerMenu() -> NSMenu {
+        let menu = NSMenu(title: "Server")
+        for name in refresh.availableServerNames {
+            let item = menu.addItem(withTitle: name, action: #selector(serverMenuChanged(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = name
+            item.state = name == refresh.currentServerName ? .on : .off
+        }
+        return menu
+    }
+
+    @objc private func serverMenuChanged(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        selectServer(name)
     }
 
     @objc private func serverIconClicked(_ sender: NSButton) {
@@ -261,6 +378,7 @@ extension MainWindowController: NSToolbarDelegate {
             item.target = self
         }
         priorityItem.submenu = priorityMenu
+        menu.addItem(withTitle: "Bandwidth Group…", action: #selector(assignBandwidthGroupSelected(_:)), keyEquivalent: "")
 
         menu.addItem(.separator())
         menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealInFinderSelected(_:)), keyEquivalent: "r")
@@ -300,6 +418,11 @@ extension MainWindowController: NSToolbarDelegate {
         static let top = 0, up = 1, down = 2, bottom = 3
     }
 
+    @objc private func openServerOptions(_ sender: Any?) {
+        guard refresh.activeClient != nil, refresh.resolvedServer != nil else { return }
+        onServerOptions?()
+    }
+
     // MARK: - Enablement
 
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
@@ -316,6 +439,10 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     private func validate(action: Selector?) -> Bool {
+        if action == #selector(openServerOptions(_:)) {
+            return refresh.activeClient != nil && refresh.resolvedServer != nil
+        }
+        if action == #selector(serverMenuChanged(_:)) { return true }
         // The search field is always enabled, regardless of row selection.
         if action == #selector(searchChanged(_:)) { return true }
         // Adding is always available (independent of the row selection).
@@ -600,6 +727,55 @@ extension MainWindowController: NSToolbarDelegate {
 
     private func clickedTorrent() -> Torrent? {
         torrentAt(row: tableView.clickedRow)
+    }
+
+    @objc func assignBandwidthGroupSelected(_ sender: Any?) {
+        let hashes = selectionForAction().map(\.hashString)
+        guard !hashes.isEmpty, let client = refresh.activeClient, let window, window.attachedSheet == nil else { return }
+        let serverName = refresh.activeServerConfig.name
+        Task { @MainActor [self] in
+            do {
+                guard try await client.fetchServerOptions().supportsGroups else {
+                    throw ServerOptionsError(message: "Bandwidth groups require Transmission 4.0 or later.")
+                }
+                let groups = try await client.fetchBandwidthGroups().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                let baseline = try await client.fetchTorrentGroups(hashes: hashes)
+                guard Set(baseline.map(\.hashString)) == Set(hashes) else {
+                    throw ServerOptionsError(message: "Some selected torrents are no longer available.")
+                }
+                guard window.attachedSheet == nil else { return }
+                let alert = NSAlert()
+                alert.messageText = "Assign Bandwidth Group"
+                alert.informativeText = "Apply to \(hashes.count) selected torrent(s) on \(serverName). Manage group limits in Server Options → Bandwidth."
+                alert.addButton(withTitle: "Apply")
+                alert.addButton(withTitle: "Cancel")
+                let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 350, height: 28))
+                popup.addItem(withTitle: "None (session limits only)")
+                popup.addItems(withTitles: groups.map(\.name))
+                let current = Set(baseline.map(\.group))
+                var names = [""] + groups.map(\.name)
+                if current.count == 1, let name = current.first, let index = names.firstIndex(of: name) { popup.selectItem(at: index) }
+                else {
+                    popup.addItem(withTitle: "Mixed or unavailable — choose a group")
+                    names.append("__unchanged__")
+                    popup.selectItem(at: names.count - 1)
+                }
+                popup.setAccessibilityLabel("Bandwidth group for selected torrents")
+                alert.accessoryView = popup
+                let choices = names
+                alert.beginSheetModal(for: window) { [weak self] response in
+                    guard response == .alertFirstButtonReturn, choices.indices.contains(popup.indexOfSelectedItem),
+                          popup.indexOfSelectedItem < groups.count + 1 else { return }
+                    let chosen = choices[popup.indexOfSelectedItem]
+                    Task { @MainActor in
+                        do {
+                            try await client.assignBandwidthGroup(chosen, baseline: baseline)
+                            if self?.refresh.activeClient === client { self?.refresh.refreshNow() }
+                        } catch { self?.showError(error) }
+                    }
+                }
+            } catch { showError(error) }
+        }
     }
 
     /// Runs an RPC call against the live client, then refreshes. Errors surface

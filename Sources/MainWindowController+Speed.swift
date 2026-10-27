@@ -70,10 +70,11 @@ extension MainWindowController {
     func makeSpeedLimitsItem(identifier: NSToolbarItem.Identifier, live: Bool) -> NSToolbarItem {
         let item = NSMenuToolbarItem(itemIdentifier: identifier)
         item.label = "Speed Limits"
-        item.isBordered = true
+        item.isBordered = false
         item.showsIndicator = true
+        item.autovalidates = false
         item.menu = makeSpeedLimitsMenu()
-        item.image = NSImage(systemSymbolName: "speedometer", accessibilityDescription: "Speed Limits")
+        item.image = toolbarSymbol("speedometer", description: "Speed Limits")
         if live {
             speedLimitsItem = item
             updateSpeedLimitsItem()
@@ -88,19 +89,20 @@ extension MainWindowController {
         let session = refresh.session
         let symbol: String
         if session?.isTurtleOn == true {
-            symbol = "tortoise.fill"
+            symbol = "tortoise"
         } else if let limits = session?.normalLimits, limits.down != nil || limits.up != nil {
-            symbol = "gauge.with.needle.fill"
+            symbol = "gauge.with.needle"
         } else {
             symbol = "speedometer"
         }
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "Speed Limits")
-            ?? NSImage(systemSymbolName: "speedometer", accessibilityDescription: "Speed Limits")
+        item.image = toolbarSymbol(symbol, description: "Speed Limits")
+            ?? toolbarSymbol("speedometer", description: "Speed Limits")
         if toolbarLayout.showsToolTips {
             item.toolTip = speedSummary(session)
         } else {
             item.toolTip = nil
         }
+        serverToolbarGroup?.refreshContents()
     }
 
     /// "Speed limits — ↓ 500 KB/s  ↑ unlimited" (turtle noted when active).

@@ -82,10 +82,12 @@ final class MainWindowController: NSWindowController {
     var toolbarVisibilityObservation: NSKeyValueObservation?
     /// Server-switching dropdown in the toolbar (nil until the toolbar builds it).
     var serverPopup: NSPopUpButton?
+    var serverToolbarGroup: SegmentedToolbarGroup?
     /// The live Speed Limits toolbar item (`+Speed.swift`); nil until the toolbar builds.
     var speedLimitsItem: NSMenuToolbarItem?
     /// Asks the app delegate to open Settings on the Servers tab (Edit Presets…).
     var onEditPresets: (() -> Void)?
+    var onServerOptions: (() -> Void)?
 
     /// Full sorted model — every torrent from the server.
     var torrents: [Torrent] = []
