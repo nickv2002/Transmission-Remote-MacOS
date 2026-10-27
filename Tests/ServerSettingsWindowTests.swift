@@ -130,6 +130,24 @@ struct ServerSettingsWindowTests {
         #expect(await service.writes.isEmpty)
     }
 
+    @Test func reopeningAHiddenWindowKeepsUnsavedEdits() async throws {
+        let service = OptionsStub()
+        let c = try await controller(service: service)
+        let config = AppConfig(servers: [Self.server], refreshSeconds: 4, currentServer: Self.server.name)
+        type("/data/still here", into: try #require(c.form.controls[.downloadDir]?.first as? NSTextField), c)
+        c.window?.orderOut(nil)   // closed-looking: minimized and hidden windows aren't visible either
+        c.reopen(with: config)
+        #expect(c.form.session?.editor?.text(.downloadDir) == "/data/still here")
+        #expect(c.isDirty(Self.server.id))
+        // With nothing pending, reopening re-seeds from the saved config.
+        c.revertSettings(nil)
+        var renamed = Self.server
+        renamed.name = "Renamed elsewhere"
+        c.reopen(with: AppConfig(servers: [renamed], refreshSeconds: 4, currentServer: renamed.name))
+        #expect(c.editor.servers.first?.name == "Renamed elsewhere")
+        #expect(await service.writes.isEmpty)
+    }
+
     @Test func applyButtonCommitsAndRefreshesControls() async throws {
         let service = OptionsStub()
         let c = try await controller(service: service)

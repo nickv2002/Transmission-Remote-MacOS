@@ -383,6 +383,15 @@ final class SettingsWindowController: NSWindowController {
         select(target, tab: nil)   // falls back to General if that server is gone
     }
 
+    /// Called whenever Settings is opened from a menu or button. Re-seeds from the
+    /// saved config only when nothing would be lost: never with pending edits
+    /// (a minimized or hidden window reports `isVisible == false` too), and never
+    /// while the window is on screen.
+    func reopen(with config: AppConfig) {
+        guard !hasPendingEdits, window?.isVisible != true, !working else { return }
+        reset(to: config)
+    }
+
     /// Keep the editor in step with a toolbar layout changed in the View menu,
     /// without touching pending server edits.
     func showToolbarLayout(_ layout: ToolbarLayout) {
