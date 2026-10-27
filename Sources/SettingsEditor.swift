@@ -114,6 +114,8 @@ struct SettingsEditor: Equatable {
                                normalizeName: Bool) -> ServerConfig {
         guard working.servers.indices.contains(index) else { return candidate }
         var s = candidate
+        // The row keeps its identity: a candidate built from form fields has a fresh id.
+        s.id = working.servers[index].id
         let oldName = working.servers[index].name
         if normalizeName {
             let trimmed = s.name.trimmingCharacters(in: .whitespaces)

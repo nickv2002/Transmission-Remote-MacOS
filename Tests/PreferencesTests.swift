@@ -245,4 +245,54 @@ final class PreferencesTests: XCTestCase {
         let loaded = try PreferencesStore.load(storeURL: store, legacyURL: legacy)
         XCTAssertEqual(loaded.servers.first?.name, "Native")
     }
+
+    // MARK: - Stable server ids
+
+    func testServerWithoutIDDecodesWithAMintedID() throws {
+        let a = try JSONDecoder().decode(ServerConfig.self, from: Data(#"{"name":"A"}"#.utf8))
+        let b = try JSONDecoder().decode(ServerConfig.self, from: Data(#"{"name":"A"}"#.utf8))
+        XCTAssertNotEqual(a.id, b.id, "each entry without an id gets its own")
+    }
+
+    func testServerIDSurvivesRoundTripAndHostCandidates() throws {
+        let server = ServerConfig(name: "N", host: "10.0.0.1, n.local", port: 9091,
+                                  useHTTPS: false, rpcPath: "/transmission/rpc")
+        let decoded = try JSONDecoder().decode(ServerConfig.self, from: JSONEncoder().encode(server))
+        XCTAssertEqual(decoded.id, server.id)
+        XCTAssertEqual(server.connectionCandidates.map(\.id), [server.id, server.id])
+    }
+
+    func testDecodesExplicitID() throws {
+        let id = UUID()
+        let json = #"{"id":"\#(id.uuidString)","name":"N"}"#
+        XCTAssertEqual(try JSONDecoder().decode(ServerConfig.self, from: Data(json.utf8)).id, id)
+    }
+
+    func testLoadingAStoreWithoutIDsWritesStableIDsBack() throws {
+        let store = tmp.appendingPathComponent("preferences.json")
+        try #"{"servers":[{"name":"A","host":"a"},{"name":"B","host":"b"}],"refreshSeconds":3}"#
+            .write(to: store, atomically: true, encoding: .utf8)
+        XCTAssertTrue(PreferencesStore.lacksServerIDs(try Data(contentsOf: store)))
+
+        let first = try PreferencesStore.load(storeURL: store, legacyURL: nil)
+        XCTAssertFalse(PreferencesStore.lacksServerIDs(try Data(contentsOf: store)))
+        let second = try PreferencesStore.load(storeURL: store, legacyURL: nil)
+        XCTAssertEqual(first.servers.map(\.id), second.servers.map(\.id))
+        XCTAssertEqual(second.serverNames, ["A", "B"])
+        XCTAssertEqual(second.refreshSeconds, 3)
+        XCTAssertEqual(second.server(id: first.servers[1].id)?.host, "b")
+    }
+
+    func testLoadingAStoreWithIDsDoesNotRewriteIt() throws {
+        let store = tmp.appendingPathComponent("preferences.json")
+        let config = AppConfig(servers: [ServerConfig(name: "A", host: "a", port: 1,
+                                                      useHTTPS: false, rpcPath: "/r")],
+                               refreshSeconds: 4)
+        try PreferencesStore.save(config, to: store)
+        let before = try FileManager.default.attributesOfItem(atPath: store.path)[.modificationDate] as? Date
+        Thread.sleep(forTimeInterval: 0.02)
+        XCTAssertEqual(try PreferencesStore.load(storeURL: store, legacyURL: nil), config)
+        let after = try FileManager.default.attributesOfItem(atPath: store.path)[.modificationDate] as? Date
+        XCTAssertEqual(before, after)
+    }
 }
