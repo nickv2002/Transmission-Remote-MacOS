@@ -50,4 +50,6 @@ xcodebuild -project TransmissionRemote.xcodeproj -scheme TransmissionRemote \
 
 The standalone suites cover settings validation, exact wire names, sparse writes, missing capabilities, transport fallback, multiline trackers, dependencies, conflicts, uncertain writes, toolbar action routing/migration, group operations/assignments, port protocols, accessibility and light/dark minimum-size layouts. Full Xcode remains necessary to execute the original XCTest target and normal packaging route.
 
+Native arrow/Space navigation requires a foreground application. That check runs in the standalone helper and is explicitly skipped in the background-only Xcode test host; the rest of the suites run in both.
+
 The helper supports Command Line Tools and full Xcode, hosts AppKit on its main-thread event loop, and requires an explicit completion marker so an early application exit cannot be mistaken for passing tests. Its output is saved in `build/server-options-tests/results.log`.

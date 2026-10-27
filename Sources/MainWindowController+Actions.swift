@@ -37,7 +37,8 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
             self.applyToolbarLayout(self.toolbarLayout)
         }
         toolbar.autosavesConfiguration = !TestIsolation.isActive
-        toolbar.centeredItemIdentifiers = [ToolbarID.serverControls, ToolbarID.server, ToolbarID.serverOptions, ToolbarID.speedLimits]
+        // Flexible spaces balance the server controls in the remaining width.
+        // Hard window-centering can hide them in the narrower default-set preview.
         window?.toolbar = toolbar
         // Introduce the new item once without resetting the user's toolbar layout.
         let introducedKey = "ServerOptionsToolbarIntroduced"
@@ -125,7 +126,7 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         }
         if !members.isEmpty {
             let items = members.compactMap { self.toolbar(toolbar, itemForItemIdentifier: $0, willBeInsertedIntoToolbar: flag) }
-            return ToolbarGroups.actions(identifier: itemIdentifier, items: items)
+            return ToolbarGroups.actions(identifier: itemIdentifier, items: items, isPaletteItem: !flag)
         }
         if itemIdentifier == ToolbarID.serverControls {
             let server = NSMenuToolbarItem(itemIdentifier: ToolbarID.server)
@@ -135,22 +136,27 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
             server.autovalidates = false
             let options = self.toolbar(toolbar, itemForItemIdentifier: ToolbarID.serverOptions,
                                        willBeInsertedIntoToolbar: flag)!
-            let speed = makeSpeedLimitsItem(identifier: ToolbarID.speedLimits, live: flag)
-            let group = SegmentedToolbarGroup(identifier: itemIdentifier, items: [server, speed, options])
+            let speed = makeSpeedLimitsItem(identifier: ToolbarID.speedLimits)
+            let group = SegmentedToolbarGroup(identifier: itemIdentifier, items: [server, speed, options],
+                                              isPaletteItem: !flag)
             group.segments.setImageScaling(.scaleNone, forSegment: 0)
-            group.segments.setLabel(refresh.currentServerName, forSegment: 0)
             group.segments.segmentDistribution = .fit
             group.segments.setWidth(160, forSegment: 0)
             group.segments.setWidth(118, forSegment: 1)
             group.segments.setWidth(118, forSegment: 2)
+            group.setServerName(refresh.currentServerName)
             group.alignsCaptionsToSegments = true
             if flag { serverToolbarGroup = group }
             return group
         }
         // The live-filter search box.
         if itemIdentifier == ToolbarID.search {
+            if !flag {
+                return ToolbarGroups.paletteItem(identifier: itemIdentifier, label: "Search", text: "Search",
+                                                  image: toolbarSymbol("magnifyingglass", description: "Search"), width: 120)
+            }
             let item = NSSearchToolbarItem(itemIdentifier: itemIdentifier)
-            item.searchField.placeholderString = searchPlaceholder
+            ToolbarGroups.configureSearchField(item.searchField, placeholder: searchPlaceholder)
             item.searchField.sendsWholeSearchString = false
             item.searchField.sendsSearchStringImmediately = true
             item.searchField.target = self
@@ -165,6 +171,10 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
 
         // Server-switching dropdown, centered in the toolbar row.
         if itemIdentifier == ToolbarID.server {
+            if !flag {
+                return ToolbarGroups.paletteItem(identifier: itemIdentifier, label: "Server", text: refresh.currentServerName,
+                                                  image: serverIconImage, width: 160, showsMenuIndicator: true)
+            }
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Server"
             item.view = makeServerSwitcher(live: flag)
@@ -173,19 +183,18 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
 
         // Speed limits pull-down, next to the server switcher it belongs to.
         if itemIdentifier == ToolbarID.speedLimits {
-            return makeSpeedLimitsItem(identifier: itemIdentifier, live: flag)
+            if !flag { return makeSpeedLimitsPaletteItem(identifier: itemIdentifier) }
+            return makeSpeedLimitsItem(identifier: itemIdentifier)
         }
 
         // The Add pull-down: primary click adds a file; the menu offers file/link.
         if itemIdentifier == ToolbarID.add {
-            let item = NSMenuToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Add"
-            item.image = toolbarSymbol("plus", description: "Add")
-            item.possibleLabels = ["Add", "Force Start"]
-            item.isBordered = false
+            if !flag {
+                return ToolbarGroups.addPaletteItem(identifier: itemIdentifier, image: toolbarSymbol("plus", description: "Add"))
+            }
+            let item = ToolbarAddItem(identifier: itemIdentifier, image: toolbarSymbol("plus", description: "Add"), menu: addMenu())
             item.target = self
             item.action = #selector(addFile(_:))
-            item.menu = addMenu()
             return item
         }
 
@@ -202,6 +211,10 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         default: spec = nil
         }
         guard let spec else { return nil }
+        if !flag && itemIdentifier != ToolbarID.remove {
+            return ToolbarGroups.paletteItem(identifier: itemIdentifier, label: spec.label, text: "",
+                                              image: toolbarSymbol(spec.symbol, description: spec.label), width: 36)
+        }
 
         let item = NSToolbarItem(itemIdentifier: itemIdentifier)
         item.label = spec.label
@@ -211,8 +224,9 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         item.action = spec.action
         item.isBordered = true
         if itemIdentifier == ToolbarID.remove {
-            let group = ToolbarGroups.actions(identifier: itemIdentifier, items: [item])
+            let group = ToolbarGroups.actions(identifier: itemIdentifier, items: [item], isPaletteItem: !flag)
             group.segments.setWidth(60, forSegment: 0)
+            group.refreshContents()
             return group
         }
         return item
@@ -256,7 +270,8 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
 
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
         popup.isBordered = false
-        popup.font = .systemFont(ofSize: NSFont.systemFontSize)
+        popup.controlSize = .large
+        popup.font = .systemFont(ofSize: 14, weight: .regular)
         popup.setAccessibilityLabel("Server")
         popup.target = self
         popup.action = #selector(serverPopupChanged(_:))
@@ -268,6 +283,8 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         stack.orientation = .horizontal
         stack.spacing = 6
         stack.edgeInsets = NSEdgeInsets(top: 4, left: 10, bottom: 4, right: 6)
+        stack.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        stack.widthAnchor.constraint(equalToConstant: 160).isActive = true
         return stack
     }
 
@@ -283,7 +300,7 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         }
         if let group = serverToolbarGroup {
             (group.subitems.first as? NSMenuToolbarItem)?.menu = makeServerMenu()
-            group.segments.setLabel(refresh.currentServerName, forSegment: 0)
+            group.setServerName(refresh.currentServerName)
             group.refreshContents()
         }
     }

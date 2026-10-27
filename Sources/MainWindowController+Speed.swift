@@ -67,25 +67,24 @@ extension MainWindowController {
         onEditPresets?()
     }
 
-    func makeSpeedLimitsItem(identifier: NSToolbarItem.Identifier, live: Bool) -> NSToolbarItem {
+    func makeSpeedLimitsPaletteItem(identifier: NSToolbarItem.Identifier) -> NSToolbarItem {
+        ToolbarGroups.paletteItem(identifier: identifier, label: "Speed Limits", text: "", image: speedLimitsImage,
+                                  width: 56, showsMenuIndicator: true)
+    }
+
+    func makeSpeedLimitsItem(identifier: NSToolbarItem.Identifier) -> NSToolbarItem {
         let item = NSMenuToolbarItem(itemIdentifier: identifier)
         item.label = "Speed Limits"
-        item.isBordered = false
+        item.isBordered = true
         item.showsIndicator = true
         item.autovalidates = false
         item.menu = makeSpeedLimitsMenu()
-        item.image = toolbarSymbol("speedometer", description: "Speed Limits")
-        if live {
-            speedLimitsItem = item
-            updateSpeedLimitsItem()
-        }
+        item.image = speedLimitsImage
+        item.toolTip = toolbarLayout.showsToolTips ? speedSummary(refresh.session) : nil
         return item
     }
 
-    /// Refresh the toolbar item's menu, icon, and tooltip from the current session.
-    func updateSpeedLimitsItem() {
-        guard let item = speedLimitsItem else { return }
-        item.menu = makeSpeedLimitsMenu()
+    private var speedLimitsImage: NSImage? {
         let session = refresh.session
         let symbol: String
         if session?.isTurtleOn == true {
@@ -95,12 +94,16 @@ extension MainWindowController {
         } else {
             symbol = "speedometer"
         }
-        item.image = toolbarSymbol(symbol, description: "Speed Limits")
+        return toolbarSymbol(symbol, description: "Speed Limits")
             ?? toolbarSymbol("speedometer", description: "Speed Limits")
-        if toolbarLayout.showsToolTips {
-            item.toolTip = speedSummary(session)
-        } else {
-            item.toolTip = nil
+    }
+
+    /// Refresh every live copy after polling, server changes, or customization.
+    func updateSpeedLimitsItem() {
+        for item in ToolbarGroups.menuItems(in: window?.toolbar?.items ?? [], identifier: .init("speedLimits")) {
+            item.menu = makeSpeedLimitsMenu()
+            item.image = speedLimitsImage
+            item.toolTip = toolbarLayout.showsToolTips ? speedSummary(refresh.session) : nil
         }
         serverToolbarGroup?.refreshContents()
     }

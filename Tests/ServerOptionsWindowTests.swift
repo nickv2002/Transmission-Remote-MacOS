@@ -231,11 +231,23 @@ struct ServerOptionsWindowTests {
         #expect(window.makeFirstResponder(area.textView))
     }
 
-    @Test func keyboardSelectionKeepsNativeKeyboardFocus() async throws {
+    // xctest is a background-only tool and cannot become the key application.
+    // Exercise real native key handling in the standalone AppKit test runner;
+    // scripts/test-server-options.sh runs this same test with an active window.
+    @Test(.enabled(if: ProcessInfo.processInfo.processName != "xctest",
+                   "Requires a foreground AppKit host; run scripts/test-server-options.sh"))
+    func keyboardSelectionKeepsNativeKeyboardFocus() async throws {
         let c = try await controller()
         let window = try #require(c.window)
+        let policy = NSApp.activationPolicy()
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         c.showWindow(nil)
-        defer { window.orderOut(nil) }
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil); NSApp.setActivationPolicy(policy) }
+        for _ in 0..<50 where !NSApp.isActive { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(NSApp.isActive)
+        #expect(window.isKeyWindow)
         c.tabView.selectTabViewItem(withIdentifier: "Advanced")
         #expect(window.makeFirstResponder(c.sectionPicker))
         let left = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],

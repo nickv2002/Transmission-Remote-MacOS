@@ -83,8 +83,6 @@ final class MainWindowController: NSWindowController {
     /// Server-switching dropdown in the toolbar (nil until the toolbar builds it).
     var serverPopup: NSPopUpButton?
     var serverToolbarGroup: SegmentedToolbarGroup?
-    /// The live Speed Limits toolbar item (`+Speed.swift`); nil until the toolbar builds.
-    var speedLimitsItem: NSMenuToolbarItem?
     /// Asks the app delegate to open Settings on the Servers tab (Edit Presets…).
     var onEditPresets: (() -> Void)?
     var onServerOptions: (() -> Void)?
@@ -168,9 +166,7 @@ final class MainWindowController: NSWindowController {
 
     /// Reflect the active match mode in the search field's placeholder text.
     func updateSearchPlaceholder() {
-        searchField?.placeholderString = searchMode == .fuzzy
-            ? "Fuzzy filter by name"
-            : "Exact filter by name"
+        if let searchField { ToolbarGroups.configureSearchField(searchField, placeholder: searchPlaceholder) }
     }
 
     /// The placeholder string for the current search mode (used when the search
