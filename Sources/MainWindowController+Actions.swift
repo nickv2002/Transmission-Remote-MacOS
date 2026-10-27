@@ -13,11 +13,12 @@ extension MainWindowController: NSToolbarDelegate {
         static let remove = NSToolbarItem.Identifier("remove")
         static let search = NSToolbarItem.Identifier("search")
         static let server = NSToolbarItem.Identifier("server")
+        static let serverOptions = NSToolbarItem.Identifier("serverOptions")
         static let speedLimits = NSToolbarItem.Identifier("speedLimits")
     }
 
     func buildToolbar() {
-        let toolbar = NSToolbar(identifier: "MainToolbar3")
+        let toolbar = NSToolbar(identifier: "MainToolbar4")
         toolbar.delegate = self
         toolbar.allowsUserCustomization = true
         // The palette's Show: popup / right-click menu change the display mode;
@@ -33,7 +34,7 @@ extension MainWindowController: NSToolbarDelegate {
             self.applyToolbarLayout(self.toolbarLayout)
         }
         toolbar.autosavesConfiguration = true
-        toolbar.centeredItemIdentifiers = [ToolbarID.server, ToolbarID.speedLimits]
+        toolbar.centeredItemIdentifiers = [ToolbarID.server, ToolbarID.speedLimits, ToolbarID.serverOptions]
         window?.toolbar = toolbar
     }
 
@@ -69,13 +70,13 @@ extension MainWindowController: NSToolbarDelegate {
         [ToolbarID.add, .space,
          ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
          ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         .flexibleSpace, ToolbarID.server, ToolbarID.speedLimits, .flexibleSpace, ToolbarID.search]
+         .flexibleSpace, ToolbarID.server, ToolbarID.speedLimits, ToolbarID.serverOptions, .flexibleSpace, ToolbarID.search]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [ToolbarID.add, ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
          ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         ToolbarID.search, ToolbarID.server, ToolbarID.speedLimits, .space, .flexibleSpace]
+         ToolbarID.search, ToolbarID.server, ToolbarID.speedLimits, ToolbarID.serverOptions, .space, .flexibleSpace]
     }
 
     func toolbar(_ toolbar: NSToolbar,
@@ -124,6 +125,7 @@ extension MainWindowController: NSToolbarDelegate {
 
         let spec: (label: String, symbol: String, action: Selector)?
         switch itemIdentifier {
+        case ToolbarID.serverOptions: spec = ("Server Options", "slider.horizontal.3", #selector(openServerOptions(_:)))
         case ToolbarID.start: spec = ("Start", "play", #selector(startSelected(_:)))
         case ToolbarID.stop: spec = ("Stop", "stop", #selector(stopSelected(_:)))
         case ToolbarID.forceStart: spec = ("Force Start", "forward", #selector(forceStartSelected(_:)))
@@ -262,6 +264,8 @@ extension MainWindowController: NSToolbarDelegate {
         }
         priorityItem.submenu = priorityMenu
 
+        menu.addItem(withTitle: "Bandwidth Group…", action: #selector(assignBandwidthGroupSelected(_:)), keyEquivalent: "")
+
         menu.addItem(.separator())
         menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealInFinderSelected(_:)), keyEquivalent: "r")
             .keyEquivalentModifierMask = [.command, .shift]
@@ -300,6 +304,11 @@ extension MainWindowController: NSToolbarDelegate {
         static let top = 0, up = 1, down = 2, bottom = 3
     }
 
+    @objc private func openServerOptions(_ sender: Any?) {
+        guard refresh.activeClient != nil, refresh.resolvedServer != nil else { return }
+        onServerOptions?()
+    }
+
     // MARK: - Enablement
 
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
@@ -316,6 +325,9 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     private func validate(action: Selector?) -> Bool {
+        if action == #selector(openServerOptions(_:)) {
+            return refresh.activeClient != nil && refresh.resolvedServer != nil
+        }
         // The search field is always enabled, regardless of row selection.
         if action == #selector(searchChanged(_:)) { return true }
         // Adding is always available (independent of the row selection).
@@ -600,6 +612,55 @@ extension MainWindowController: NSToolbarDelegate {
 
     private func clickedTorrent() -> Torrent? {
         torrentAt(row: tableView.clickedRow)
+    }
+
+    @objc func assignBandwidthGroupSelected(_ sender: Any?) {
+        let hashes = selectionForAction().map(\.hashString)
+        guard !hashes.isEmpty, let client = refresh.activeClient, let window, window.attachedSheet == nil else { return }
+        let serverName = refresh.activeServerConfig.name
+        Task { @MainActor [self] in
+            do {
+                guard try await client.fetchServerOptions().supportsGroups else {
+                    throw ServerOptionsError(message: "Bandwidth groups require Transmission 4.0 or later.")
+                }
+                let groups = try await client.fetchBandwidthGroups().sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                let baseline = try await client.fetchTorrentGroups(hashes: hashes)
+                guard Set(baseline.map(\.hashString)) == Set(hashes) else {
+                    throw ServerOptionsError(message: "Some selected torrents are no longer available.")
+                }
+                guard window.attachedSheet == nil else { return }
+                let alert = NSAlert()
+                alert.messageText = "Assign Bandwidth Group"
+                alert.informativeText = "Apply to \(hashes.count) selected torrent(s) on \(serverName). Manage group limits in Server Options → Bandwidth."
+                alert.addButton(withTitle: "Apply")
+                alert.addButton(withTitle: "Cancel")
+                let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 350, height: 28))
+                popup.addItem(withTitle: "None (session limits only)")
+                popup.addItems(withTitles: groups.map(\.name))
+                let current = Set(baseline.map(\.group))
+                var names = [""] + groups.map(\.name)
+                if current.count == 1, let name = current.first, let index = names.firstIndex(of: name) { popup.selectItem(at: index) }
+                else {
+                    popup.addItem(withTitle: "Mixed or unavailable — choose a group")
+                    names.append("__unchanged__")
+                    popup.selectItem(at: names.count - 1)
+                }
+                popup.setAccessibilityLabel("Bandwidth group for selected torrents")
+                alert.accessoryView = popup
+                let choices = names
+                alert.beginSheetModal(for: window) { [weak self] response in
+                    guard response == .alertFirstButtonReturn, choices.indices.contains(popup.indexOfSelectedItem),
+                          popup.indexOfSelectedItem < groups.count + 1 else { return }
+                    let chosen = choices[popup.indexOfSelectedItem]
+                    Task { @MainActor in
+                        do {
+                            try await client.assignBandwidthGroup(chosen, baseline: baseline)
+                            if self?.refresh.activeClient === client { self?.refresh.refreshNow() }
+                        } catch { self?.showError(error) }
+                    }
+                }
+            } catch { showError(error) }
+        }
     }
 
     /// Runs an RPC call against the live client, then refreshes. Errors surface
