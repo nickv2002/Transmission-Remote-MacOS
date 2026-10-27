@@ -86,6 +86,7 @@ final class MainWindowController: NSWindowController {
     var speedLimitsItem: NSMenuToolbarItem?
     /// Asks the app delegate to open Settings on the Servers tab (Edit Presets…).
     var onEditPresets: (() -> Void)?
+    var onServerOptions: (() -> Void)?
 
     /// Full sorted model — every torrent from the server.
     var torrents: [Torrent] = []

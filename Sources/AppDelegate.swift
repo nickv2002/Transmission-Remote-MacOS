@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                action: #selector(toggleToolbarLabels(_:)), keyEquivalent: "")
     /// The native Settings window, created lazily on first open.
     private var settingsController: SettingsWindowController?
+    private var serverOptionsControllers: [ServerOptionsWindowController] = []
     /// The live app config (servers + poll interval), kept in sync with the
     /// preferences store and the Settings window.
     private var config = AppConfig.default
@@ -77,6 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MainWindowController(config: config)
         windowController = controller
         controller.onToolbarLayoutChange = { [weak self] in self?.setToolbarLayout($0) }
+        controller.onServerOptions = { [weak self] in self?.showServerOptions(nil) }
         controller.onEditPresets = { [weak self] in self?.showSettings(serversTab: true) }
         controller.showWindow(nil)
         rebuildServerMenu()
@@ -95,6 +97,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        serverOptionsControllers.allSatisfy { $0.canQuit() } ? .terminateNow : .terminateCancel
     }
 
     /// Persist the window frame on quit. AppKit's automatic frame autosave doesn't
@@ -130,6 +136,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func manageServers(_ sender: Any?) {
         showSettings(serversTab: true)
+    }
+
+    @objc private func showServerOptions(_ sender: Any?) {
+        guard let refresh = windowController?.refresh,
+              let client = refresh.activeClient, let server = refresh.resolvedServer else { return }
+        if let existing = serverOptionsControllers.first(where: { $0.server == server }) {
+            existing.showWindow(nil)
+            existing.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let controller = ServerOptionsWindowController(server: server, service: client)
+        controller.onApplied = { [weak self] in self?.windowController?.refresh.refreshNow() }
+        controller.onClose = { [weak self, weak controller] in
+            self?.serverOptionsControllers.removeAll { $0 === controller }
+        }
+        serverOptionsControllers.append(controller)
+        controller.showWindow(nil)
+        controller.loadOptions()
     }
 
     private func showSettings(serversTab: Bool) {
@@ -359,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         torrentMenu.addItem(withTitle: "Queue", action: nil, keyEquivalent: "")
             .submenu = queueSub
 
+        torrentMenu.addItem(withTitle: "Bandwidth Group…", action: #selector(MainWindowController.assignBandwidthGroupSelected(_:)), keyEquivalent: "")
         let prioritySub = NSMenu(title: "Priority")
         for p in [BandwidthPriority.high, .normal, .low] {
             prioritySub.addItem(withTitle: p.displayName,
@@ -464,6 +489,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 item.state = (name == active) ? .on : .off
             }
             refreshSpeedSubmenu(controller)
+            serverMenu.items.first { $0.action == #selector(showServerOptions(_:)) }?.isEnabled = controller.refresh.activeClient != nil
             return
         }
 
@@ -478,6 +504,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = (name == active) ? .on : .off
         }
         serverMenu.addItem(.separator())
+        let optionsItem = serverMenu.addItem(withTitle: "Server Options…",
+                                            action: #selector(showServerOptions(_:)), keyEquivalent: ",")
+        optionsItem.keyEquivalentModifierMask = [.command, .option]
+        optionsItem.target = self
+        optionsItem.isEnabled = controller.refresh.activeClient != nil
         let manageItem = serverMenu.addItem(withTitle: "Manage Servers…",
                                             action: #selector(manageServers(_:)), keyEquivalent: "")
         manageItem.target = self

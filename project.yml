@@ -114,6 +114,10 @@ targets:
       - path: Sources/Models.swift
       - path: Sources/AppConfig.swift
       - path: Sources/TransmissionClient.swift
+      - path: Sources/ServerOptionsFeatures.swift
+      - path: Sources/ServerOptions.swift
+      - path: Sources/ServerOptionsWindowController.swift
+      - path: Sources/BandwidthGroupsWindowController.swift
       - path: Sources/ConnectionDiagnostics.swift
       - path: Sources/SettingsEditor.swift
       - path: Sources/HostCandidates.swift
