@@ -10,6 +10,8 @@ final class BandwidthGroupsWindowController: NSWindowController, NSWindowDelegat
     private let saveButton = NSButton(title: "Apply Group", target: nil, action: nil)
     private let reloadButton = NSButton(title: "Reload", target: nil, action: nil)
     private let newButton = NSButton(title: "New Group", target: nil, action: nil)
+    /// Ends the sheet (Settings ▸ Speed ▸ Manage Groups…); asks first if a group edit is pending.
+    private let doneButton = NSButton(title: "Done", target: nil, action: nil)
     private let status = NSTextField(wrappingLabelWithString: "Loading bandwidth groups…")
     private var working = false
 
@@ -75,13 +77,15 @@ final class BandwidthGroupsWindowController: NSWindowController, NSWindowDelegat
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         stack.addArrangedSubview(status)
         status.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
-        let buttons = NSStackView(views: [newButton, reloadButton, saveButton])
-        for (button, selector) in [(newButton, #selector(newGroup(_:))), (reloadButton, #selector(reload(_:))), (saveButton, #selector(save(_:)))] {
+        let buttons = NSStackView(views: [newButton, reloadButton, saveButton, doneButton])
+        for (button, selector) in [(newButton, #selector(newGroup(_:))), (reloadButton, #selector(reload(_:))),
+                                   (saveButton, #selector(save(_:))), (doneButton, #selector(done(_:)))] {
             button.bezelStyle = .rounded
             button.target = self
             button.action = selector
         }
-        saveButton.keyEquivalent = "\r"
+        // No Return key equivalent: Apply Group writes to the server, so it's an explicit click.
+        doneButton.setAccessibilityIdentifier("bandwidth-group-done")
         stack.addArrangedSubview(buttons)
         window.contentView = root
         updateEnabled()
@@ -116,6 +120,7 @@ final class BandwidthGroupsWindowController: NSWindowController, NSWindowDelegat
         }
         saveButton.isEnabled = !working && !session.needsReload && session.editor.isDirty
         reloadButton.isEnabled = !working
+        doneButton.isEnabled = !working
         newButton.isEnabled = !working && !session.needsReload
         window?.isDocumentEdited = session.editor.isDirty
     }
@@ -176,6 +181,10 @@ final class BandwidthGroupsWindowController: NSWindowController, NSWindowDelegat
         alert.addButton(withTitle: "Keep Editing")
         alert.addButton(withTitle: "Discard")
         return alert.runModal() == .alertSecondButtonReturn
+    }
+    @objc private func done(_ sender: Any?) {
+        guard let window, confirmDiscard() else { return }
+        if let parent = window.sheetParent { parent.endSheet(window) } else { window.close() }
     }
     func canQuit() -> Bool { confirmDiscard() }
     func windowShouldClose(_ sender: NSWindow) -> Bool { confirmDiscard() }

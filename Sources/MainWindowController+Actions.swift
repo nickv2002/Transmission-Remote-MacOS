@@ -125,7 +125,7 @@ extension MainWindowController: NSToolbarDelegate {
 
         let spec: (label: String, symbol: String, action: Selector)?
         switch itemIdentifier {
-        case ToolbarID.serverOptions: spec = ("Server Options", "slider.horizontal.3", #selector(openServerOptions(_:)))
+        case ToolbarID.serverOptions: spec = ("Server Settings", "slider.horizontal.3", #selector(openServerSettings(_:)))
         case ToolbarID.start: spec = ("Start", "play", #selector(startSelected(_:)))
         case ToolbarID.stop: spec = ("Stop", "stop", #selector(stopSelected(_:)))
         case ToolbarID.forceStart: spec = ("Force Start", "forward", #selector(forceStartSelected(_:)))
@@ -304,9 +304,8 @@ extension MainWindowController: NSToolbarDelegate {
         static let top = 0, up = 1, down = 2, bottom = 3
     }
 
-    @objc private func openServerOptions(_ sender: Any?) {
-        guard refresh.activeClient != nil, refresh.resolvedServer != nil else { return }
-        onServerOptions?()
+    @objc private func openServerSettings(_ sender: Any?) {
+        onServerSettings?()
     }
 
     // MARK: - Enablement
@@ -325,9 +324,8 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     private func validate(action: Selector?) -> Bool {
-        if action == #selector(openServerOptions(_:)) {
-            return refresh.activeClient != nil && refresh.resolvedServer != nil
-        }
+        // Always available: an offline server opens on Settings' "Can't reach" state.
+        if action == #selector(openServerSettings(_:)) { return true }
         // The search field is always enabled, regardless of row selection.
         if action == #selector(searchChanged(_:)) { return true }
         // Adding is always available (independent of the row selection).
@@ -631,7 +629,7 @@ extension MainWindowController: NSToolbarDelegate {
                 guard window.attachedSheet == nil else { return }
                 let alert = NSAlert()
                 alert.messageText = "Assign Bandwidth Group"
-                alert.informativeText = "Apply to \(hashes.count) selected torrent(s) on \(serverName). Manage group limits in Server Options → Bandwidth."
+                alert.informativeText = "Apply to \(hashes.count) selected torrent(s) on \(serverName). Manage group limits in Server Settings → Speed."
                 alert.addButton(withTitle: "Apply")
                 alert.addButton(withTitle: "Cancel")
                 let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 350, height: 28))

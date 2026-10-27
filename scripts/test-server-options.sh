@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run the same Swift Testing suites as the Xcode target using Command Line Tools.
+# Run the Server Settings Swift Testing suites (as in the Xcode target) using Command Line Tools.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 developer_dir="$(xcode-select -p)"
@@ -38,10 +38,13 @@ swiftc -parse-as-library -swift-version 6 -strict-concurrency=complete -warnings
     -module-cache-path build/module-cache \
     -F "$frameworks" -load-plugin-library "$plugins" \
     -Xlinker -rpath -Xlinker "$frameworks" -Xlinker -rpath -Xlinker "$test_libs" \
-    Sources/ServerOptions.swift Sources/ServerOptionsFeatures.swift Sources/ServerOptionsWindowController.swift Sources/BandwidthGroupsWindowController.swift \
+    Sources/ServerOptions.swift Sources/ServerOptionsFeatures.swift Sources/ServerSettingsPane.swift Sources/BandwidthGroupsWindowController.swift \
+    Sources/SettingsWindowController.swift Sources/SettingsGeneralPane.swift Sources/SettingsConnectionPane.swift Sources/SettingsEditor.swift \
+    Sources/HostCandidates.swift Sources/ConnectionDiagnostics.swift Sources/DefaultHandlers.swift \
     Sources/AppConfig.swift Sources/PathMapping.swift Sources/SMBMountResolver.swift Sources/SpeedPresets.swift Sources/PopUpEnum.swift \
     Sources/Models.swift Sources/Formatters.swift Sources/TransmissionClient.swift \
-    Tests/ServerOptionsTests.swift Tests/ServerOptionsWindowTests.swift Tests/ServerOptionsRPCTests.swift Tests/ServerOptionsFeatureTests.swift \
+    Tests/ServerOptionsTests.swift Tests/ServerSettingsWindowTests.swift Tests/ServerSettingsScopeTests.swift \
+    Tests/ServerOptionsRPCTests.swift Tests/ServerOptionsFeatureTests.swift \
     build/server-options-tests/Runner.swift -o build/server-options-tests/run
 # Never mistake an AppKit-initiated early exit for a completed test run.
 build/server-options-tests/run "$@" 2>&1 | tee build/server-options-tests/results.log

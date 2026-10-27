@@ -116,7 +116,7 @@ targets:
       - path: Sources/TransmissionClient.swift
       - path: Sources/ServerOptionsFeatures.swift
       - path: Sources/ServerOptions.swift
-      - path: Sources/ServerOptionsWindowController.swift
+      - path: Sources/ServerSettingsPane.swift
       - path: Sources/BandwidthGroupsWindowController.swift
       - path: Sources/ConnectionDiagnostics.swift
       - path: Sources/SettingsEditor.swift
@@ -137,6 +137,8 @@ targets:
       - path: Sources/ToolbarLayoutAppKit.swift
       - path: Sources/SidebarController.swift
       - path: Sources/SettingsWindowController.swift
+      - path: Sources/SettingsGeneralPane.swift
+      - path: Sources/SettingsConnectionPane.swift
       - path: Sources/DefaultHandlers.swift
     settings:
       base:
