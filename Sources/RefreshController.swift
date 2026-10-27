@@ -145,7 +145,15 @@ final class RefreshController {
         let previousActiveServer = activeServer
         self.config = config
         if config.server(named: selectedServerName) == nil {
-            selectedServerName = Self.resolveSelectedName(config: config)
+            if let renamed = config.server(id: previousActiveServer.id) {
+                // Renamed in Settings: stay on the same server (matched by id).
+                selectedServerName = renamed.name
+                if !TestIsolation.isActive {
+                    UserDefaults.standard.set(renamed.name, forKey: Self.selectedServerKey)
+                }
+            } else {
+                selectedServerName = Self.resolveSelectedName(config: config)
+            }
         }
         if activeServer != previousActiveServer {
             restart()
