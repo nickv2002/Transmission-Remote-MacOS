@@ -17,7 +17,7 @@ struct ServerOptionsWindowTests {
 
     @Test func allSettingsHaveNativeControlsAndFiveTabs() async throws {
         let c = try await controller()
-        #expect(c.tabView.tabViewItems.map(\.label) == ["Download", "Network", "Bandwidth", "Queue", "Advanced"])
+        #expect(c.tabView.tabViewItems.map(\.label) == ["Transfers", "Speed", "Network", "Advanced"])
         #expect(Set(c.controls.keys) == Set(ServerOption.allCases))
         #expect(c.controls.keys.allSatisfy { !$0.rawValue.hasPrefix("blocklist") })
         #expect(c.controls[.scheduleDays]?.count == 7)
@@ -87,7 +87,7 @@ struct ServerOptionsWindowTests {
         field.stringValue = "/data/new destination"
         c.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
         c.tabView.selectTabViewItem(withIdentifier: "Network")
-        c.tabView.selectTabViewItem(withIdentifier: "Download")
+        c.tabView.selectTabViewItem(withIdentifier: "Transfers")
         #expect(c.session.editor?.text(.downloadDir) == "/data/new destination")
         #expect(field.stringValue == "/data/new destination")
         #expect(c.window?.isDocumentEdited == true)
@@ -116,11 +116,11 @@ struct ServerOptionsWindowTests {
         window.setContentSize(NSSize(width: 680, height: 640))
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             window.appearance = NSAppearance(named: appearance)
-            for section in ServerOption.Section.allCases {
+            for section in ServerOption.Pane.allCases {
                 c.tabView.selectTabViewItem(withIdentifier: section.rawValue)
                 let content = try #require(window.contentView)
                 content.layoutSubtreeIfNeeded()
-                for field in ServerOption.definitions where field.section == section {
+                for field in ServerOption.definitions where field.pane == section {
                     for control in c.controls[field.key] ?? [] where !control.isHiddenOrHasHiddenAncestor {
                         #expect(control.bounds.width > 10)
                         #expect(control.bounds.height > 10)
@@ -155,7 +155,7 @@ struct ServerOptionsWindowTests {
         // Explicitly focusing the editor must still permit ordinary keyboard editing.
         #expect(window.makeFirstResponder(area.textView))
         #expect(window.firstResponder === area.textView)
-        c.tabView.selectTabViewItem(withIdentifier: "Download")
+        c.tabView.selectTabViewItem(withIdentifier: "Transfers")
         c.tabView.selectTabViewItem(withIdentifier: "Advanced")
         #expect(window.firstResponder !== area.textView)
     }
@@ -183,14 +183,14 @@ struct ServerOptionsWindowTests {
         let service = OptionsStub()
         let c = try await controller(service: service)
         #expect(c.tabView.tabViewType == .noTabsNoBorder)
-        #expect(c.sectionPicker.segmentCount == 5)
+        #expect(c.sectionPicker.segmentCount == 4)
         c.session.set(.downloadDir, text: "/data/unsaved")
-        c.sectionPicker.selectedSegment = 4
+        c.sectionPicker.selectedSegment = 3
         #expect(c.sectionPicker.sendAction(c.sectionPicker.action!, to: c.sectionPicker.target))
         #expect(c.tabView.selectedTabViewItem?.label == "Advanced")
         #expect(c.window?.firstResponder !== c.sectionPicker)
         c.tabView.selectTabViewItem(withIdentifier: "Network")
-        #expect(c.sectionPicker.selectedSegment == 1)
+        #expect(c.sectionPicker.selectedSegment == 2)
         #expect(c.session.editor?.text(.downloadDir) == "/data/unsaved")
         #expect(await service.writes.isEmpty)
     }
@@ -259,8 +259,8 @@ struct ServerOptionsWindowTests {
             timestamp: 0, windowNumber: window.windowNumber, context: nil,
             characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49))
         c.sectionPicker.keyDown(with: space)
-        #expect(c.sectionPicker.selectedSegment == 3)
-        #expect(c.tabView.selectedTabViewItem?.label == "Queue")
+        #expect(c.sectionPicker.selectedSegment == 2)
+        #expect(c.tabView.selectedTabViewItem?.label == "Network")
         #expect(window.firstResponder === c.sectionPicker)
         #expect(!c.sectionPicker.isKeyboardSelection)
     }

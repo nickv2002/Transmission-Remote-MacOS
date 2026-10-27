@@ -371,8 +371,10 @@ enum PreferencesStore {
             }
             let config = try decode(data)
             // Older stores have servers without ids: decoding minted them, so
-            // write them back once, or every launch would mint different ones.
-            if lacksServerIDs(data) { try save(config, to: storeURL) }
+            // add them to the file once, or every launch would mint different ones.
+            if let migrated = addingServerIDs(to: data, from: config) {
+                try? migrated.write(to: storeURL, options: .atomic)
+            }
             return (config, false)
         }
 
@@ -399,6 +401,21 @@ enum PreferencesStore {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let servers = object["servers"] as? [[String: Any]] else { return false }
         return servers.contains { $0["id"] == nil }
+    }
+
+    /// The stored JSON with only the minted server ids added — every other key,
+    /// including any this version doesn't know, is kept as it was. Nil when
+    /// nothing is missing (the file is then never rewritten on launch).
+    static func addingServerIDs(to data: Data, from config: AppConfig) -> Data? {
+        guard lacksServerIDs(data),
+              var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var servers = object["servers"] as? [[String: Any]],
+              servers.count == config.servers.count else { return nil }
+        for i in servers.indices where servers[i]["id"] == nil {
+            servers[i]["id"] = config.servers[i].id.uuidString
+        }
+        object["servers"] = servers
+        return try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
     }
 
     /// Decode native preferences JSON into an `AppConfig`.

@@ -280,6 +280,12 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(first.servers.map(\.id), second.servers.map(\.id))
         XCTAssertEqual(second.serverNames, ["A", "B"])
         XCTAssertEqual(second.refreshSeconds, 3)
+        // Unknown keys (e.g. from a newer version) survive the id migration.
+        try #"{"servers":[{"name":"C","futureKey":1}],"futureTop":true}"#.write(to: store, atomically: true, encoding: .utf8)
+        _ = try PreferencesStore.load(storeURL: store, legacyURL: nil)
+        let raw = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: store)) as? [String: Any])
+        XCTAssertEqual(raw["futureTop"] as? Bool, true)
+        XCTAssertEqual((raw["servers"] as? [[String: Any]])?.first?["futureKey"] as? Int, 1)
         XCTAssertEqual(second.server(id: first.servers[1].id)?.host, "b")
     }
 

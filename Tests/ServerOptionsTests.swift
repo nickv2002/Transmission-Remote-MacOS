@@ -51,7 +51,7 @@ struct ServerOptionsModelTests {
         #expect(ServerOption.allCases.count == 50)
         #expect(ServerOption.definitions.count == 50)
         #expect(Set(ServerOption.definitions.map(\.key)) == Set(ServerOption.allCases))
-        #expect(ServerOption.Section.allCases.count == 5)
+        #expect(ServerOption.Pane.allCases.map(\.rawValue) == ["Transfers", "Speed", "Network", "Advanced"])
     }
 
     @Test func decodesEveryFieldAndIgnoresUnknownFields() throws {

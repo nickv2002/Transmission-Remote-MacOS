@@ -55,8 +55,18 @@ enum ServerOption: String, CaseIterable, Sendable {
     case seededScriptEnabled = "script-torrent-done-seeding-enabled"
     case seededScript = "script-torrent-done-seeding-filename"
 
-    enum Section: String, CaseIterable, Sendable {
-        case download = "Download", network = "Network", bandwidth = "Bandwidth", queue = "Queue", advanced = "Advanced"
+    /// The server tab a setting lives on (Settings ▸ <server> ▸ Transfers / Speed /
+    /// Network / Advanced). Connection is the fifth tab, but it's stored on this Mac.
+    enum Pane: String, CaseIterable, Sendable {
+        case transfers = "Transfers", speed = "Speed", network = "Network", advanced = "Advanced"
+    }
+
+    /// Progressive disclosure. Essential groups are always shown at the top of a
+    /// tab; common groups sit below and can be collapsed; advanced settings live
+    /// on the Advanced tab.
+    enum Tier: Int, Comparable, CaseIterable, Sendable {
+        case essential, common, advanced
+        static func < (a: Tier, b: Tier) -> Bool { a.rawValue < b.rawValue }
     }
 
     enum Kind: Sendable {
@@ -67,66 +77,110 @@ enum ServerOption: String, CaseIterable, Sendable {
         let key: ServerOption
         let title: String
         let kind: Kind
-        let section: Section
+        let pane: Pane
+        let tier: Tier
         let group: String
         var dependency: ServerOption? = nil
         var dependencyValue: Bool = true
     }
 
+    /// Declaration order is display order. A dependent field always shares its
+    /// parent's pane, tier and group (tested), so disclosure never hides a parent
+    /// while showing its child.
     static let definitions: [Definition] = [
-        .init(key: .startAdded, title: "Start new torrents automatically", kind: .boolean, section: .download, group: "New torrents"),
-        .init(key: .sequential, title: "Download new torrents sequentially", kind: .boolean, section: .download, group: "New torrents"),
-        .init(key: .trashOriginal, title: "Delete .torrent files added from the server’s watch folder", kind: .boolean, section: .download, group: "New torrents"),
-        .init(key: .downloadDir, title: "Default download folder", kind: .directory, section: .download, group: "Folders"),
-        .init(key: .incompleteEnabled, title: "Use a separate folder for incomplete files", kind: .boolean, section: .download, group: "Folders"),
-        .init(key: .incompleteDir, title: "Incomplete folder", kind: .directory, section: .download, group: "Folders", dependency: .incompleteEnabled),
-        .init(key: .renamePartial, title: "Add .part extension to incomplete files", kind: .boolean, section: .download, group: "Folders"),
-        .init(key: .ratioEnabled, title: "Stop seeding at a ratio", kind: .boolean, section: .download, group: "Seeding defaults"),
-        .init(key: .ratio, title: "Seed ratio", kind: .decimal, section: .download, group: "Seeding defaults", dependency: .ratioEnabled),
-        .init(key: .idleEnabled, title: "Stop seeding when inactive", kind: .boolean, section: .download, group: "Seeding defaults"),
-        .init(key: .idleMinutes, title: "Inactive for (minutes)", kind: .integer(1...2_147_483_647), section: .download, group: "Seeding defaults", dependency: .idleEnabled),
-        .init(key: .peerPort, title: "Incoming peer port", kind: .integer(1...65535), section: .network, group: "Connections", dependency: .randomPort, dependencyValue: false),
-        .init(key: .randomPort, title: "Choose a random port on server startup", kind: .boolean, section: .network, group: "Connections"),
-        .init(key: .portForwarding, title: "Enable port forwarding (UPnP / NAT-PMP)", kind: .boolean, section: .network, group: "Connections"),
-        .init(key: .encryption, title: "Encryption", kind: .encryption, section: .network, group: "Connections"),
-        .init(key: .globalPeers, title: "Global peer limit", kind: .integer(0...65535), section: .network, group: "Peers"),
-        .init(key: .torrentPeers, title: "Per-torrent peer limit", kind: .integer(0...65535), section: .network, group: "Peers"),
-        .init(key: .pex, title: "Enable Peer Exchange (PEX)", kind: .boolean, section: .network, group: "Peers"),
-        .init(key: .dht, title: "Enable distributed hash table (DHT)", kind: .boolean, section: .network, group: "Peers"),
-        .init(key: .lpd, title: "Enable local peer discovery", kind: .boolean, section: .network, group: "Peers"),
-        .init(key: .transports, title: "Peer transports", kind: .transports, section: .network, group: "Peers"),
-        .init(key: .utp, title: "Enable µTP", kind: .boolean, section: .network, group: "Peers"),
-        .init(key: .downEnabled, title: "Limit download speed", kind: .boolean, section: .bandwidth, group: "Regular limits"),
-        .init(key: .down, title: "Download (kB/s)", kind: .integer(0...2_147_483_647), section: .bandwidth, group: "Regular limits", dependency: .downEnabled),
-        .init(key: .upEnabled, title: "Limit upload speed", kind: .boolean, section: .bandwidth, group: "Regular limits"),
-        .init(key: .up, title: "Upload (kB/s)", kind: .integer(0...2_147_483_647), section: .bandwidth, group: "Regular limits", dependency: .upEnabled),
-        .init(key: .altEnabled, title: "Use alternative speed limits (turtle mode)", kind: .boolean, section: .bandwidth, group: "Alternative limits"),
-        .init(key: .altDown, title: "Alternative download (kB/s)", kind: .integer(0...2_147_483_647), section: .bandwidth, group: "Alternative limits"),
-        .init(key: .altUp, title: "Alternative upload (kB/s)", kind: .integer(0...2_147_483_647), section: .bandwidth, group: "Alternative limits"),
-        .init(key: .scheduleEnabled, title: "Schedule alternative limits", kind: .boolean, section: .bandwidth, group: "Schedule"),
-        .init(key: .scheduleBegin, title: "From (24-hour time)", kind: .time, section: .bandwidth, group: "Schedule", dependency: .scheduleEnabled),
-        .init(key: .scheduleEnd, title: "Until (24-hour time)", kind: .time, section: .bandwidth, group: "Schedule", dependency: .scheduleEnabled),
-        .init(key: .scheduleDays, title: "Days", kind: .days, section: .bandwidth, group: "Schedule", dependency: .scheduleEnabled),
-        .init(key: .downloadQueueEnabled, title: "Limit active downloads", kind: .boolean, section: .queue, group: "Active torrents"),
-        .init(key: .downloadQueue, title: "Download queue size", kind: .integer(0...2_147_483_647), section: .queue, group: "Active torrents", dependency: .downloadQueueEnabled),
-        .init(key: .seedQueueEnabled, title: "Limit active seeds", kind: .boolean, section: .queue, group: "Active torrents"),
-        .init(key: .seedQueue, title: "Seeding queue size", kind: .integer(0...2_147_483_647), section: .queue, group: "Active torrents", dependency: .seedQueueEnabled),
-        .init(key: .stalledEnabled, title: "Exclude stalled torrents from queue limits", kind: .boolean, section: .queue, group: "Stalled torrents"),
-        .init(key: .stalledMinutes, title: "Stalled after (minutes)", kind: .integer(1...2_147_483_647), section: .queue, group: "Stalled torrents", dependency: .stalledEnabled),
-        .init(key: .defaultTrackers, title: "Default trackers", kind: .trackers, section: .advanced, group: "Default trackers"),
-        .init(key: .cacheSize, title: "Disk cache (MiB)", kind: .integer(0...2_147_483_647), section: .advanced, group: "Performance"),
-        .init(key: .requestQueue, title: "Queued requests per peer", kind: .integer(1...2_147_483_647), section: .advanced, group: "Performance"),
-        .init(key: .bruteForce, title: "Enable RPC brute-force protection", kind: .boolean, section: .advanced, group: "Authentication"),
-        .init(key: .bruteForceThreshold, title: "Failed authentication threshold", kind: .integer(1...2_147_483_647), section: .advanced, group: "Authentication", dependency: .bruteForce),
-        .init(key: .addedScriptEnabled, title: "Run a script when a torrent is added", kind: .boolean, section: .advanced, group: "Server scripts"),
-        .init(key: .addedScript, title: "Torrent added script", kind: .scriptPath, section: .advanced, group: "Server scripts", dependency: .addedScriptEnabled),
-        .init(key: .doneScriptEnabled, title: "Run a script when downloading finishes", kind: .boolean, section: .advanced, group: "Server scripts"),
-        .init(key: .doneScript, title: "Download finished script", kind: .scriptPath, section: .advanced, group: "Server scripts", dependency: .doneScriptEnabled),
-        .init(key: .seededScriptEnabled, title: "Run a script when seeding finishes", kind: .boolean, section: .advanced, group: "Server scripts"),
-        .init(key: .seededScript, title: "Seeding finished script", kind: .scriptPath, section: .advanced, group: "Server scripts", dependency: .seededScriptEnabled),
+        // Transfers
+        .init(key: .downloadDir, title: "Default download folder", kind: .directory, pane: .transfers, tier: .essential, group: "Downloads"),
+        .init(key: .startAdded, title: "Start new torrents automatically", kind: .boolean, pane: .transfers, tier: .essential, group: "Downloads"),
+        .init(key: .ratioEnabled, title: "Stop seeding at a ratio", kind: .boolean, pane: .transfers, tier: .essential, group: "Seeding"),
+        .init(key: .ratio, title: "Seed ratio", kind: .decimal, pane: .transfers, tier: .essential, group: "Seeding", dependency: .ratioEnabled),
+        .init(key: .idleEnabled, title: "Stop seeding when inactive", kind: .boolean, pane: .transfers, tier: .essential, group: "Seeding"),
+        .init(key: .idleMinutes, title: "Inactive for (minutes)", kind: .integer(1...2_147_483_647), pane: .transfers, tier: .essential, group: "Seeding", dependency: .idleEnabled),
+        .init(key: .downloadQueueEnabled, title: "Limit active downloads", kind: .boolean, pane: .transfers, tier: .essential, group: "Queue"),
+        .init(key: .downloadQueue, title: "Download queue size", kind: .integer(0...2_147_483_647), pane: .transfers, tier: .essential, group: "Queue", dependency: .downloadQueueEnabled),
+        .init(key: .seedQueueEnabled, title: "Limit active seeds", kind: .boolean, pane: .transfers, tier: .essential, group: "Queue"),
+        .init(key: .seedQueue, title: "Seeding queue size", kind: .integer(0...2_147_483_647), pane: .transfers, tier: .essential, group: "Queue", dependency: .seedQueueEnabled),
+        .init(key: .incompleteEnabled, title: "Use a separate folder for incomplete files", kind: .boolean, pane: .transfers, tier: .common, group: "Incomplete downloads"),
+        .init(key: .incompleteDir, title: "Incomplete folder", kind: .directory, pane: .transfers, tier: .common, group: "Incomplete downloads", dependency: .incompleteEnabled),
+        .init(key: .renamePartial, title: "Add .part extension to incomplete files", kind: .boolean, pane: .transfers, tier: .common, group: "Incomplete downloads"),
+        .init(key: .sequential, title: "Download new torrents sequentially", kind: .boolean, pane: .transfers, tier: .common, group: "Incomplete downloads"),
+        .init(key: .stalledEnabled, title: "Exclude stalled torrents from queue limits", kind: .boolean, pane: .transfers, tier: .common, group: "Stalled torrents"),
+        .init(key: .stalledMinutes, title: "Stalled after (minutes)", kind: .integer(1...2_147_483_647), pane: .transfers, tier: .common, group: "Stalled torrents", dependency: .stalledEnabled),
+        // Speed
+        .init(key: .downEnabled, title: "Limit download speed", kind: .boolean, pane: .speed, tier: .essential, group: "Speed limits"),
+        .init(key: .down, title: "Download (kB/s)", kind: .integer(0...2_147_483_647), pane: .speed, tier: .essential, group: "Speed limits", dependency: .downEnabled),
+        .init(key: .upEnabled, title: "Limit upload speed", kind: .boolean, pane: .speed, tier: .essential, group: "Speed limits"),
+        .init(key: .up, title: "Upload (kB/s)", kind: .integer(0...2_147_483_647), pane: .speed, tier: .essential, group: "Speed limits", dependency: .upEnabled),
+        .init(key: .altEnabled, title: "Use alternative speed limits (turtle mode)", kind: .boolean, pane: .speed, tier: .essential, group: "Turtle mode"),
+        .init(key: .altDown, title: "Alternative download (kB/s)", kind: .integer(0...2_147_483_647), pane: .speed, tier: .essential, group: "Turtle mode"),
+        .init(key: .altUp, title: "Alternative upload (kB/s)", kind: .integer(0...2_147_483_647), pane: .speed, tier: .essential, group: "Turtle mode"),
+        .init(key: .scheduleEnabled, title: "Schedule alternative limits", kind: .boolean, pane: .speed, tier: .common, group: "Schedule"),
+        .init(key: .scheduleBegin, title: "From (24-hour time)", kind: .time, pane: .speed, tier: .common, group: "Schedule", dependency: .scheduleEnabled),
+        .init(key: .scheduleEnd, title: "Until (24-hour time)", kind: .time, pane: .speed, tier: .common, group: "Schedule", dependency: .scheduleEnabled),
+        .init(key: .scheduleDays, title: "Days", kind: .days, pane: .speed, tier: .common, group: "Schedule", dependency: .scheduleEnabled),
+        // Network
+        .init(key: .peerPort, title: "Incoming peer port", kind: .integer(1...65535), pane: .network, tier: .essential, group: "Incoming port", dependency: .randomPort, dependencyValue: false),
+        .init(key: .randomPort, title: "Choose a random port on server startup", kind: .boolean, pane: .network, tier: .essential, group: "Incoming port"),
+        .init(key: .portForwarding, title: "Enable port forwarding (UPnP / NAT-PMP)", kind: .boolean, pane: .network, tier: .essential, group: "Incoming port"),
+        .init(key: .encryption, title: "Encryption", kind: .encryption, pane: .network, tier: .common, group: "Peers"),
+        .init(key: .globalPeers, title: "Global peer limit", kind: .integer(0...65535), pane: .network, tier: .common, group: "Peers"),
+        .init(key: .torrentPeers, title: "Per-torrent peer limit", kind: .integer(0...65535), pane: .network, tier: .common, group: "Peers"),
+        // Advanced
+        .init(key: .pex, title: "Enable Peer Exchange (PEX)", kind: .boolean, pane: .advanced, tier: .advanced, group: "Peer discovery"),
+        .init(key: .dht, title: "Enable distributed hash table (DHT)", kind: .boolean, pane: .advanced, tier: .advanced, group: "Peer discovery"),
+        .init(key: .lpd, title: "Enable local peer discovery", kind: .boolean, pane: .advanced, tier: .advanced, group: "Peer discovery"),
+        .init(key: .transports, title: "Peer transports", kind: .transports, pane: .advanced, tier: .advanced, group: "Peer discovery"),
+        .init(key: .utp, title: "Enable µTP", kind: .boolean, pane: .advanced, tier: .advanced, group: "Peer discovery"),
+        .init(key: .trashOriginal, title: "Delete .torrent files added from the server’s watch folder", kind: .boolean, pane: .advanced, tier: .advanced, group: "Watch folder"),
+        .init(key: .cacheSize, title: "Disk cache (MiB)", kind: .integer(0...2_147_483_647), pane: .advanced, tier: .advanced, group: "Performance"),
+        .init(key: .requestQueue, title: "Queued requests per peer", kind: .integer(1...2_147_483_647), pane: .advanced, tier: .advanced, group: "Performance"),
+        .init(key: .bruteForce, title: "Enable RPC brute-force protection", kind: .boolean, pane: .advanced, tier: .advanced, group: "Authentication"),
+        .init(key: .bruteForceThreshold, title: "Failed authentication threshold", kind: .integer(1...2_147_483_647), pane: .advanced, tier: .advanced, group: "Authentication", dependency: .bruteForce),
+        .init(key: .defaultTrackers, title: "Default trackers", kind: .trackers, pane: .advanced, tier: .advanced, group: "Default trackers"),
+        .init(key: .addedScriptEnabled, title: "Run a script when a torrent is added", kind: .boolean, pane: .advanced, tier: .advanced, group: "Server scripts"),
+        .init(key: .addedScript, title: "Torrent added script", kind: .scriptPath, pane: .advanced, tier: .advanced, group: "Server scripts", dependency: .addedScriptEnabled),
+        .init(key: .doneScriptEnabled, title: "Run a script when downloading finishes", kind: .boolean, pane: .advanced, tier: .advanced, group: "Server scripts"),
+        .init(key: .doneScript, title: "Download finished script", kind: .scriptPath, pane: .advanced, tier: .advanced, group: "Server scripts", dependency: .doneScriptEnabled),
+        .init(key: .seededScriptEnabled, title: "Run a script when seeding finishes", kind: .boolean, pane: .advanced, tier: .advanced, group: "Server scripts"),
+        .init(key: .seededScript, title: "Seeding finished script", kind: .scriptPath, pane: .advanced, tier: .advanced, group: "Server scripts", dependency: .seededScriptEnabled),
     ]
 
+    /// One heading-and-fields block on a server tab.
+    struct Group: Equatable, Sendable {
+        let name: String
+        let pane: Pane
+        let tier: Tier
+        let keys: [ServerOption]
+        /// Essential groups are always open; the rest have a disclosure triangle.
+        var isCollapsible: Bool { tier != .essential }
+        /// Common groups start collapsed (progressive disclosure). On the
+        /// Advanced tab only the long, rarely touched groups start collapsed.
+        var isExpandedByDefault: Bool {
+            switch tier {
+            case .essential: true
+            case .common: false
+            case .advanced: !Self.collapsedAdvanced.contains(name)
+            }
+        }
+        static let collapsedAdvanced: Set<String> = ["Default trackers", "Server scripts"]
+    }
+
+    /// Groups in display order, derived from `definitions`.
+    static let groups: [Group] = {
+        var result: [Group] = []
+        for field in definitions {
+            if let last = result.last, last.name == field.group, last.pane == field.pane {
+                result[result.count - 1] = Group(name: last.name, pane: last.pane, tier: last.tier, keys: last.keys + [field.key])
+            } else {
+                result.append(Group(name: field.group, pane: field.pane, tier: field.tier, keys: [field.key]))
+            }
+        }
+        return result
+    }()
+
+    static func groups(in pane: Pane) -> [Group] { groups.filter { $0.pane == pane } }
+
     var definition: Definition { Self.definitions.first { $0.key == self }! }
+    var group: Group { Self.groups.first { $0.keys.contains(self) }! }
 }
 
 enum ServerEncryption: String, CaseIterable, Sendable {
@@ -267,6 +321,29 @@ struct ServerOptionsEditor: Sendable {
 
     var isDirty: Bool { !changedKeys.isEmpty }
 
+    /// True when any of `keys` has an unsaved edit.
+    func hasEdits(in keys: [ServerOption]) -> Bool {
+        keys.contains { draft[$0] != nil && draft[$0] != baseline.values[$0]?.text(for: $0) }
+    }
+
+    /// Take server values that changed elsewhere (e.g. a limit picked from the
+    /// speed menu, seen by the poll) into both the baseline and the draft — but
+    /// only when none of those settings has an unsaved edit here. Returns
+    /// `.conflict` (and changes nothing) when one does, so the caller can ask
+    /// for a Reload; the conflict check in `checkedPatch` still blocks a stale Apply.
+    enum AbsorbResult: Equatable { case unchanged, updated, conflict }
+
+    mutating func absorb(_ values: [ServerOption: ServerOptionValue]) -> AbsorbResult {
+        let changed = values.filter { supports($0.key) && baseline.values[$0.key] != $0.value }
+        guard !changed.isEmpty else { return .unchanged }
+        if hasEdits(in: Array(changed.keys)) { return .conflict }
+        for (key, value) in changed {
+            baseline.values[key] = value
+            draft[key] = value.text(for: key)
+        }
+        return .updated
+    }
+
     func parsed(_ key: ServerOption) throws -> ServerOptionValue {
         let raw = text(key).trimmingCharacters(in: .whitespacesAndNewlines)
         func invalid(_ detail: String) -> ServerOptionsError {
@@ -388,6 +465,19 @@ final class ServerOptionsSession {
         editor?.set(key, text: text)
     }
 
+    /// Discard drafts without a round trip: back to the last loaded values.
+    func revert() {
+        guard !isBusy, let editor else { return }
+        self.editor = ServerOptionsEditor(editor.baseline)
+    }
+
+    /// See `ServerOptionsEditor.absorb`. Never while a request is in flight.
+    @discardableResult
+    func absorb(_ values: [ServerOption: ServerOptionValue]) -> ServerOptionsEditor.AbsorbResult {
+        guard !isBusy, !needsReload, editor != nil else { return .unchanged }
+        return editor!.absorb(values)
+    }
+
     func load() async throws {
         guard !isBusy else { return }
         isBusy = true
@@ -448,4 +538,109 @@ final class ServerOptionsSession {
 
 
 
+}
+
+extension SessionInfo {
+    /// The speed settings the main window's poll already reads, as server-option
+    /// values, so Settings can follow limits changed from the speed menus.
+    var speedOptionValues: [ServerOption: ServerOptionValue] {
+        var values: [ServerOption: ServerOptionValue] = [:]
+        if let speedLimitDownEnabled { values[.downEnabled] = .bool(speedLimitDownEnabled) }
+        if let speedLimitDown { values[.down] = .int(speedLimitDown) }
+        if let speedLimitUpEnabled { values[.upEnabled] = .bool(speedLimitUpEnabled) }
+        if let speedLimitUp { values[.up] = .int(speedLimitUp) }
+        if let altSpeedEnabled { values[.altEnabled] = .bool(altSpeedEnabled) }
+        if let altSpeedDown { values[.altDown] = .int(altSpeedDown) }
+        if let altSpeedUp { values[.altUp] = .int(altSpeedUp) }
+        return values
+    }
+}
+
+/// Foundation-only rules behind one server's row in Settings: whether its
+/// server tabs can be used, whether it has unsaved edits, and in what order
+/// Apply commits them. Connection details and presets are stored on this Mac;
+/// everything on the Transfers / Speed / Network / Advanced tabs is stored on
+/// the server.
+enum ServerSettingsScope {
+    /// The five tabs shown for a selected server.
+    enum Tab: String, CaseIterable, Sendable {
+        case connection = "Connection", transfers = "Transfers", speed = "Speed", network = "Network", advanced = "Advanced"
+        var pane: ServerOption.Pane? { ServerOption.Pane(rawValue: rawValue) }
+        init(_ pane: ServerOption.Pane) { self = Tab(rawValue: pane.rawValue)! }
+    }
+
+    /// Where a group of settings is stored, shown as a tag on its heading.
+    enum Storage: String, Sendable {
+        case server = "Stored on the server"
+        case mac = "Stored on this Mac"
+        var help: String {
+            switch self {
+            case .server: "Stored by the Transmission daemon and shared by every client connected to it."
+            case .mac: "Stored in this app's preferences on this Mac only."
+            }
+        }
+    }
+
+    /// The remote-values load state for one server.
+    enum Load: Equatable, Sendable {
+        case notLoaded, loading, loaded, failed(String)
+    }
+
+    /// What the server tabs show.
+    enum Availability: Equatable, Sendable {
+        /// A server added in this window and not applied yet: there is nothing to connect to.
+        case unsavedNewServer
+        case connecting
+        case offline(String)
+        case ready
+    }
+
+    static func availability(isSaved: Bool, load: Load) -> Availability {
+        guard isSaved else { return .unsavedNewServer }
+        switch load {
+        case .notLoaded, .loading: return .connecting
+        case .failed(let message): return .offline(message)
+        case .loaded: return .ready
+        }
+    }
+
+    /// One dirty flag per server row: local (connection, presets) or remote edits.
+    static func isDirty(localDirty: Bool, remoteDirty: Bool) -> Bool { localDirty || remoteDirty }
+
+    enum ApplyPlan: Equatable, Sendable {
+        case nothing
+        case localOnly
+        /// Server-side first; local fields only after it succeeds.
+        case remoteThenLocal
+        case remoteOnly
+        case blocked(String)
+    }
+
+    static func plan(localDirty: Bool, remoteDirty: Bool, remoteNeedsReload: Bool) -> ApplyPlan {
+        if remoteNeedsReload && remoteDirty {
+            return .blocked("Reload the server values before applying again.")
+        }
+        switch (remoteDirty, localDirty) {
+        case (false, false): return .nothing
+        case (false, true): return .localOnly
+        case (true, true): return .remoteThenLocal
+        case (true, false): return .remoteOnly
+        }
+    }
+
+    /// Run a plan. `remote` is the conflict-checked, verified `session-set`; if it
+    /// throws, `local` never runs, so nothing is saved on this Mac and every edit
+    /// (remote drafts and local fields) is kept for another try.
+    @MainActor
+    static func apply(_ plan: ApplyPlan, remote: () async throws -> Void, local: () -> Void) async throws {
+        switch plan {
+        case .nothing: return
+        case .blocked(let message): throw ServerOptionsError(message: message)
+        case .localOnly: local()
+        case .remoteOnly: try await remote()
+        case .remoteThenLocal:
+            try await remote()
+            local()
+        }
+    }
 }
