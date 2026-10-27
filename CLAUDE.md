@@ -125,7 +125,7 @@ Round-4 (title bar + server switching, no plan file): a **server dropdown** cent
 in the toolbar replaces the server name in the title; **Toolbar size** Default /
 Compact (Settings ▸ General and **View ▸ Toolbar Size**; see *Title bar & toolbar
 layout*); **View ▸ Customize Toolbar…**; **Server ▸ Manage Servers…** opens Settings
-on the Servers tab; **drag-to-reorder servers** in Settings; **⌘1–⌘0** switch to
+on the Servers tab (since Round-6: the active server's Connection tab); **drag-to-reorder servers** in Settings; **⌘1–⌘0** switch to
 servers 1–10 in Server-menu order; outline toolbar symbols. Both layouts were
 verified by window capture; menu items, tooltips, and clicks were not driven (no
 accessibility permission in that session).
@@ -141,6 +141,8 @@ mode is the "slow" profile (toggle + Turtle Down/Up submenus). Only the **preset
 after a change (`updateSession`), and feeds `RateHistory` to the status-bar `RateSparklineView`;
 rates show the active limit, e.g. `↓ 1.2 MB/s (500 KB/s)`. Verified against a local mock RPC server
 (layout capture + `session-set` payloads); menu clicks were not driven.
+
+Round-6 (unified Settings, no plan file): the separate Server Options window is gone. **One Settings window** with a sidebar (**App ▸ General** + one row per server) shows, for a server, a header and five tabs: **Connection** (this Mac) and **Transfers / Speed / Network / Advanced** (the daemon's session settings; Queue merged into Transfers, speed presets and bandwidth groups on Speed). **Server ▸ Server Settings…** (⌥⌘,) and the toolbar button (label "Server Settings", identifier still `serverOptions`) open the active server's last tab; any server can be edited. `ServerConfig` gained a stable **`id: UUID`** (minted for old preferences and written back by adding only the `id` keys). See `docs/SERVER_SETTINGS.md` and *Config ▸ Settings window* below. Verified by unit tests and window captures with `-OpenSettings`; no Apply was sent to the owner's server.
 
 Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 
@@ -166,8 +168,12 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `ServerMenuSync.swift` — Server menu in-place update check + ⌘1–⌘0 key mapping (tested).
 - `ToolbarLayoutAppKit.swift` — `NSWindow.apply(toolbarLayout:)` and the `NSToolbar` display-mode observer (tested); ignores AppKit's transient mode resets while applying.
 - `PopUpEnum.swift` — `NSPopUpButton` ⇄ `CaseIterable` enum bridging (`configure`/`select`/`selectedCase`); use it for every enum-backed popup (tested).
-- `SettingsWindowController.swift` — native preferences window (Servers / General).
-- `SettingsEditor.swift` — Foundation-only editing model behind Settings (tested).
+- `SettingsWindowController.swift` — the Settings window shell: sidebar (General + servers, drag-reorder, +/−, Make Default), server header, the five server tabs, Apply/Revert/Reload, routing and the pending-edit guards (tested).
+- `SettingsGeneralPane.swift` / `SettingsConnectionPane.swift` — the General pane and a server's Connection tab + speed presets + Test Connection.
+- `ServerSettingsPane.swift` — the server-side tabs (`ServerSettingsFormController`), disclosure groups with scope tags, blocked-state notice.
+- `ServerOptions.swift` — Foundation-only session-settings schema (pane/tier/group per field), editor, `ServerOptionsSession`, and `ServerSettingsScope` (availability, apply plan) (tested).
+- `BandwidthGroupsWindowController.swift` — the bandwidth groups editor, shown as a sheet from the Speed tab.
+- `SettingsEditor.swift` — Foundation-only editing model behind Settings: per-server dirty/apply/revert (tested).
 - `ConnectionDiagnostics.swift` — Test Connection error→message mapping (tested).
 - `HostCandidates.swift` — comma-separated host parsing + `ConnectionResolver` (tested).
 - `TorrentLink.swift` — magnet / `.torrent` URL / bare info-hash recognition (tested).
@@ -261,44 +267,18 @@ window** (⌘,) — no more hand-edited JSONC.
   (left in place as a backup) into the native store; otherwise it seeds
   `AppConfig.default`. Verified live: the owner's real server (with credentials)
   migrated correctly.
-- **Settings window** (`SettingsWindowController.swift`): a real fixed-size
-  `NSTabView` with two tabs, **Servers** and **General** — switching tabs never
-  resizes the window. All editing logic (working copy, baseline, dirty detection,
-  add/remove/edit/default/save) is factored into the Foundation-only
-  **`SettingsEditor`** (in `SettingsEditor.swift`); the controller is a thin view
-  layer over it.
-  - **Servers tab**: **default-server popup at the top**, then a list with +/-
-    and an editable detail form (name/host/port/HTTPS/rpcPath/username/password/
-    path mappings). Edits mutate the working copy and are **only persisted +
-    applied when the user clicks Save Server** (bottom-right; enabled only when
-    a server field is dirty). Save is **not** the Return/default button — Return
-    commits the focused field, not the whole dialog. The button enables on
-    **every keystroke** (`controlTextDidChange`), not just on end-editing. Live
-    edits update just the affected row label, **never** `reloadData()` (which
-    dropped the table selection mid-edit and broke Test/Remove). Closing with a
-    pending server edit prompts Save / Discard / Cancel;
-    `AppDelegate.showSettings` calls `reset(to:)` on reopen. Rows **drag to
-    reorder** (`SettingsEditor.moveServer`); a reorder is a working-copy edit like
-    any other, so it goes live on Save Server.
-    - **Test Connection** (left of Save Server) builds a `ServerConfig` from the
-      **current form fields** (so you can test before saving), runs
-      `session-get`, and shows a field-targeted success/failure alert
-      (diagnostic mapping in the Foundation-only
-      `ConnectionDiagnostics.message(for:server:)`).
-  - **General tab**: split by a divider into a **General** group (refresh
-    interval field + stepper, auto-check-for-updates, toolbar size) and an **Incoming
-    Torrents** group (default add-file handling, show-options-when-adding,
-    add-links-from-clipboard, and the Magnet-links/.torrent-files default-app
-    rows). Every control here **applies immediately** — no Save button — each
-    change calls its `SettingsEditor` setter and `onChange` right away, so a
-    General edit persists+applies on the spot and never touches the Servers
-    tab's dirty/Save-button state. (Bug fixed in this pass: previously General
-    and Servers shared one `isDirty` flag off the whole `AppConfig`, so toggling
-    a General checkbox like auto-check-for-updates would wrongly enable "Save
-    Server".) The six General setters in `SettingsEditor` write through to both
-    `working` and `savedBaseline` at once (via `applyImmediately`) for exactly this reason. The refresh
-    field still only applies on end-of-edit (`refreshChanged`/`stepperChanged`),
-    not per keystroke, so typing "10" doesn't apply "1" first.
+- **Stable server ids:** every `ServerConfig` has an `id: UUID`. Entries without one decode with a minted id and `PreferencesStore.loadReportingFirstRun` adds just the missing `id` keys to the file (every other key, known or not, is kept). Host candidates copy the id. Settings binds per-server state by id, and `RefreshController.updateConfig` follows a rename of the active server by id.
+- **Settings window** (`SettingsWindowController.swift` + `SettingsGeneralPane`, `SettingsConnectionPane`, `ServerSettingsPane`): resizable (min 760×560, frame autosave `SettingsWindow2`), a source-list sidebar with **App ▸ General** and one row per server (status dot, "Default" badge, unsaved-edit dot). The layout uses explicit constraints, not a stack view, for the sidebar/detail split (gotcha #3). All editing logic lives in the Foundation-only **`SettingsEditor`** and **`ServerSettingsScope`**; the controllers are thin view layers. Selection, each server's last tab and expanded groups persist in `UserDefaults` (skipped under `TestIsolation`; tests set `SettingsWindowController.remembersUIState = false`).
+  - **A server**: header (name, Connected/Connecting/Offline, endpoint · version, "Not the active server") and tabs **Connection · Transfers · Speed · Network · Advanced**. Connection holds name/hosts/port/HTTPS/rpcPath/credentials/path mappings; the speed presets sit on the Speed tab next to the limits they feed. Group headings say **Stored on the server** or **Stored on this Mac**. Tiers come from `ServerOption.Definition.tier`: essential groups always open, common groups collapsed by default, Default trackers and Server scripts collapsed on Advanced.
+  - **One Apply / Revert per server** replaces Save Server and the old Server Options Apply. `ServerSettingsScope.plan` + `apply` run the server-side `session-set` first (existing conflict check + readback); only on success is the local part saved via `SettingsEditor.applyServer(id)` → `onChange`, which never persists another server's pending edits. Then `onApplied` calls `refreshNow()` + `rebuildServerMenu()` so the toolbar speed pull-down and Server ▸ Speed Limits re-render. A changed host/credentials drops that server's session so it reconnects.
+  - **Apply is not the Return/default button** (no key equivalents on Apply/Revert); Return commits the focused field. Apply enables on **every keystroke**. Live edits update just the affected row, **never** `reloadData()` mid-edit. Changing rows, adding a server, ⌘W and Quit ask **Apply / Discard / Cancel** (Quit returns `.terminateLater` while an Apply runs). Switching tabs keeps edits.
+  - **Routing never resets an open window**: `AppDelegate.openSettings` calls `reset(to:)` only when the window isn't visible; otherwise it just routes (⌘, = last selection, Server Settings… = active server's last tab, Manage Servers… = Connection, Edit Presets… = Speed with presets focused).
+  - **Server list edits apply immediately**: drag-reorder, **Make Default** (right-click), and **−** (undoable via Edit ▸ Undo, which the Edit menu now has). **+** adds an unsaved server that its Apply saves.
+  - **Blocked states**: an unsaved new server ("Apply the connection first"), connecting (spinner), offline ("Can't reach …" with Retry and Test Connection). Presets stay editable. Values load when a server is first shown and on Reload, never from the poll, except that unedited Speed fields absorb limits changed from the speed menus (`ServerOptionsSession.absorb`; with edits the status line asks for a Reload).
+  - The active server reuses `refresh.activeClient`; any other server gets its own client via `ConnectionResolver.firstToRespond` (`SettingsWindowController.resolveService`).
+  - **Test Connection** (Connection tab) builds a `ServerConfig` from the **current form fields** and probes every host candidate (`SettingsConnectionPane.testConnection`, messages via `ConnectionDiagnostics`).
+  - **General**: a **General** group (refresh interval field + stepper, auto-check-for-updates, Files/Info options) and an **Incoming Torrents** group (default add-file handling, show-options-when-adding, clipboard, default-app rows). Every control **applies immediately** through `SettingsEditor`'s write-through setters (`applyImmediately`), so it never touches any server's dirty state. The refresh field applies on end-of-edit only, so typing "10" doesn't apply "1" first.
+  - Verification hook: with `-PreferencesPath`, `-OpenSettings general|connection|transfers|speed|network|advanced` opens Settings at launch (window captures without driving the UI).
 - `PreferencesStore` exposes path-injectable cores
   (`load(storeURL:legacyURL:)`, `save(_:to:)`, `encode`/`decode`,
   `loadLegacyJSONC(from:)`) so the store is unit-tested against temp dirs without
@@ -483,6 +463,7 @@ round-trip), and **`TorrentFileRemover`** (Trash / permanent delete of an added
 `SettingsEditor` normalize/save), and **`TorrentLink`** (magnet/hash/`.torrent`-URL
 recognition, strict vs. loose) plus the `showAddOptions`/`addLinksFromClipboard`
 settings' decode defaults, round-trip, and editor plumbing.
+Unified Settings adds **`ServerSettingsScopeTests`** (tier mapping and dependency rule, availability, apply plan/order incl. a failed server write keeping every edit, speed absorb, per-server apply/revert/remove-undo in `SettingsEditor`, active-server rename follow) and **`ServerSettingsWindowTests`** (the embedded form against a stub service: controls, Return/Esc, apply order with presets, blocked states + Retry, per-server tab memory, validation focus expanding collapsed groups, layout at minimum size); **`ServerReorderDropTests`** now drive the sidebar.
 A `TorrentFactory` helper builds `Torrent` values from a default JSON dict.
 
 ```sh
