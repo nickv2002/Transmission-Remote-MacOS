@@ -3,6 +3,11 @@ import Foundation
 /// One named Transmission server connection. Holds exactly the per-connection
 /// fields `TransmissionClient` needs.
 struct ServerConfig: Codable, Sendable, Equatable {
+    /// Stable identity, independent of the (editable) name and host. Settings binds
+    /// per-server state to it, so a rename or a resolved host candidate (which
+    /// copies this value) still matches. Minted on decode for configs written
+    /// before it existed; `PreferencesStore` then writes the minted ids back.
+    var id: UUID
     var name: String
     var host: String
     var port: Int
@@ -18,15 +23,16 @@ struct ServerConfig: Codable, Sendable, Equatable {
     var upSpeedPresets: [Int]
 
     enum CodingKeys: String, CodingKey {
-        case name, host, port, useHTTPS, rpcPath, username, password, pathMappings
+        case id, name, host, port, useHTTPS, rpcPath, username, password, pathMappings
         case downSpeedPresets, upSpeedPresets
     }
 
-    init(name: String, host: String, port: Int, useHTTPS: Bool, rpcPath: String,
+    init(id: UUID = UUID(), name: String, host: String, port: Int, useHTTPS: Bool, rpcPath: String,
          username: String? = nil, password: String? = nil,
          pathMappings: [PathMapping] = [],
          downSpeedPresets: [Int] = SpeedPresets.defaults,
          upSpeedPresets: [Int] = SpeedPresets.defaults) {
+        self.id = id
         self.name = name
         self.host = host
         self.port = port
@@ -41,6 +47,8 @@ struct ServerConfig: Codable, Sendable, Equatable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Backward-compatible: older preferences have no id, so mint one.
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         host = try c.decodeIfPresent(String.self, forKey: .host) ?? "localhost"
         port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 9091
         // Default the display name to "host:port" if none was given.
@@ -255,6 +263,11 @@ struct AppConfig: Codable, Sendable, Equatable {
     func server(named name: String) -> ServerConfig? {
         servers.first { $0.name == name }
     }
+
+    /// The server with the given stable id, if any.
+    func server(id: UUID) -> ServerConfig? {
+        servers.first { $0.id == id }
+    }
 }
 
 /// Whether the app was launched under test isolation (`-PreferencesPath`). Gates
@@ -356,7 +369,11 @@ enum PreferencesStore {
             } catch {
                 throw ConfigError.unreadable(error.localizedDescription)
             }
-            return (try decode(data), false)
+            let config = try decode(data)
+            // Older stores have servers without ids: decoding minted them, so
+            // write them back once, or every launch would mint different ones.
+            if lacksServerIDs(data) { try save(config, to: storeURL) }
+            return (config, false)
         }
 
         // First run for the native store: migrate the legacy JSONC if present,
@@ -375,6 +392,13 @@ enum PreferencesStore {
         } catch {
             throw ConfigError.unreadable(error.localizedDescription)
         }
+    }
+
+    /// True when any stored server entry has no `id` key (written before ids existed).
+    static func lacksServerIDs(_ data: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let servers = object["servers"] as? [[String: Any]] else { return false }
+        return servers.contains { $0["id"] == nil }
     }
 
     /// Decode native preferences JSON into an `AppConfig`.
