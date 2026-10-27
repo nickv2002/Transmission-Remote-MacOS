@@ -5,6 +5,12 @@ import Foundation
 /// the UI performs (add / remove / edit servers, default server, refresh). Pure
 /// (Foundation-only) so the add/remove/change/save behaviors are unit-tested
 /// without any AppKit.
+///
+/// Saving is per server: each server row has its own Apply (`applyServer(id:)`)
+/// and Revert (`revertServer(id:)`), which never persist or discard another
+/// row's pending edits. List-level changes (reorder, remove, default server)
+/// and the General settings apply immediately: they write through to the
+/// baseline as well, so they never leave a pending edit behind.
 struct SettingsEditor: Equatable {
     /// The in-progress edits.
     private(set) var working: AppConfig
@@ -60,8 +66,73 @@ struct SettingsEditor: Equatable {
                   toolbarLayout: working.toolbarLayout)
     }
 
-    /// True when there are changes not yet saved.
+    /// True when any server has changes not yet saved.
     var isDirty: Bool { normalized() != savedBaseline }
+
+    // MARK: - Per-server state
+
+    func index(of id: UUID) -> Int? { working.servers.firstIndex { $0.id == id } }
+
+    /// False for a server added in this window and not applied yet.
+    func isSaved(_ id: UUID) -> Bool { savedBaseline.server(id: id) != nil }
+
+    /// The last applied version of a server (nil while it's unsaved).
+    func savedServer(_ id: UUID) -> ServerConfig? { savedBaseline.server(id: id) }
+
+    /// True when this server's connection details or presets differ from what's saved.
+    func isServerDirty(_ id: UUID) -> Bool {
+        guard let current = working.server(id: id) else { return false }
+        return current != savedBaseline.server(id: id)
+    }
+
+    /// Ids of servers with pending edits, in list order.
+    var dirtyServerIDs: [UUID] { working.servers.map(\.id).filter(isServerDirty) }
+
+    /// The config as saved, for persistence (General settings + applied servers).
+    var savedConfig: AppConfig { Self.normalize(savedBaseline) }
+
+    /// Commit one server: its working copy joins the baseline (in list order),
+    /// while every other server keeps its saved version. A rename of the default
+    /// server carries the default along. Returns the config to persist.
+    @discardableResult
+    mutating func applyServer(_ id: UUID) -> AppConfig {
+        guard let edited = working.server(id: id) else { return savedConfig }
+        let previous = savedBaseline.server(id: id)
+        savedBaseline.servers = working.servers.compactMap { s in
+            s.id == id ? edited : savedBaseline.server(id: s.id)
+        }
+        if let previous, savedBaseline.currentServer == previous.name {
+            savedBaseline.currentServer = edited.name
+        }
+        savedBaseline = Self.normalize(savedBaseline)
+        return savedBaseline
+    }
+
+    /// Discard one server's pending edits. An unsaved new server is removed.
+    mutating func revertServer(_ id: UUID) {
+        guard let i = index(of: id) else { return }
+        if let saved = savedBaseline.server(id: id) {
+            if working.currentServer == working.servers[i].name { working.currentServer = saved.name }
+            working.servers[i] = saved
+        } else {
+            working.servers.remove(at: i)
+        }
+    }
+
+    private static func normalize(_ c: AppConfig) -> AppConfig {
+        AppConfig(servers: c.servers, refreshSeconds: c.refreshSeconds, currentServer: c.currentServer,
+                  autoCheckForUpdates: c.autoCheckForUpdates, removeTorrentFileMethod: c.removeTorrentFileMethod,
+                  showAddOptions: c.showAddOptions, addLinksFromClipboard: c.addLinksFromClipboard,
+                  filesFoldersFirst: c.filesFoldersFirst, showPieceMap: c.showPieceMap,
+                  toolbarLayout: c.toolbarLayout)
+    }
+
+    /// Keep the baseline's order in step with the working list (reorders apply at once).
+    private mutating func syncBaselineOrder() {
+        let saved = working.servers.compactMap { savedBaseline.server(id: $0.id) }
+        // Saved servers not in the working list (never happens via the UI) keep their place at the end.
+        savedBaseline.servers = saved + savedBaseline.servers.filter { s in !saved.contains { $0.id == s.id } }
+    }
 
     // MARK: - Mutations
 
@@ -83,12 +154,33 @@ struct SettingsEditor: Equatable {
     /// Remove the server at `index`. No-op if it would empty the list or the
     /// index is invalid. If the removed server was the default, the default falls
     /// back to the first remaining server.
-    mutating func removeServer(at index: Int) {
-        guard working.servers.count > 1, working.servers.indices.contains(index) else { return }
+    /// Applies immediately: the server leaves the saved list too.
+    @discardableResult
+    mutating func removeServer(at index: Int) -> ServerConfig? {
+        guard working.servers.count > 1, working.servers.indices.contains(index) else { return nil }
         let removed = working.servers.remove(at: index)
         if working.currentServer == removed.name {
             working.currentServer = working.servers.first?.name
         }
+        if let saved = savedBaseline.server(id: removed.id) {
+            savedBaseline.servers.removeAll { $0.id == removed.id }
+            if savedBaseline.currentServer == saved.name {
+                savedBaseline.currentServer = savedBaseline.servers.first?.name
+            }
+        }
+        return removed
+    }
+
+    /// Put a removed server back (Undo). Applies immediately for a saved server.
+    mutating func restoreServer(_ server: ServerConfig, at index: Int, saved: Bool, wasDefault: Bool) {
+        guard working.server(id: server.id) == nil else { return }
+        working.servers.insert(server, at: min(max(0, index), working.servers.count))
+        if saved {
+            savedBaseline.servers.append(server)
+            syncBaselineOrder()
+            if wasDefault { savedBaseline.currentServer = server.name }
+        }
+        if wasDefault { working.currentServer = server.name }
     }
 
     /// Move the server at `index` to sit before the server currently at
@@ -101,6 +193,7 @@ struct SettingsEditor: Equatable {
         let server = working.servers.remove(at: index)
         let newIndex = destination > index ? destination - 1 : destination
         working.servers.insert(server, at: newIndex)
+        syncBaselineOrder()   // applies immediately
         return newIndex
     }
 
@@ -133,8 +226,12 @@ struct SettingsEditor: Equatable {
         return s
     }
 
+    /// Applies immediately. The baseline records the server's saved name, so a
+    /// pending rename doesn't leave the saved default pointing nowhere.
     mutating func setDefaultServer(_ name: String?) {
         working.currentServer = name
+        let id = name.flatMap { working.server(named: $0)?.id }
+        savedBaseline.currentServer = id.flatMap { savedBaseline.server(id: $0)?.name } ?? name
     }
 
     // General-pane setters apply immediately: they write through to

@@ -14,7 +14,7 @@ final class ServerOptionsWindowController: NSWindowController, NSWindowDelegate,
     var onClose: (() -> Void)?
 
     let tabView = NSTabView()
-    let sectionPicker = ServerOptionsSectionPicker(labels: ServerOption.Section.allCases.map(\.rawValue),
+    let sectionPicker = ServerOptionsSectionPicker(labels: ServerOption.Pane.allCases.map(\.rawValue),
                                          trackingMode: .selectOne, target: nil, action: nil)
     private(set) var controls: [ServerOption: [NSControl]] = [:]
     private var fieldRows: [ServerOption: NSView] = [:]
@@ -105,7 +105,7 @@ final class ServerOptionsWindowController: NSWindowController, NSWindowDelegate,
         sectionPicker.action = #selector(selectSection(_:))
         sectionPicker.setAccessibilityLabel("Server Options sections")
         sectionPicker.setAccessibilityIdentifier("server-options-sections")
-        for section in ServerOption.Section.allCases {
+        for section in ServerOption.Pane.allCases {
             let tab = NSTabViewItem(identifier: section.rawValue)
             tab.label = section.rawValue
             tab.view = buildSection(section)
@@ -189,7 +189,7 @@ final class ServerOptionsWindowController: NSWindowController, NSWindowDelegate,
         window?.makeFirstResponder(sectionPicker)
     }
 
-    private func buildSection(_ section: ServerOption.Section) -> NSView {
+    private func buildSection(_ section: ServerOption.Pane) -> NSView {
         let scroll = NSScrollView()
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
@@ -213,10 +213,9 @@ final class ServerOptionsWindowController: NSWindowController, NSWindowDelegate,
 
         let note: String
         switch section {
-        case .download: note = "Folder paths are on the server. Changing the default folder does not move existing downloads."
+        case .transfers: note = "Folder paths are on the server. Changing the default folder does not move existing downloads."
         case .network: note = "These settings control the server’s peer connections. They do not change your connection to the server."
-        case .bandwidth: note = "Schedules use the server’s local time zone and can run overnight. 1 kB/s = 1,000 bytes per second."
-        case .queue: note = "Queue limits control how many torrents run at once. Stalled torrents can be excluded from these limits."
+        case .speed: note = "Schedules use the server’s local time zone and can run overnight. 1 kB/s = 1,000 bytes per second."
         case .advanced: note = "Advanced settings apply to the server. Script paths refer to existing executable files on the server; this app does not upload or run scripts."
         }
         let caption = NSTextField(wrappingLabelWithString: note)
@@ -232,7 +231,7 @@ final class ServerOptionsWindowController: NSWindowController, NSWindowDelegate,
             label.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
         var lastGroup = ""
-        for field in ServerOption.definitions where field.section == section {
+        for field in ServerOption.definitions where field.pane == section {
             if field.group != lastGroup {
                 if !lastGroup.isEmpty {
                     let separator = NSBox()
@@ -254,10 +253,10 @@ final class ServerOptionsWindowController: NSWindowController, NSWindowDelegate,
             stack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
-        if section == .download {
+        if section == .transfers {
             addCaption("The Start choice when adding a torrent overrides the server default. Original .torrent disposal applies to the server’s watch folder, not files on this Mac.")
         }
-        if section == .bandwidth {
+        if section == .speed {
             configureAction(groupsButton, #selector(manageGroups(_:)), "server-options-groups")
             stack.addArrangedSubview(groupsButton)
             addCaption("Groups share limits among assigned torrents. Use Bandwidth Group… in a torrent’s context menu to assign it.")
@@ -538,7 +537,7 @@ final class ServerOptionsWindowController: NSWindowController, NSWindowDelegate,
             spinner.stopAnimation(nil)
             updateEnabledState()
             if let key = focusKey {
-                tabView.selectTabViewItem(withIdentifier: key.definition.section.rawValue)
+                tabView.selectTabViewItem(withIdentifier: key.definition.pane.rawValue)
                 if let control = controls[key]?.first {
                     control.scrollToVisible(control.bounds)
                     window?.makeFirstResponder((control as? ServerOptionsTextArea)?.textView ?? control)

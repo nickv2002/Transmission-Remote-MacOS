@@ -87,7 +87,9 @@ final class SettingsEditorTests: XCTestCase {
         var e = three()
         XCTAssertEqual(e.moveServer(from: 0, to: 3), 2)   // drop after last
         XCTAssertEqual(e.serverNames, ["B", "C", "A"])
-        XCTAssertTrue(e.isDirty)
+        // Reordering applies at once: nothing is left pending.
+        XCTAssertFalse(e.isDirty)
+        XCTAssertEqual(e.savedConfig.serverNames, ["B", "C", "A"])
     }
 
     func testMoveServerUp() {
@@ -211,7 +213,9 @@ final class SettingsEditorTests: XCTestCase {
         var e = SettingsEditor(sample())
         e.setDefaultServer("B")
         XCTAssertEqual(e.currentServer, "B")
-        XCTAssertTrue(e.isDirty)
+        // Make Default applies at once.
+        XCTAssertFalse(e.isDirty)
+        XCTAssertEqual(e.savedConfig.currentServer, "B")
     }
 
     func testSetRefreshSecondsClampedInNormalized() {
