@@ -179,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller: SettingsWindowController
         if let existing = settingsController {
             controller = existing
-            if existing.window?.isVisible != true { existing.reset(to: config) }
+            existing.reopen(with: config)   // keeps unsaved edits, even if minimized
         } else {
             controller = SettingsWindowController(config: config)
             controller.onChange = { [weak self] updated in
