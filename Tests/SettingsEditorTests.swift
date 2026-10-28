@@ -343,14 +343,142 @@ final class SettingsEditorTests: XCTestCase {
         XCTAssertEqual(saved.removeTorrentFileMethod, .delete)
     }
 
+    // MARK: - General setters never leak pending server edits
+
+    func testGeneralSetterReturnsBaselineNotPendingServerEdits() {
+        var e = SettingsEditor(sample())
+        e.updateServer(at: 0, to: server("A", host: "dirty.local"), normalizeName: true)
+        let added = e.addServer()
+        XCTAssertTrue(e.isDirty)
+        XCTAssertFalse(e.isSaved(e.servers[added].id))
+
+        let baselineServers = e.savedConfig.servers
+        let returned = e.setAutoCheckForUpdates(false)
+        XCTAssertEqual(returned.servers, baselineServers)
+        XCTAssertEqual(returned.servers.count, 2)
+        XCTAssertEqual(returned.servers[0].host, "a.local")
+        XCTAssertFalse(returned.autoCheckForUpdates)
+        // The working copy keeps its pending edits.
+        XCTAssertEqual(e.servers[0].host, "dirty.local")
+        XCTAssertEqual(e.serverCount, 3)
+    }
+
+    func testEveryGeneralSetterReturnsBaselineServers() {
+        var e = SettingsEditor(sample())
+        e.updateServer(at: 1, to: server("B", host: "dirty.local"), normalizeName: true)
+        _ = e.addServer()
+        let baselineServers = e.savedConfig.servers
+        XCTAssertEqual(e.setRefreshSeconds(12).servers, baselineServers)
+        XCTAssertEqual(e.setShowAddOptions(false).servers, baselineServers)
+        XCTAssertEqual(e.setAddLinksFromClipboard(true).servers, baselineServers)
+        XCTAssertEqual(e.setFilesFoldersFirst(false).servers, baselineServers)
+        XCTAssertEqual(e.setShowPieceMap(false).servers, baselineServers)
+        XCTAssertEqual(e.setRemoveTorrentFileMethod(.delete).servers, baselineServers)
+        XCTAssertEqual(e.setToolbarLayout(Self.iconOnly).servers, baselineServers)
+        XCTAssertEqual(e.setRefreshSeconds(12).refreshSeconds, 12)
+        XCTAssertEqual(e.setRefreshSeconds(0).refreshSeconds, 1)   // still clamped
+    }
+
+    // MARK: - Name clash uses the committed name
+
+    func testLiveRenameThenClashingNormalizeRevertsToSavedName() {
+        var e = SettingsEditor(sample())   // A, B (both saved)
+        // Live typing overwrites B's working name with the clashing "A" ...
+        e.updateServer(at: 1, to: server("A"), normalizeName: false)
+        // ... and the end-of-edit normalize must still refuse it, reverting to "B".
+        let stored = e.updateServer(at: 1, to: server("A"), normalizeName: true)
+        XCTAssertEqual(stored.name, "B")
+        XCTAssertEqual(e.servers[1].name, "B")
+        XCTAssertEqual(e.servers[0].name, "A")
+    }
+
+    func testClashingLiveRenameOfUnsavedServerRevertsToItsLastName() {
+        var e = SettingsEditor(sample())
+        let i = e.addServer()   // "New Server"
+        e.updateServer(at: i, to: server("New Server"), normalizeName: true)
+        e.updateServer(at: i, to: server("A"), normalizeName: false)   // live: clashes with A
+        let stored = e.updateServer(at: i, to: server("A"), normalizeName: true)
+        XCTAssertEqual(stored.name, "New Server")
+        XCTAssertNotEqual(e.servers[0].name, e.servers[i].name)
+    }
+
+    func testClashingRenameKeepsDefaultOnTheSavedName() {
+        var e = SettingsEditor(sample())   // default "A"
+        e.updateServer(at: 1, to: server("A"), normalizeName: false)
+        e.updateServer(at: 1, to: server("A"), normalizeName: true)
+        XCTAssertEqual(e.currentServer, "A")
+        XCTAssertEqual(e.servers[1].name, "B")
+    }
+
+    // MARK: - Undo of remove keeps pending edits out of the baseline
+
+    func testRestoreDoesNotPersistPendingEditsOfTheRemovedServer() {
+        var e = SettingsEditor(sample())   // default "A" at index 0
+        e.updateServer(at: 0, to: server("A", host: "dirty.local"), normalizeName: true)
+        // Only the removed server itself is dirty, so removal is allowed.
+        XCTAssertTrue(e.canRemoveServer(at: 0))
+        let removed = e.removeServer(at: 0)
+        XCTAssertEqual(removed?.host, "dirty.local")
+        XCTAssertEqual(e.savedConfig.serverNames, ["B"])
+
+        e.restoreServer(removed!, at: 0, saved: true, wasDefault: true)
+        // The working copy comes back with its edit ...
+        XCTAssertEqual(e.servers[0].host, "dirty.local")
+        XCTAssertEqual(e.currentServer, "A")
+        // ... but the baseline gets the pre-removal saved version, not the edit.
+        XCTAssertEqual(e.savedConfig.servers[0].host, "a.local")
+        XCTAssertEqual(e.savedConfig.serverNames, ["A", "B"])
+        XCTAssertEqual(e.savedConfig.currentServer, "A")
+        XCTAssertTrue(e.isDirty)
+        XCTAssertEqual(e.save().servers[0].host, "dirty.local")   // applied only when saved
+    }
+
+    func testRestoreOfCleanRemovedServerLeavesEditorClean() {
+        var e = SettingsEditor(sample())
+        let before = e.savedConfig.servers
+        let removed = e.removeServer(at: 1)
+        e.restoreServer(removed!, at: 1, saved: true, wasDefault: false)
+        XCTAssertFalse(e.isDirty)
+        XCTAssertEqual(e.savedConfig.servers, before)
+    }
+
+    // MARK: - Removal guard while another server has pending edits
+
+    func testRemoveRefusedWhileAnotherServerIsDirty() {
+        var e = SettingsEditor(sample())
+        e.updateServer(at: 0, to: server("A", host: "dirty.local"), normalizeName: true)
+        XCTAssertFalse(e.canRemoveServer(at: 1))
+        XCTAssertNil(e.removeServer(at: 1))
+        XCTAssertEqual(e.serverNames, ["A", "B"])
+        XCTAssertEqual(e.savedConfig.serverNames, ["A", "B"])
+        XCTAssertEqual(e.servers[0].host, "dirty.local")
+    }
+
+    func testRemoveAllowedAfterSaveAndForTheDirtyServerItself() {
+        var e = SettingsEditor(sample())
+        e.updateServer(at: 1, to: server("B", host: "dirty.local"), normalizeName: true)
+        XCTAssertTrue(e.canRemoveServer(at: 1))     // its own edit is fine
+        XCTAssertFalse(e.canRemoveServer(at: 0))    // ... but not the other one
+        e.save()
+        XCTAssertTrue(e.canRemoveServer(at: 0))
+        XCTAssertNotNil(e.removeServer(at: 0))
+        XCTAssertFalse(e.canRemoveServer(at: 9))
+    }
+
+    func testCannotRemoveLastServerEvenWhenClean() {
+        let e = SettingsEditor(AppConfig(servers: [server("only")],
+                                         refreshSeconds: 4, currentServer: "only"))
+        XCTAssertFalse(e.canRemoveServer(at: 0))
+    }
+
     // MARK: - Combined scenario
 
     func testChangeAddRemoveThenSaveRoundTrip() {
         var e = SettingsEditor(sample())
+        e.removeServer(at: 1)   // remove original "B" while nothing else is pending
         e.updateServer(at: 0, to: server("A", host: "edited"), normalizeName: true)
         let i = e.addServer()
         e.updateServer(at: i, to: server("C", host: "c.local"), normalizeName: true)
-        e.removeServer(at: 1)   // remove original "B"
         e.setDefaultServer("C")
         e.setRefreshSeconds(10)
         let saved = e.save()

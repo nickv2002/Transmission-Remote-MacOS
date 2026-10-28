@@ -311,13 +311,123 @@ actor OptionsStub: ServerOptionsService {
         if delay != .zero { try await Task.sleep(for: delay) }
         return snapshot
     }
+    /// When on, decimals are stored at single-precision, as a daemon might keep them.
+    var roundsDecimals = false
+    func setRoundsDecimals(_ on: Bool) { roundsDecimals = on }
+
     func setServerOptions(_ changes: [ServerOption: ServerOptionValue]) async throws {
         writes.append(changes)
         if rejectWrite { throw ServerOptionsError(message: "Write failed") }
-        if !ignoreWrite { snapshot.values.merge(changes.filter { !ignoredKeys.contains($0.key) }) { _, new in new } }
+        let stored = roundsDecimals ? changes.mapValues(Self.singlePrecision) : changes
+        if !ignoreWrite { snapshot.values.merge(stored.filter { !ignoredKeys.contains($0.key) }) { _, new in new } }
         if failAfterWrite { throw ServerOptionsError(message: "Response lost after write") }
     }
     func testPeerPort() async throws -> Bool { portTests += 1; return true }
+
+    static func singlePrecision(_ value: ServerOptionValue) -> ServerOptionValue {
+        if case .decimal(let number) = value { return .decimal(Double(Float(number))) }
+        return value
+    }
+}
+
+@Suite("Server Options decimals")
+struct ServerOptionsDecimalTests {
+    @Test func rendersFixedPointWithoutExponentOrLocale() {
+        #expect(ServerDecimal.render(2.5) == "2.5")
+        #expect(ServerDecimal.render(2.0) == "2")
+        #expect(ServerDecimal.render(0.0) == "0")
+        #expect(ServerDecimal.render(0.000001) == "0.000001")
+        #expect(ServerDecimal.render(0.00001) == "0.00001")
+        #expect(ServerDecimal.render(1234.75) == "1234.75")
+        #expect(!ServerDecimal.render(1e-7).contains("e"))
+    }
+
+    @Test(arguments: [0.1, 1.5, 0.333333333, 12.25, 0.0000012])
+    func renderedTextParsesBackToTheSameNumber(_ value: Double) {
+        for separator in [".", ","] {
+            let parsed = ServerDecimal.parse(ServerDecimal.render(value), localeSeparator: separator)
+            #expect(parsed.map { abs($0 - value) < 1e-9 } == true)
+        }
+    }
+
+    @Test func dotIsAlwaysTheDecimalPointEvenInCommaLocales() {
+        #expect(ServerDecimal.parse("1.5", localeSeparator: ",") == 1.5)
+        // "1.500" is 1.5, never 1500, even where "." is not the locale's separator.
+        #expect(ServerDecimal.parse("1.500", localeSeparator: ",") == 1.5)
+        #expect(ServerDecimal.parse("1.5", localeSeparator: ".") == 1.5)
+    }
+
+    @Test func localeSeparatorIsAcceptedWhenItIsTheOnlySeparator() {
+        #expect(ServerDecimal.parse("1,5", localeSeparator: ",") == 1.5)
+        #expect(ServerDecimal.parse("1,500", localeSeparator: ",") == 1.5)
+        #expect(ServerDecimal.parse("0,25", localeSeparator: ",") == 0.25)
+    }
+
+    @Test(arguments: ["1,5", "1,500", "0,5"])
+    func commaIsRejectedInDotLocales(_ text: String) {
+        #expect(ServerDecimal.parse(text, localeSeparator: ".") == nil)
+    }
+
+    @Test func ambiguousOrGroupedInputIsRejected() {
+        #expect(ServerDecimal.parse("1,000,000", localeSeparator: ",") == nil)
+        #expect(ServerDecimal.parse("1.000,5", localeSeparator: ",") == nil)
+        #expect(ServerDecimal.parse("1.000,5", localeSeparator: ".") == nil)
+        #expect(ServerDecimal.parse("1.000.000", localeSeparator: ".") == nil)
+        #expect(ServerDecimal.parse("1,5.0", localeSeparator: ",") == nil)
+        #expect(ServerDecimal.parse("1,500.5", localeSeparator: ",") == nil)
+        #expect(ServerDecimal.parse("1,500.5", localeSeparator: ".") == nil)
+        #expect(ServerDecimal.parse("1..2", localeSeparator: ".") == nil)
+        #expect(ServerDecimal.parse(",", localeSeparator: ",") == nil)
+        #expect(ServerDecimal.parse(".", localeSeparator: ".") == nil)
+        #expect(ServerDecimal.parse("", localeSeparator: ".") == nil)
+    }
+
+    @Test(arguments: ["nan", "inf", "-1", "-0.5", "1e3", "0x1p3", "3oops", " "])
+    func nonPlainDecimalsAreRejected(_ text: String) {
+        #expect(ServerDecimal.parse(text, localeSeparator: ",") == nil)
+        #expect(ServerDecimal.parse(text, localeSeparator: ".") == nil)
+    }
+
+    @Test func decimalReadbackToleratesRoundingWithinOneMillionth() {
+        #expect(ServerOptionValue.matches(.decimal(2.5), .decimal(2.5000004)))
+        #expect(ServerOptionValue.matches(.decimal(1.1), .decimal(Double(Float(1.1)))))
+        // Relative tolerance above 1: 1e6 with a 0.5 drift is within 1e-6 * 1e6 = 1.
+        #expect(ServerOptionValue.matches(.decimal(1_000_000), .decimal(1_000_000.5)))
+        #expect(!ServerOptionValue.matches(.decimal(2.5), .decimal(2.501)))
+        #expect(!ServerOptionValue.matches(.decimal(0.001), .decimal(0.0011)))
+    }
+
+    @Test func nonDecimalReadbackStaysExact() {
+        #expect(ServerOptionValue.matches(.int(5), .int(5)))
+        #expect(!ServerOptionValue.matches(.int(5), .int(6)))
+        #expect(!ServerOptionValue.matches(.bool(true), .bool(false)))
+        #expect(!ServerOptionValue.matches(.string("a"), .string("b")))
+        #expect(!ServerOptionValue.matches(.int(2), .decimal(2)))
+        #expect(!ServerOptionValue.matches(nil, .decimal(2)))
+    }
+}
+
+@Suite("Server Options decimal readback", .serialized)
+@MainActor
+struct ServerOptionsDecimalReadbackTests {
+    @Test func daemonSinglePrecisionRoundingIsNotReportedAsNotRetained() async throws {
+        let service = OptionsStub()
+        await service.setRoundsDecimals(true)
+        let session = ServerOptionsSession(service: service)
+        try await session.load()
+        session.set(.ratio, text: "1.1")
+        try await session.apply()
+        #expect(session.editor?.isDirty == false)
+    }
+
+    @Test func aDecimalTheDaemonDropsIsStillReported() async throws {
+        let service = OptionsStub()
+        await service.configure(ignoredKeys: [.ratio])
+        let session = ServerOptionsSession(service: service)
+        try await session.load()
+        session.set(.ratio, text: "1.1")
+        await #expect(throws: ServerOptionsError.self) { try await session.apply() }
+    }
 }
 
 @Suite("Server Options save lifecycle")

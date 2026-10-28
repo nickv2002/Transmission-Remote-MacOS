@@ -129,6 +129,7 @@ targets:
       - path: Sources/PieceMapView.swift
       - path: Sources/RecentFolders.swift
       - path: Sources/RefreshController.swift
+      - path: Sources/ServerIdentity.swift
       - path: Sources/TorrentFileRemover.swift
       - path: Sources/TorrentFileTree.swift
       - path: Sources/TorrentLink.swift

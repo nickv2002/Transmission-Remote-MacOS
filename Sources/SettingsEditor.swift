@@ -16,6 +16,12 @@ struct SettingsEditor: Equatable {
     private(set) var working: AppConfig
     /// The last saved state (what `working` is compared against / reverts to).
     private(set) var savedBaseline: AppConfig
+    /// The saved version of each server removed in this window, kept so Undo
+    /// (`restoreServer`) can put the baseline back exactly as it was.
+    private var removedBaselines: [UUID: ServerConfig] = [:]
+    /// The last name each server was normalized to, for rows not yet saved. Used
+    /// as the revert target when a rename clashes (live edits overwrite the working name).
+    private var lastNormalizedNames: [UUID: String] = [:]
 
     init(_ config: AppConfig) {
         // Normalize once so a freshly opened editor isn't spuriously "dirty".
@@ -108,6 +114,12 @@ struct SettingsEditor: Equatable {
         return savedBaseline
     }
 
+    /// The name a server reverts to when a rename is refused: its saved name, or the
+    /// last normalized name while it is unsaved.
+    private func committedName(of id: UUID) -> String? {
+        savedBaseline.server(id: id)?.name ?? lastNormalizedNames[id]
+    }
+
     /// Discard one server's pending edits. An unsaved new server is removed.
     mutating func revertServer(_ id: UUID) {
         guard let i = index(of: id) else { return }
@@ -145,24 +157,38 @@ struct SettingsEditor: Equatable {
         while working.servers.contains(where: { $0.name == name }) {
             name = "\(base) \(n)"; n += 1
         }
-        working.servers.append(ServerConfig(
+        let server = ServerConfig(
             name: name, host: "", port: 9091,
-            useHTTPS: false, rpcPath: "/transmission/rpc"))
+            useHTTPS: false, rpcPath: "/transmission/rpc")
+        working.servers.append(server)
+        lastNormalizedNames[server.id] = name
         return working.servers.count - 1
     }
 
-    /// Remove the server at `index`. No-op if it would empty the list or the
-    /// index is invalid. If the removed server was the default, the default falls
-    /// back to the first remaining server.
+    /// Whether the server at `index` can be removed now. It needs a valid index,
+    /// and the list must keep at least one server. Removal is refused while a
+    /// *different* server has pending edits: the removal and its Undo would
+    /// otherwise persist that server's unsaved changes. Removing the dirty server
+    /// itself is allowed (Undo restores its pending edits).
+    func canRemoveServer(at index: Int) -> Bool {
+        guard working.servers.count > 1, working.servers.indices.contains(index) else { return false }
+        let id = working.servers[index].id
+        return dirtyServerIDs.allSatisfy { $0 == id }
+    }
+
+    /// Remove the server at `index`. No-op (nil) if `canRemoveServer(at:)` is false.
+    /// If the removed server was the default, the default falls back to the first
+    /// remaining server.
     /// Applies immediately: the server leaves the saved list too.
     @discardableResult
     mutating func removeServer(at index: Int) -> ServerConfig? {
-        guard working.servers.count > 1, working.servers.indices.contains(index) else { return nil }
+        guard canRemoveServer(at: index) else { return nil }
         let removed = working.servers.remove(at: index)
         if working.currentServer == removed.name {
             working.currentServer = working.servers.first?.name
         }
         if let saved = savedBaseline.server(id: removed.id) {
+            removedBaselines[removed.id] = saved
             savedBaseline.servers.removeAll { $0.id == removed.id }
             if savedBaseline.currentServer == saved.name {
                 savedBaseline.currentServer = savedBaseline.servers.first?.name
@@ -171,14 +197,18 @@ struct SettingsEditor: Equatable {
         return removed
     }
 
-    /// Put a removed server back (Undo). Applies immediately for a saved server.
+    /// Put a removed server back (Undo). `server` is the working copy (its pending
+    /// edits included) and goes back into `working` only. For a saved server, the
+    /// baseline entry as it was before removal goes back into `savedBaseline`, so
+    /// unapplied edits are never persisted. Applies immediately for a saved server.
     mutating func restoreServer(_ server: ServerConfig, at index: Int, saved: Bool, wasDefault: Bool) {
         guard working.server(id: server.id) == nil else { return }
+        let baseline = removedBaselines.removeValue(forKey: server.id)
         working.servers.insert(server, at: min(max(0, index), working.servers.count))
-        if saved {
-            savedBaseline.servers.append(server)
+        if saved, let baseline {
+            savedBaseline.servers.append(baseline)
             syncBaselineOrder()
-            if wasDefault { savedBaseline.currentServer = server.name }
+            if wasDefault { savedBaseline.currentServer = baseline.name }
         }
         if wasDefault { working.currentServer = server.name }
     }
@@ -211,15 +241,23 @@ struct SettingsEditor: Equatable {
         s.id = working.servers[index].id
         let oldName = working.servers[index].name
         if normalizeName {
+            // The revert target is the last committed name (the saved name, or the
+            // last normalized name for an unsaved row), not `oldName`: live
+            // per-keystroke edits have already overwritten `oldName`.
+            let committed = committedName(of: s.id) ?? oldName
             let trimmed = s.name.trimmingCharacters(in: .whitespaces)
-            s.name = trimmed.isEmpty ? oldName : trimmed
+            s.name = trimmed.isEmpty ? committed : trimmed
             // Keep names unique (compare against the other rows).
             let clashesElsewhere = working.servers.enumerated().contains { i, other in
                 i != index && other.name == s.name
             }
-            if s.name != oldName && clashesElsewhere { s.name = oldName }
+            if clashesElsewhere { s.name = committed }
+            lastNormalizedNames[s.id] = s.name
         }
-        if s.name != oldName, working.currentServer == oldName {
+        // Only the row the default names (the first row with that name) moves the default;
+        // a live-typed duplicate of the default's name must not steal it.
+        let isDefaultRow = working.servers.first { $0.name == oldName }?.id == s.id
+        if s.name != oldName, working.currentServer == oldName, isDefaultRow {
             working.currentServer = s.name
         }
         working.servers[index] = s
@@ -237,22 +275,24 @@ struct SettingsEditor: Equatable {
     // General-pane setters apply immediately: they write through to
     // `savedBaseline` as well as `working`, so they never register as a pending
     // server-pane edit (`isDirty` stays scoped to servers/currentServer). Each
-    // returns the resulting config so the caller can persist + apply it right away.
+    // returns the SAVED config with only the General field patched, never the
+    // working copy: pending server edits and unsaved servers must not be persisted
+    // by a General change.
 
     private mutating func applyImmediately<T>(_ keyPath: WritableKeyPath<AppConfig, T>,
                                               _ value: T) -> AppConfig {
         working[keyPath: keyPath] = value
         savedBaseline[keyPath: keyPath] = value
-        return normalized()
+        return savedConfig
     }
 
     @discardableResult
     mutating func setRefreshSeconds(_ seconds: Double) -> AppConfig {
         working.refreshSeconds = seconds
-        let result = normalized()   // clamps to >= 1
-        working.refreshSeconds = result.refreshSeconds
-        savedBaseline.refreshSeconds = result.refreshSeconds
-        return result
+        savedBaseline.refreshSeconds = seconds
+        savedBaseline = Self.normalize(savedBaseline)   // clamps to >= 1
+        working.refreshSeconds = savedBaseline.refreshSeconds
+        return savedConfig
     }
 
     @discardableResult
