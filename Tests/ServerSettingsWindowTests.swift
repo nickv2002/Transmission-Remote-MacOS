@@ -195,6 +195,12 @@ struct ServerSettingsWindowTests {
         var saved: [AppConfig] = []
         c.onChange = { saved.append($0) }
         #expect(c.defaultButton.title == "Default")
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let footer = [c.addButtonForTesting, c.removeButton, c.defaultButton]
+        // Constraints act on the alignment rect (the frame adds the bezel's inset).
+        #expect(Set(footer.map { $0.alignmentRect(forFrame: $0.frame).height }) == [SettingsWindowController.footerButtonHeight])
+        #expect(Set(footer.map(\.frame.height)).count == 1)
+        #expect(c.defaultButton.frame.minX > c.removeButton.frame.maxX + 20, "Default is right-justified")
         #expect(c.defaultButton.accessibilityLabel() == "Make this the default server")
         #expect(c.defaultButton.toolTip == "Make this the default server")
         #expect(!c.defaultButton.isEnabled, "the selected server is already the default")

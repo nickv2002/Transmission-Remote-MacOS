@@ -62,6 +62,7 @@ final class SettingsWindowController: NSWindowController {
     private static let serverRowType = NSPasteboard.PasteboardType("com.nickvance.transmission-remote-mac.server-row")
     let sidebar = NSTableView()
     private let addButton = NSButton()
+    var addButtonForTesting: NSButton { addButton }
     let removeButton = NSButton()
     let defaultButton = NSButton()
     private enum Row: Equatable { case header(String), general, server(UUID) }
@@ -69,6 +70,7 @@ final class SettingsWindowController: NSWindowController {
         [.header("App"), .general, .header("Servers")] + editor.servers.map { .server($0.id) }
     }
     private static let firstServerRow = 3
+    static let footerButtonHeight: CGFloat = 24
 
     // Panes.
     private(set) var generalPane: SettingsGeneralPane!
@@ -215,9 +217,14 @@ final class SettingsWindowController: NSWindowController {
             removeButton.leadingAnchor.constraint(equalTo: addButton.trailingAnchor, constant: 2),
             removeButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
             removeButton.widthAnchor.constraint(equalToConstant: 24),
-            defaultButton.leadingAnchor.constraint(equalTo: removeButton.trailingAnchor, constant: 2),
+            // Default sits at the footer's trailing edge; one shared height keeps
+            // all three footer buttons identical.
+            defaultButton.trailingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: -10),
             defaultButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
             defaultButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 54),
+            addButton.heightAnchor.constraint(equalToConstant: Self.footerButtonHeight),
+            removeButton.heightAnchor.constraint(equalTo: addButton.heightAnchor),
+            defaultButton.heightAnchor.constraint(equalTo: addButton.heightAnchor),
             divider.topAnchor.constraint(equalTo: root.topAnchor),
             divider.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             divider.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor),
