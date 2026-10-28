@@ -63,6 +63,7 @@ final class SettingsWindowController: NSWindowController {
     let sidebar = NSTableView()
     private let addButton = NSButton()
     let removeButton = NSButton()
+    let defaultButton = NSButton()
     private enum Row: Equatable { case header(String), general, server(UUID) }
     private var rows: [Row] {
         [.header("App"), .general, .header("Servers")] + editor.servers.map { .server($0.id) }
@@ -84,8 +85,6 @@ final class SettingsWindowController: NSWindowController {
     // Bottom bar.
     let statusLabel = NSTextField(wrappingLabelWithString: "")
     private let spinner = NSProgressIndicator()
-    let reloadButton = NSButton(title: "Reload", target: nil, action: nil)
-    let testButton = NSButton(title: "Test Connection", target: nil, action: nil)
     let revertButton = NSButton(title: "Revert", target: nil, action: nil)
     let applyButton = NSButton(title: "Apply", target: nil, action: nil)
     private(set) var working = false
@@ -128,6 +127,10 @@ final class SettingsWindowController: NSWindowController {
         window.initialFirstResponder = sidebar   // ↑/↓ move through the sidebar
         wireForm()
         connectionPane.onEdit = { [weak self] server, normalize in self?.connectionEdited(server, normalize: normalize) }
+        connectionPane.onTestConnection = { [weak self] in
+            guard let self else { return }
+            runTestConnection(connectionPane.currentServer())
+        }
         generalPane.reload()
         sidebar.reloadData()
         select(rememberedSelection(), tab: nil)
@@ -172,6 +175,13 @@ final class SettingsWindowController: NSWindowController {
         removeButton.target = self
         removeButton.action = #selector(removeServer)
         removeButton.setAccessibilityIdentifier("settings-remove-server")
+        defaultButton.bezelStyle = .smallSquare
+        defaultButton.image = NSImage(systemSymbolName: "star", accessibilityDescription: "Make Default")
+        defaultButton.target = self
+        defaultButton.action = #selector(makeSelectedDefault(_:))
+        defaultButton.toolTip = "Make the selected server the default (connected to at launch)"
+        defaultButton.setAccessibilityLabel("Make Default")
+        defaultButton.setAccessibilityIdentifier("settings-make-default")
         let divider = NSBox()
         divider.boxType = .separator
 
@@ -188,7 +198,7 @@ final class SettingsWindowController: NSWindowController {
             ])
         }
 
-        for view in [sidebarScroll, addButton, removeButton, divider, detail] {
+        for view in [sidebarScroll, addButton, removeButton, defaultButton, divider, detail] {
             view.translatesAutoresizingMaskIntoConstraints = false
             root.addSubview(view)
         }
@@ -204,6 +214,9 @@ final class SettingsWindowController: NSWindowController {
             removeButton.leadingAnchor.constraint(equalTo: addButton.trailingAnchor, constant: 2),
             removeButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
             removeButton.widthAnchor.constraint(equalToConstant: 24),
+            defaultButton.leadingAnchor.constraint(equalTo: removeButton.trailingAnchor, constant: 2),
+            defaultButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
+            defaultButton.widthAnchor.constraint(equalToConstant: 24),
             divider.topAnchor.constraint(equalTo: root.topAnchor),
             divider.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             divider.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor),
@@ -259,8 +272,6 @@ final class SettingsWindowController: NSWindowController {
         spinner.controlSize = .small
         spinner.isDisplayedWhenStopped = false
         for (button, action, identifier) in [
-            (reloadButton, #selector(reloadServerValues(_:)), "server-options-reload"),
-            (testButton, #selector(testConnection(_:)), "server-settings-test-connection"),
             (revertButton, #selector(revertSettings(_:)), "server-options-revert"),
             (applyButton, #selector(applySettings(_:)), "server-options-apply"),
         ] {
@@ -273,11 +284,11 @@ final class SettingsWindowController: NSWindowController {
         // Esc never discards; Apply and Revert are explicit clicks only.
         revertButton.keyEquivalent = ""
         applyButton.keyEquivalent = ""
-        reloadButton.toolTip = "Load the server’s current values again."
+        revertButton.toolTip = "Discard unsaved changes to this server and load its current values from the server."
 
         let separator = NSBox()
         separator.boxType = .separator
-        for view in [header, tabPicker, tabView, separator, statusLabel, spinner, reloadButton, testButton, revertButton, applyButton] {
+        for view in [header, tabPicker, tabView, separator, statusLabel, spinner, revertButton, applyButton] {
             view.translatesAutoresizingMaskIntoConstraints = false
             serverView.addSubview(view)
         }
@@ -304,11 +315,7 @@ final class SettingsWindowController: NSWindowController {
             applyButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
             revertButton.trailingAnchor.constraint(equalTo: applyButton.leadingAnchor, constant: -8),
             revertButton.centerYAnchor.constraint(equalTo: applyButton.centerYAnchor),
-            reloadButton.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
-            reloadButton.centerYAnchor.constraint(equalTo: applyButton.centerYAnchor),
-            testButton.leadingAnchor.constraint(equalTo: reloadButton.trailingAnchor, constant: 8),
-            testButton.centerYAnchor.constraint(equalTo: applyButton.centerYAnchor),
-            spinner.leadingAnchor.constraint(equalTo: testButton.trailingAnchor, constant: 10),
+            spinner.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
             spinner.centerYAnchor.constraint(equalTo: applyButton.centerYAnchor),
             spinner.widthAnchor.constraint(equalToConstant: 16),
             spinner.heightAnchor.constraint(equalToConstant: 16),
@@ -324,8 +331,8 @@ final class SettingsWindowController: NSWindowController {
             ensureLoaded(id, force: true)
         }
         form.onTestConnection = { [weak self] in
-            guard let self, case .server(let id) = selection, let server = editor.servers.first(where: { $0.id == id }) else { return }
-            runTestConnection(server)
+            guard let self, selectedServerID != nil else { return }
+            runTestConnection(connectionPane.currentServer())
         }
         form.onExpansionChange = { expansion in
             guard Self.remembers else { return }
@@ -453,7 +460,7 @@ final class SettingsWindowController: NSWindowController {
             ensureLoaded(id)
             refreshServerUI()
         }
-        removeButton.isEnabled = selectedServerID != nil && editor.serverCount > 1
+        updateFooter()
         rememberSelection()
     }
 
@@ -561,7 +568,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     /// The live poll saw a new `session-get` for `id`: follow speed limits
-    /// changed from the menus, unless the Speed tab has edits (then ask for a Reload).
+    /// changed from the menus, unless the Speed tab has edits (then ask for a Revert).
     func sessionObserved(_ info: SessionInfo?, serverID id: UUID?) {
         guard let info, let id, let state = remote[id], let session = state.session, !working else { return }
         switch session.absorb(info.speedOptionValues) {
@@ -593,11 +600,13 @@ final class SettingsWindowController: NSWindowController {
         let dirty = isDirty(id)
         let plan = applyPlan(id)
         applyButton.isEnabled = !working && dirty && { if case .blocked = plan { false } else { true } }()
-        revertButton.isEnabled = !working && dirty
-        reloadButton.isEnabled = !working && editor.isSaved(id) && selectedTab != .connection
-        testButton.isEnabled = !working
+        // Revert also clears a pending "load the server's values" state (failed
+        // write, or speed limits changed elsewhere while edited).
+        let stale = remote[id]?.session?.needsReload == true || remote[id]?.changedOnServer == true
+        revertButton.isEnabled = !working && (dirty || stale)
         window?.isDocumentEdited = hasPendingEdits
         updateRow(id)
+        updateFooter()
     }
 
     private func applyPlan(_ id: UUID) -> ServerSettingsScope.ApplyPlan {
@@ -637,22 +646,19 @@ final class SettingsWindowController: NSWindowController {
         if form.session !== state?.session { form.session = state?.session }
         form.setAvailability(availability, serverName: server.name)
         form.updateEnabledState(working: working)
-        let onConnection = selectedTab == .connection
-        reloadButton.isHidden = onConnection
-        testButton.isHidden = !onConnection
         if !working { statusLabel.stringValue = statusMessage(id, availability: availability); statusLabel.textColor = .secondaryLabelColor }
         updateDirtyState()
     }
 
     private func statusMessage(_ id: UUID, availability: ServerSettingsScope.Availability) -> String {
-        if remote[id]?.changedOnServer == true { return "Speed limits changed on the server — Reload to see them." }
-        if remote[id]?.session?.needsReload == true { return "Reload the server values before applying again." }
+        if remote[id]?.changedOnServer == true { return "Speed limits changed on the server. Click Revert to load them (this discards your unsaved changes)." }
+        if remote[id]?.session?.needsReload == true { return "Click Revert to load the server’s current values before applying again." }
         if case .ready = availability, let editor = remote[id]?.session?.editor {
             let missing = ServerOption.allCases.filter { !editor.supports($0) }.count
             if missing > 0 { return "\(missing) settings are unavailable on this server. Changes apply only when you click Apply." }
         }
         if case .unsavedNewServer = availability { return "Fill in the connection, then click Apply to save this server." }
-        return "Changes apply only when you click Apply."
+        return "Changes apply only when you click Apply. Revert discards them and loads the server’s current values."
     }
 
     // MARK: - Sidebar rows
@@ -728,13 +734,33 @@ final class SettingsWindowController: NSWindowController {
         window?.undoManager?.setActionName("Remove Server")
     }
 
-    @objc private func makeDefault(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? UUID, editor.isSaved(id),
-              let server = editor.servers.first(where: { $0.id == id }) else { return }
+    /// Sidebar footer: − needs a server and more than one; ★ needs a saved, non-default server.
+    func updateFooter() {
+        let id = selectedServerID
+        removeButton.isEnabled = id != nil && editor.serverCount > 1
+        defaultButton.isEnabled = id.map(canMakeDefault) ?? false
+    }
+
+    private func canMakeDefault(_ id: UUID) -> Bool {
+        editor.isSaved(id) && editor.currentServer != editor.servers.first { $0.id == id }?.name
+    }
+
+    @objc private func makeDefaultFromMenu(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? UUID { makeDefault(id) }
+    }
+
+    @objc func makeSelectedDefault(_ sender: Any?) {
+        if let id = selectedServerID { makeDefault(id) }
+    }
+
+    /// Applies immediately, like the other list edits.
+    func makeDefault(_ id: UUID) {
+        guard canMakeDefault(id), let server = editor.servers.first(where: { $0.id == id }) else { return }
         let previous = editor.currentServer
         editor.setDefaultServer(server.name)
         onChange?(editor.savedConfig)
         for other in editor.servers where other.name == previous || other.id == id { updateRow(other.id) }
+        updateFooter()
     }
 
     // MARK: - Editing
@@ -748,7 +774,7 @@ final class SettingsWindowController: NSWindowController {
         updateDirtyState()
     }
 
-    // MARK: - Apply / Revert / Reload
+    // MARK: - Apply / Revert
 
     @objc func applySettings(_ sender: Any?) { applySelected(completion: nil) }
 
@@ -793,17 +819,26 @@ final class SettingsWindowController: NSWindowController {
             && a.username == b.username && a.password == b.password
     }
 
+    /// Revert: discard this server's unsaved edits (connection, presets and
+    /// server tabs) and load its current values from the server again. This is
+    /// also how to clear "changed on the server" or a failed, unverified write.
     @objc func revertSettings(_ sender: Any?) {
         guard let id = selectedServerID, !working else { return }
-        revert(id)
+        revert(id, refetch: true)
     }
 
-    private func revert(_ id: UUID) {
+    /// `refetch: false` (Discard in the close/quit/switch prompts) only drops
+    /// edits locally; a session that needed a refetch is dropped so it loads
+    /// again next time the server is shown.
+    private func revert(_ id: UUID, refetch: Bool = false) {
         window?.makeFirstResponder(nil)
         let wasSaved = editor.isSaved(id)
         let index = editor.index(of: id) ?? 0
         editor.revertServer(id)
-        remote[id]?.session?.revert()
+        if let state = remote[id], let session = state.session {
+            session.revert()
+            if !refetch, session.needsReload || state.changedOnServer { remote[id] = nil }
+        }
         if wasSaved {
             if selectedServerID == id {
                 connectionPane.load(editor.servers.first { $0.id == id })
@@ -811,6 +846,7 @@ final class SettingsWindowController: NSWindowController {
                 refreshServerUI()
             }
             updateRow(id)
+            if refetch { refetchServerValues(id) }
         } else {
             remote[id] = nil
             sidebar.reloadData()
@@ -821,35 +857,22 @@ final class SettingsWindowController: NSWindowController {
         window?.isDocumentEdited = hasPendingEdits
     }
 
-    @objc private func reloadServerValues(_ sender: Any?) {
-        guard let id = selectedServerID, !working else { return }
-        if remote[id]?.session?.editor?.isDirty == true {
-            let alert = NSAlert()
-            alert.messageText = "Discard unsaved server settings?"
-            alert.informativeText = "Reload replaces the edits on the server tabs with the server’s current values. Connection and preset edits are kept."
-            alert.addButton(withTitle: "Keep Editing")
-            alert.addButton(withTitle: "Discard and Reload")
-            guard alert.runModal() == .alertSecondButtonReturn else { return }
-        }
+    private func refetchServerValues(_ id: UUID) {
         guard let session = remote[id]?.session else { ensureLoaded(id, force: true); return }
-        perform(message: "Loading server settings…", completion: nil) { [self] in
+        perform(message: "Loading the server’s current values…", completion: nil) { [self] in
             try await session.load()
             remote[id]?.changedOnServer = false
-            form.render()
-            return "Changes apply only when you click Apply."
+            if selectedServerID == id { form.render() }
+            return "Reverted to the server’s current values."
         }
     }
 
-    @objc private func testConnection(_ sender: Any?) {
-        runTestConnection(connectionPane.currentServer())
-    }
-
+    /// Test Connection probes the Connection form as typed (unsaved edits
+    /// included), so it works for a new server or one whose tabs are blocked.
     private func runTestConnection(_ server: ServerConfig) {
-        testButton.isEnabled = false
-        spinner.startAnimation(nil)
+        connectionPane.setTesting(true)
         SettingsConnectionPane.testConnection(server, window: window) { [weak self] in
-            self?.spinner.stopAnimation(nil)
-            self?.testButton.isEnabled = true
+            self?.connectionPane.setTesting(false)
         }
     }
 
@@ -1091,10 +1114,10 @@ extension SettingsWindowController: NSMenuDelegate {
         menu.removeAllItems()
         let row = sidebar.clickedRow
         guard rows.indices.contains(row), case .server(let id) = rows[row] else { return }
-        let item = menu.addItem(withTitle: "Make Default", action: #selector(makeDefault(_:)), keyEquivalent: "")
+        let item = menu.addItem(withTitle: "Make Default", action: #selector(makeDefaultFromMenu(_:)), keyEquivalent: "")
         item.target = self
         item.representedObject = id
-        item.isEnabled = editor.isSaved(id) && editor.currentServer != editor.servers.first { $0.id == id }?.name
+        item.isEnabled = canMakeDefault(id)
     }
 }
 

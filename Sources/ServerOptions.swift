@@ -330,7 +330,7 @@ struct ServerOptionsEditor: Sendable {
     /// speed menu, seen by the poll) into both the baseline and the draft — but
     /// only when none of those settings has an unsaved edit here. Returns
     /// `.conflict` (and changes nothing) when one does, so the caller can ask
-    /// for a Reload; the conflict check in `checkedPatch` still blocks a stale Apply.
+    /// for a Revert (which refetches); the conflict check in `checkedPatch` still blocks a stale Apply.
     enum AbsorbResult: Equatable { case unchanged, updated, conflict }
 
     mutating func absorb(_ values: [ServerOption: ServerOptionValue]) -> AbsorbResult {
@@ -434,7 +434,7 @@ struct ServerOptionsEditor: Sendable {
         }
         if !conflicts.isEmpty {
             let ordered = ServerOption.allCases.filter { conflicts.contains($0) }
-            throw ServerOptionsError(message: "These settings changed on the server: " + ordered.map { $0.definition.title }.joined(separator: ", ") + ". Reload the server values before applying.", fields: ordered)
+            throw ServerOptionsError(message: "These settings changed on the server: " + ordered.map { $0.definition.title }.joined(separator: ", ") + ". Click Revert to load the server’s current values, then make your changes again.", fields: ordered)
         }
         return changes.filter { latest.values[$0.key] != $0.value }
     }
@@ -489,7 +489,7 @@ final class ServerOptionsSession {
 
     func apply() async throws {
         guard !isBusy, let editor else { return }
-        guard !needsReload else { throw ServerOptionsError(message: "Reload the server values before applying again.") }
+        guard !needsReload else { throw ServerOptionsError(message: "Click Revert to load the server’s current values before applying again.") }
         _ = try editor.patch()
         isBusy = true
         defer { isBusy = false }
@@ -509,12 +509,12 @@ final class ServerOptionsSession {
                 changes[key].map { verified.values[key] != $0 } ?? false
             }
             guard mismatches.isEmpty else {
-                throw ServerOptionsError(message: "The server did not retain these values: " + mismatches.map { $0.definition.title }.joined(separator: ", ") + ". Reload to inspect its current settings.", fields: mismatches)
+                throw ServerOptionsError(message: "The server did not retain these values: " + mismatches.map { $0.definition.title }.joined(separator: ", ") + ". Click Revert to see its current settings.", fields: mismatches)
             }
             self.editor = ServerOptionsEditor(verified)
             needsReload = false
         } catch {
-            throw ServerOptionsError(message: "The save could not be fully verified. \(error.localizedDescription) Reload before trying again.",
+            throw ServerOptionsError(message: "The save could not be fully verified. \(error.localizedDescription) Click Revert before trying again.",
                                      fields: (error as? ServerOptionsError)?.fields ?? [])
         }
     }
@@ -618,7 +618,7 @@ enum ServerSettingsScope {
 
     static func plan(localDirty: Bool, remoteDirty: Bool, remoteNeedsReload: Bool) -> ApplyPlan {
         if remoteNeedsReload && remoteDirty {
-            return .blocked("Reload the server values before applying again.")
+            return .blocked("Click Revert to load the server’s current values before applying again.")
         }
         switch (remoteDirty, localDirty) {
         case (false, false): return .nothing

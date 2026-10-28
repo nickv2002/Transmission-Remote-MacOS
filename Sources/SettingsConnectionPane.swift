@@ -11,6 +11,10 @@ import AppKit
 final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDelegate {
     /// (fields as typed, normalize name?) — the shell stores it in the editor.
     var onEdit: ((ServerConfig, Bool) -> Void)?
+    /// Test Connection, under the credentials: probes the fields as typed.
+    var onTestConnection: (() -> Void)?
+    let testButton = NSButton(title: "Test Connection", target: nil, action: nil)
+    private let testSpinner = NSProgressIndicator()
     private(set) var view = NSView()
     private(set) var presetsView = NSView()
 
@@ -75,6 +79,18 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         scope.textColor = .secondaryLabelColor
         scope.setAccessibilityHelp(ServerSettingsScope.Storage.mac.help)
 
+        testButton.bezelStyle = .rounded
+        testButton.target = self
+        testButton.action = #selector(testConnection(_:))
+        testButton.toolTip = "Try every host as typed here, including unsaved changes, and report which respond."
+        testButton.setAccessibilityIdentifier("server-settings-test-connection")
+        testSpinner.style = .spinning
+        testSpinner.controlSize = .small
+        testSpinner.isDisplayedWhenStopped = false
+        let testRow = NSStackView(views: [testButton, testSpinner])
+        testRow.spacing = 8
+        testRow.alignment = .centerY
+
         let grid = NSGridView(views: [
             [NSView(), scope],
             [label("Name:"), nameField],
@@ -84,6 +100,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             [label("RPC Path:"), rpcPathField],
             [label("Username:"), usernameField],
             [label("Password:"), passwordField],
+            [NSView(), testRow],
             [label("Path Mappings:"), buildPathMappingsEditor()],
             [NSView(), caption("Remote→local, one per line.\ne.g.  /video=/Volumes/Video\nLocal side also accepts smb://host/share/path, resolved to wherever that share is currently mounted.")],
         ])
@@ -92,8 +109,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         grid.rowAlignment = .firstBaseline
         grid.column(at: 1).width = 300
         // The mappings editor is multi-line; top-align its row.
-        grid.row(at: 8).yPlacement = .top
-        grid.row(at: 8).rowAlignment = .none
+        grid.row(at: 9).yPlacement = .top
+        grid.row(at: 9).rowAlignment = .none
         let pane = NSView()
         pane.addSubview(grid)
         NSLayoutConstraint.activate([
@@ -157,11 +174,19 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         return scroll
     }
 
+    @objc private func testConnection(_ sender: Any?) { onTestConnection?() }
+
+    func setTesting(_ testing: Bool) {
+        testButton.isEnabled = !testing
+        if testing { testSpinner.startAnimation(nil) } else { testSpinner.stopAnimation(nil) }
+    }
+
     /// Show `server` (nil clears and disables the form).
     func load(_ server: ServerConfig?) {
         isLoading = true
         defer { isLoading = false }
         for field in detailFields { field.isEnabled = server != nil }
+        testButton.isEnabled = server != nil
         pathMappingsView.isEditable = server != nil
         nameField.stringValue = server?.name ?? ""
         hostField.stringValue = server?.host ?? ""
