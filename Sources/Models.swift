@@ -685,6 +685,16 @@ struct RateHistory: Equatable, Sendable {
 struct RPCResponse<Arguments: Decodable>: Decodable {
     let result: String
     let arguments: Arguments?
+
+    private enum CodingKeys: String, CodingKey { case result, arguments }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        result = try container.decode(String.self, forKey: .result)
+        // Failed RPCs may return an empty or differently shaped arguments object.
+        // Preserve the server's error instead of trying to decode a success payload.
+        arguments = result == "success" ? try container.decodeIfPresent(Arguments.self, forKey: .arguments) : nil
+    }
 }
 
 /// Decoded `arguments` for `torrent-get`.

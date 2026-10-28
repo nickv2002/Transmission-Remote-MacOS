@@ -133,7 +133,7 @@ final class SpeedLimitTests: XCTestCase {
 
     // MARK: Upgrade safety
 
-    func testLoadingPreSpeedLimitPreferencesNeverRewritesTheFile() throws {
+    func testLoadingPreSpeedLimitPreferencesOnlyAddsServerIDs() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
@@ -143,7 +143,16 @@ final class SpeedLimitTests: XCTestCase {
 
         let config = try PreferencesStore.load(storeURL: url, legacyURL: nil)
 
-        XCTAssertEqual(try Data(contentsOf: url), original, "launch must not rewrite existing preferences")
+        // The one permitted rewrite: minted server ids are added, nothing else changes.
+        let stored = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? NSDictionary)
+            .mutableCopy() as! NSMutableDictionary
+        let servers = try XCTUnwrap(stored["servers"] as? [[String: Any]])
+        XCTAssertEqual(servers.first?["id"] as? String, config.servers.first?.id.uuidString)
+        stored["servers"] = servers.map { $0.filter { $0.key != "id" } }
+        XCTAssertEqual(stored, try XCTUnwrap(JSONSerialization.jsonObject(with: original) as? NSDictionary),
+                       "launch must not otherwise rewrite existing preferences")
+        let reloaded = try PreferencesStore.load(storeURL: url, legacyURL: nil)
+        XCTAssertEqual(reloaded.servers.first?.id, config.servers.first?.id)
         let s = try XCTUnwrap(config.servers.first)
         XCTAssertEqual([s.name, s.host, s.username, s.password], ["N5", "10.0.1.2", "u", "p"])
         XCTAssertEqual(config.currentServer, "N5")
