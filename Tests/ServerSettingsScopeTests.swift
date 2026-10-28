@@ -259,4 +259,12 @@ struct ServerSettingsScopeTests {
         #expect(e.savedConfig.currentServer == "B")
         #expect(e.applyServer(e.servers[1].id).currentServer == "Beta")
     }
+
+    /// Transmission 4.1's RPC has no watch-dir fields (rpc-spec 4.1), so only the
+    /// trash flag is offered, with a caption saying where the watch folder is set.
+    @Test func trashOriginalIsTheOnlyTorrentFileSetting() {
+        #expect(ServerOption.trashOriginal.definition.title == "Delete .torrent files after they are added")
+        #expect(ServerOption.trashOriginal.group.keys == [.trashOriginal])
+        #expect(!ServerOption.allCases.contains { $0.rawValue.hasPrefix("watch") })
+    }
 }

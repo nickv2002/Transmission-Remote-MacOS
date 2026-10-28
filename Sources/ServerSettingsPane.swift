@@ -146,7 +146,11 @@ final class ServerSettingsFormController: NSObject, NSTextFieldDelegate {
         case "Queue": "Limits how many torrents run at once."
         case "Turtle mode": "The alternative limits used while turtle mode is on, from the speed menus or the schedule below."
         case "Schedule": "Uses the server’s local time zone and can run overnight."
-        case "Watch folder": "Applies to the server’s watch folder. The .torrent removal choice in General applies to files on this Mac."
+        case "Added .torrent files":
+            "When on, the server deletes a torrent’s .torrent file once it has added it — including files it picks up from its own "
+                + "watch folder. Stored on the server; it doesn’t touch .torrent files on this Mac (see General ▸ Default when adding torrents). "
+                + "The watch folder itself isn’t available over RPC in Transmission 4.1, so it can’t be shown or changed here; "
+                + "set watch-dir / watch-dir-enabled in the server’s settings.json."
         case "Authentication": "Failures from all clients count together. Exceeding the threshold locks out RPC authentication until the server restarts."
         case "Default trackers": "One tracker URL per line; blank lines separate tiers."
         case "Server scripts": "Paths to existing executable files on the server. This app neither uploads nor runs scripts."

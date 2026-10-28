@@ -130,7 +130,7 @@ enum ServerOption: String, CaseIterable, Sendable {
         .init(key: .lpd, title: "Enable local peer discovery", kind: .boolean, pane: .advanced, tier: .advanced, group: "Peer discovery"),
         .init(key: .transports, title: "Peer transports", kind: .transports, pane: .advanced, tier: .advanced, group: "Peer discovery"),
         .init(key: .utp, title: "Enable µTP", kind: .boolean, pane: .advanced, tier: .advanced, group: "Peer discovery"),
-        .init(key: .trashOriginal, title: "Delete .torrent files added from the server’s watch folder", kind: .boolean, pane: .advanced, tier: .advanced, group: "Watch folder"),
+        .init(key: .trashOriginal, title: "Delete .torrent files after they are added", kind: .boolean, pane: .advanced, tier: .advanced, group: "Added .torrent files"),
         .init(key: .cacheSize, title: "Disk cache (MiB)", kind: .integer(0...2_147_483_647), pane: .advanced, tier: .advanced, group: "Performance"),
         .init(key: .requestQueue, title: "Queued requests per peer", kind: .integer(1...2_147_483_647), pane: .advanced, tier: .advanced, group: "Performance"),
         .init(key: .bruteForce, title: "Enable RPC brute-force protection", kind: .boolean, pane: .advanced, tier: .advanced, group: "Authentication"),
