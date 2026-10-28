@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026.10.27.1 — 2026-10-27
+
+- Settings bug-bash fixes: port validation, id-keyed state, safer saves
+- Settings: equal-height footer buttons, Default on the trailing edge
+- Settings: text Default button; explain the .torrent deletion setting
+- Settings: Make Default button, Test Connection in the form, one Revert
+- Never reset Settings over unsaved edits on reopen
+- Document the unified Settings window
+- Keep the active server across a rename
+- Unify Settings: sidebar with General and per-server tabs
+- Add settings tiers, per-server saving and the apply plan
+- Give each server a stable id
+- Add Server Options window and bandwidth groups
+- Polish native toolbar customization and menu updates
+- Add native Server Options and grouped toolbar controls
+
 ## 2026.10.24.2 — 2026-10-24
 
 - Label the status-bar speed graph and open the speed menu on click

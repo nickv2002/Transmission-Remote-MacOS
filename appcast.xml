@@ -331,5 +331,17 @@
         length="5932351"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.10.27.1</title>
+      <sparkle:version>2026.10.27.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Wed, 28 Oct 2026 02:55:51 +0000</pubDate>
+      <description><![CDATA[<p>Settings is now one window: a sidebar lists General and each server, with per-server tabs, Apply and Revert, and bandwidth groups.</p><ul><li>Settings bug-bash fixes: port validation, id-keyed state, safer saves</li><li>Settings: equal-height footer buttons, Default on the trailing edge</li><li>Settings: text Default button; explain the .torrent deletion setting</li><li>Settings: Make Default button, Test Connection in the form, one Revert</li><li>Never reset Settings over unsaved edits on reopen</li><li>Document the unified Settings window</li><li>Keep the active server across a rename</li><li>Unify Settings: sidebar with General and per-server tabs</li><li>Add settings tiers, per-server saving and the apply plan</li><li>Give each server a stable id</li><li>Add Server Options window and bandwidth groups</li><li>Polish native toolbar customization and menu updates</li><li>Add native Server Options and grouped toolbar controls</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.27.1/Transmission.Remote-2026.10.27.1.zip"
+        sparkle:edSignature="NjtgRpzI1ukNcZX20T6UsqeKDcnePmPWefmf71VjTqifFABmJ5j6SkpvoHmw/oOPVGhrLHYF00doRaMX5DsCAA=="
+        length="5021237"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
