@@ -141,11 +141,87 @@ struct ServerSettingsWindowTests {
         #expect(c.isDirty(Self.server.id))
         // With nothing pending, reopening re-seeds from the saved config.
         c.revertSettings(nil)
+        try await waitUntil { !c.working }   // Revert refetches the server's values
         var renamed = Self.server
         renamed.name = "Renamed elsewhere"
         c.reopen(with: AppConfig(servers: [renamed], refreshSeconds: 4, currentServer: renamed.name))
         #expect(c.editor.servers.first?.name == "Renamed elsewhere")
         #expect(await service.writes.isEmpty)
+    }
+
+    @Test func revertDiscardsEditsAndLoadsTheServersCurrentValues() async throws {
+        let service = OptionsStub()
+        let c = try await controller(service: service)
+        #expect(!c.revertButton.isEnabled)
+        type("/data/discard me", into: try #require(c.form.controls[.downloadDir]?.first as? NSTextField), c)
+        c.connectionPane.downPresetsField.stringValue = "1, 2"
+        c.connectionPane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification,
+                                                           object: c.connectionPane.downPresetsField))
+        #expect(c.revertButton.isEnabled)
+        var changed = ServerOptionsFixtures.snapshot
+        changed.values[.down] = .int(777)   // changed by another client meanwhile
+        await service.replace(changed)
+        let reads = await service.reads
+        c.revertSettings(nil)
+        try await waitUntil { !c.working && c.form.session?.editor?.text(.down) == "777" }
+        #expect(await service.reads > reads, "Revert refetches, covering what Reload did")
+        #expect(c.form.session?.editor?.text(.downloadDir) != "/data/discard me")
+        #expect(c.connectionPane.downPresetsField.stringValue == SpeedPresets.format(Self.server.downSpeedPresets))
+        #expect(!c.isDirty(Self.server.id))
+        #expect(await service.writes.isEmpty)
+        #expect(!c.revertButton.isEnabled)
+    }
+
+    @Test func revertClearsAFailedWriteSoApplyWorksAgain() async throws {
+        let service = OptionsStub()
+        let c = try await controller(service: service)
+        type("250", into: try #require(c.form.controls[.down]?.first as? NSTextField), c)
+        await service.configure(rejectWrite: true)
+        c.applySettings(nil)
+        try await waitUntil { !c.working }
+        #expect(c.form.session?.needsReload == true)
+        #expect(c.statusLabel.stringValue.contains("Revert"))
+        await service.configure()
+        c.revertSettings(nil)
+        try await waitUntil { !c.working && c.form.session?.needsReload == false }
+        #expect(c.revertButton.isEnabled == false)
+        type("260", into: try #require(c.form.controls[.down]?.first as? NSTextField), c)
+        #expect(c.applyButton.isEnabled)
+    }
+
+    @Test func makeDefaultFooterButtonAppliesImmediately() async throws {
+        let other = ServerConfig(name: "Other", host: "127.0.0.2", port: 1, useHTTPS: false, rpcPath: "/r")
+        let c = try await controller(servers: [Self.server, other])
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        #expect(c.defaultButton.accessibilityLabel() == "Make Default")
+        #expect(c.defaultButton.toolTip != nil)
+        #expect(!c.defaultButton.isEnabled, "the selected server is already the default")
+        c.route(to: .server(other.id))
+        #expect(c.defaultButton.isEnabled)
+        c.defaultButton.performClick(nil)
+        #expect(saved.last?.currentServer == "Other")
+        #expect(!c.defaultButton.isEnabled)
+        c.route(to: .general)
+        #expect(!c.defaultButton.isEnabled)
+        // An unsaved new server can't be the default yet.
+        let index = c.editor.addServer()
+        c.sidebar.reloadData()
+        c.route(to: .server(c.editor.servers[index].id), tab: .connection)
+        #expect(!c.defaultButton.isEnabled)
+    }
+
+    @Test func testConnectionLivesInTheConnectionFormAndWorksWhenBlocked() async throws {
+        let c = try await controller(failing: true)
+        let button = c.connectionPane.testButton
+        #expect(button.isDescendant(of: c.connectionPane.view))
+        #expect(button.accessibilityIdentifier() == "server-settings-test-connection")
+        #expect(button.isEnabled, "offline server")
+        let index = c.editor.addServer()
+        c.sidebar.reloadData()
+        c.route(to: .server(c.editor.servers[index].id), tab: .connection)
+        #expect(button.isEnabled, "unsaved new server")
+        #expect(!button.isHiddenOrHasHiddenAncestor)
     }
 
     @Test func applyButtonCommitsAndRefreshesControls() async throws {

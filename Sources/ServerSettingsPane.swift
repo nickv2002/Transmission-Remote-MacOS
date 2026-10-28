@@ -298,7 +298,7 @@ final class ServerSettingsFormController: NSObject, NSTextFieldDelegate {
         }
     }
 
-    /// Called only after an explicit load / Apply / Reload (or a poll-absorbed
+    /// Called only after an explicit load / Apply / Revert (or a poll-absorbed
     /// speed change), never from the main polling loop directly.
     func render() {
         guard let editor = session?.editor else { updateEnabledState(working: working); return }
