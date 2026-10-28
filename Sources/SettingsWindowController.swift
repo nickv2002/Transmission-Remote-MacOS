@@ -607,7 +607,8 @@ final class SettingsWindowController: NSWindowController {
         guard let id = selectedServerID else { window?.isDocumentEdited = hasPendingEdits; return }
         let dirty = isDirty(id)
         let plan = applyPlan(id)
-        applyButton.isEnabled = !working && dirty && { if case .blocked = plan { false } else { true } }()
+        applyButton.isEnabled = !working && dirty && connectionPane.portValidationError == nil
+            && { if case .blocked = plan { false } else { true } }()
         // Revert also clears a pending "load the server's values" state (failed
         // write, or speed limits changed elsewhere while edited).
         let stale = remote[id]?.session?.needsReload == true || remote[id]?.changedOnServer == true
@@ -659,6 +660,7 @@ final class SettingsWindowController: NSWindowController {
     }
 
     private func statusMessage(_ id: UUID, availability: ServerSettingsScope.Availability) -> String {
+        if selectedServerID == id, let problem = connectionPane.portValidationError { return problem }
         if remote[id]?.changedOnServer == true { return "Speed limits changed on the server. Click Revert to load them (this discards your unsaved changes)." }
         if remote[id]?.session?.needsReload == true { return "Click Revert to load the server’s current values before applying again." }
         if case .ready = availability, let editor = remote[id]?.session?.editor {
@@ -725,7 +727,7 @@ final class SettingsWindowController: NSWindowController {
 
     /// Applies immediately; Edit ▸ Undo puts the server back.
     @objc private func removeServer() {
-        guard let id = selectedServerID, let index = editor.index(of: id) else { return }
+        guard let id = selectedServerID, let index = editor.index(of: id), editor.canRemoveServer(at: index) else { return }
         let saved = editor.isSaved(id)
         let wasDefault = editor.currentServer == editor.servers[index].name
         guard let removed = editor.removeServer(at: index) else { return }
@@ -745,7 +747,8 @@ final class SettingsWindowController: NSWindowController {
     /// Sidebar footer: − needs a server and more than one; Default needs a saved, non-default server.
     func updateFooter() {
         let id = selectedServerID
-        removeButton.isEnabled = id != nil && editor.serverCount > 1
+        // One rule, the editor's: at least one server stays, and no *other* server has pending edits.
+        removeButton.isEnabled = id.flatMap(editor.index(of:)).map(editor.canRemoveServer(at:)) ?? false
         defaultButton.isEnabled = id.map(canMakeDefault) ?? false
     }
 
@@ -779,6 +782,10 @@ final class SettingsWindowController: NSWindowController {
         if normalize, connectionPane.nameField.stringValue != stored.name { connectionPane.nameField.stringValue = stored.name }
         nameLabel.stringValue = stored.name
         window?.title = "Settings — \(stored.name)"
+        if !working {
+            statusLabel.stringValue = statusMessage(id, availability: availability(id))
+            statusLabel.textColor = connectionPane.portValidationError == nil ? .secondaryLabelColor : .systemRed
+        }
         updateDirtyState()
     }
 
@@ -791,6 +798,15 @@ final class SettingsWindowController: NSWindowController {
     func applySelected(completion: ((Bool) -> Void)?) {
         guard let id = selectedServerID, !working else { completion?(false); return }
         window?.makeFirstResponder(nil)   // commit the focused field (end-of-edit normalize)
+        // An unusable port is never saved (the editor holds the last valid one).
+        if let problem = connectionPane.validatePort() {
+            selectTab(.connection)
+            window?.makeFirstResponder(connectionPane.portField)
+            statusLabel.stringValue = problem
+            statusLabel.textColor = .systemRed
+            completion?(false)
+            return
+        }
         let plan = applyPlan(id)
         if plan == .nothing { completion?(true); return }
         let session = remote[id]?.session
@@ -878,6 +894,11 @@ final class SettingsWindowController: NSWindowController {
     /// Test Connection probes the Connection form as typed (unsaved edits
     /// included), so it works for a new server or one whose tabs are blocked.
     private func runTestConnection(_ server: ServerConfig) {
+        if let problem = connectionPane.validatePort() {   // e.g. from the offline notice
+            statusLabel.stringValue = problem
+            statusLabel.textColor = .systemRed
+            return
+        }
         connectionPane.setTesting(true)
         SettingsConnectionPane.testConnection(server, window: window) { [weak self] in
             self?.connectionPane.setTesting(false)
@@ -991,15 +1012,29 @@ final class SettingsWindowController: NSWindowController {
     /// ahead. Apply is asynchronous, so the answer may come later.
     func confirmQuit(_ reply: @escaping (Bool) -> Void) {
         if let groupsController, !groupsController.canQuit() { reply(false); return }
-        guard let id = editor.servers.map(\.id).first(where: isDirty) else { reply(true); return }
+        // Every server with pending edits: Connection/presets *or* server-tab drafts.
+        confirmQuitEdits(for: editor.servers.map(\.id).filter(isDirty), reply: reply)
+    }
+
+    /// Asks about each server in `ids` that still has edits, one at a time. Apply
+    /// continues to the next server only if it succeeded; Cancel on any server aborts the quit.
+    private func confirmQuitEdits(for ids: [UUID], reply: @escaping (Bool) -> Void) {
+        guard let id = ids.first else { reply(true); return }
+        let remaining = Array(ids.dropFirst())
+        guard isDirty(id) else { confirmQuitEdits(for: remaining, reply: reply); return }
         if selectedServerID != id { select(.server(id), tab: nil) }
         window?.makeKeyAndOrderFront(nil)
         switch askAboutPendingEdits(id, detail: "Your changes haven’t been applied. Apply them before quitting?") {
-        case .apply: applySelected { ok in reply(ok) }
+        case .apply:
+            applySelected { [weak self] ok in
+                guard ok else { reply(false); return }
+                self?.confirmQuitEdits(for: remaining, reply: reply)
+            }
         case .discard:
-            for server in editor.servers where isDirty(server.id) { revert(server.id) }
-            reply(true)
-        case .cancel: reply(false)
+            revert(id)
+            confirmQuitEdits(for: remaining, reply: reply)
+        case .cancel:
+            reply(false)
         }
     }
 }
@@ -1105,6 +1140,8 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
     /// Move the dragged server to the gap before sidebar `row`.
     func acceptServerDrop(from pasteboard: NSPasteboard, row: Int) -> Bool {
+        // Reorder isn't gated: it persists only the saved list's order, never another
+        // server's pending edits (those stay in the working copy).
         guard row >= Self.firstServerRow,
               let source = pasteboard.string(forType: Self.serverRowType).flatMap(Int.init),
               editor.moveServer(from: source, to: row - Self.firstServerRow) != nil else { return false }

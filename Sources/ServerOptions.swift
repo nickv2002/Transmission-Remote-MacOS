@@ -215,10 +215,53 @@ enum ServerOptionValue: Equatable, Sendable {
                 return String(format: "%02d:%02d", value / 60, value % 60)
             }
             return String(value)
-        case .decimal(let value): return String(value)
+        case .decimal(let value): return ServerDecimal.render(value)
         case .string(let value): return value
         case .strings(let value): return value.joined(separator: ",")
         }
+    }
+
+    /// Whether a value read back from the daemon matches the value sent. Decimals
+    /// tolerate the daemon rounding its stored number (absolute 1e-6 below 1,
+    /// relative above); every other kind must match exactly.
+    static func matches(_ stored: ServerOptionValue?, _ desired: ServerOptionValue) -> Bool {
+        guard let stored else { return false }
+        if case .decimal(let a) = stored, case .decimal(let b) = desired {
+            return a.isFinite && b.isFinite && abs(a - b) <= 1e-6 * max(1, abs(a), abs(b))
+        }
+        return stored == desired
+    }
+}
+
+/// Deterministic decimal text for the decimal-kind options. Rendering never uses an
+/// exponent or the locale. Parsing always accepts "." as the decimal point, and
+/// accepts the locale's own separator only when it is the sole separator in the
+/// text. Grouping ("1,000,000", "1.000,5") and mixed separators are rejected.
+enum ServerDecimal {
+    /// Fixed-point text with trailing zeros dropped: "2", "2.5", "0.000001".
+    static func render(_ value: Double) -> String {
+        var text = String(format: "%.9f", value)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
+    }
+
+    /// The value for `text`, or nil when it is not a plain non-negative decimal.
+    static func parse(_ text: String, localeSeparator: String = Locale.current.decimalSeparator ?? ".") -> Double? {
+        let raw = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let localeMark: Character? = {
+            guard localeSeparator.count == 1, let mark = localeSeparator.first, mark != "." else { return nil }
+            return mark
+        }()
+        let dotCount = raw.filter { $0 == "." }.count
+        let markCount = localeMark.map { mark in raw.filter { $0 == mark }.count } ?? 0
+        // At most one separator in total: a second one is grouping or a typo.
+        guard dotCount + markCount <= 1 else { return nil }
+        let normalized = localeMark.map { raw.replacingOccurrences(of: String($0), with: ".") } ?? raw
+        guard normalized.contains(where: { $0.isASCII && $0.isNumber }),
+              normalized.allSatisfy({ $0 == "." || ($0.isASCII && $0.isNumber) }),
+              let value = Double(normalized), value.isFinite, value >= 0 else { return nil }
+        return value
     }
 }
 
@@ -314,7 +357,7 @@ struct ServerOptionsEditor: Sendable {
             // Merely opening the editor must never normalize server values.
             // Preserve unchanged strings and future values verbatim.
             guard text(key) != baseline.values[key]?.text(for: key) else { return false }
-            if let value = try? parsed(key) { return value != baseline.values[key] }
+            if let value = try? parsed(key) { return !ServerOptionValue.matches(baseline.values[key], value) }
             return true
         }
     }
@@ -359,11 +402,7 @@ struct ServerOptionsEditor: Sendable {
             }
             return .int(number)
         case .decimal:
-            // Accept the user's decimal separator without allowing grouping,
-            // NaN, infinity, or partial NumberFormatter parses.
-            let separator = Locale.current.decimalSeparator ?? "."
-            let normalized = separator == "." ? raw : raw.replacingOccurrences(of: separator, with: ".")
-            guard let number = Double(normalized), number.isFinite, number >= 0, number <= Double(Float.greatestFiniteMagnitude) else {
+            guard let number = ServerDecimal.parse(raw), number <= Double(Float.greatestFiniteMagnitude) else {
                 throw invalid("enter a finite, non-negative ratio.")
             }
             return .decimal(number)
@@ -506,7 +545,7 @@ final class ServerOptionsSession {
             try await service.setServerOptions(changes)
             let verified = try await service.fetchServerOptions()
             let mismatches = ServerOption.allCases.filter { key in
-                changes[key].map { verified.values[key] != $0 } ?? false
+                changes[key].map { !ServerOptionValue.matches(verified.values[key], $0) } ?? false
             }
             guard mismatches.isEmpty else {
                 throw ServerOptionsError(message: "The server did not retain these values: " + mismatches.map { $0.definition.title }.joined(separator: ", ") + ". Click Revert to see its current settings.", fields: mismatches)

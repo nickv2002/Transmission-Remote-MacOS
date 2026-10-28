@@ -246,6 +246,44 @@ struct ServerSettingsWindowTests {
         #expect(applied == 1)
     }
 
+    @Test func anInvalidPortBlocksApplyWithItsMessage() async throws {
+        let c = try await controller()
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        let host = c.connectionPane.hostField
+        host.stringValue = "127.0.0.9"
+        c.connectionPane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: host))
+        #expect(c.applyButton.isEnabled)
+        let port = c.connectionPane.portField
+        for bad in ["0", "65536", "90a1", ""] {
+            port.stringValue = bad
+            c.connectionPane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: port))
+            #expect(!c.applyButton.isEnabled, "\(bad)")
+            #expect(c.statusLabel.stringValue == "Enter a port number from 1 to 65535.")
+            c.applySettings(nil)   // e.g. from the close prompt
+            #expect(saved.isEmpty)
+        }
+        port.stringValue = "9092"
+        c.connectionPane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: port))
+        #expect(c.applyButton.isEnabled)
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.port == 9092)
+    }
+
+    @Test func removeFollowsTheEditorsRuleAndReorderIsNotGated() async throws {
+        let other = ServerConfig(name: "Other", host: "127.0.0.2", port: 1, useHTTPS: false, rpcPath: "/r")
+        let c = try await controller(servers: [Self.server, other])
+        #expect(c.removeButton.isEnabled)
+        // Another server with pending edits (possible via Undo of Remove): removing this one waits.
+        var edited = c.editor.servers[1]; edited.host = "127.0.0.3"
+        c.editor.updateServer(at: 1, to: edited, normalizeName: true)
+        c.updateFooter()
+        #expect(!c.removeButton.isEnabled)
+        #expect(c.tableView(c.sidebar, pasteboardWriterForRow: 3) != nil, "reorder never persists the other server's edits")
+    }
+
     @Test func returnAndEscapeNeverApplyOrRevert() async throws {
         let service = OptionsStub()
         let c = try await controller(service: service)

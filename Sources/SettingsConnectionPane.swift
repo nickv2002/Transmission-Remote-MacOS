@@ -30,6 +30,10 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
     let pathMappingsView = PlaceholderTextView()   // multi-line: one `remote=local` per line
     private var detailFields: [NSControl] = []
     private var isLoading = false
+    /// The last port that parsed, used in place of unusable input so the editor is
+    /// never handed a substituted default. The controller must still gate Apply on
+    /// `validatePort()`.
+    private var lastValidPort = 9091
 
     override init() {
         super.init()
@@ -174,7 +178,38 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         return scroll
     }
 
-    @objc private func testConnection(_ sender: Any?) { onTestConnection?() }
+    /// The port problem to show, or nil when the port field is valid or no server is
+    /// loaded (the form is disabled). Read-only.
+    var portValidationError: String? {
+        guard portField.isEnabled else { return nil }
+        return ServerPort.validationMessage(for: portField.stringValue)
+    }
+
+    /// Marks the port field red (with the problem as its tooltip) when it is invalid,
+    /// clears the mark when it is valid, and returns the problem. The controller
+    /// calls this before Apply and must not save while it returns non-nil.
+    @discardableResult
+    func validatePort() -> String? {
+        let problem = portValidationError
+        portField.textColor = problem == nil ? NSColor.controlTextColor : NSColor.systemRed
+        portField.toolTip = problem
+        portField.setAccessibilityHelp(problem)
+        return problem
+    }
+
+    @objc private func testConnection(_ sender: Any?) {
+        // Never probe with a wrong port: report the problem instead.
+        if let problem = validatePort() {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Invalid port"
+            alert.informativeText = problem
+            if let window = view.window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+            _ = portField.window?.makeFirstResponder(portField)
+            return
+        }
+        onTestConnection?()
+    }
 
     func setTesting(_ testing: Bool) {
         testButton.isEnabled = !testing
@@ -191,6 +226,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         nameField.stringValue = server?.name ?? ""
         hostField.stringValue = server?.host ?? ""
         portField.stringValue = server.map { String($0.port) } ?? ""
+        if let server { lastValidPort = server.port }
+        validatePort()
         httpsCheckbox.state = server?.useHTTPS == true ? .on : .off
         rpcPathField.stringValue = server?.rpcPath ?? ""
         usernameField.stringValue = server?.username ?? ""
@@ -200,8 +237,20 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         upPresetsField.stringValue = server.map { SpeedPresets.format($0.upSpeedPresets) } ?? ""
     }
 
+    /// The port for the editor: the typed port when valid, otherwise the last valid
+    /// one (see `validatePort()` for the problem itself).
+    private func portForEditor() -> Int {
+        if let port = ServerPort.parse(portField.stringValue) {
+            lastValidPort = port
+            return port
+        }
+        return lastValidPort
+    }
+
     /// The form's current text as a `ServerConfig` (its id is the editor row's
     /// concern). Also what Test Connection probes, so unsaved edits can be tested.
+    /// An unusable port is not substituted: the last valid port stands in, and
+    /// `validatePort()` reports the problem.
     func currentServer(rawName: Bool = false) -> ServerConfig {
         let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
         let host = hostField.stringValue.trimmingCharacters(in: .whitespaces)
@@ -209,7 +258,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         return ServerConfig(
             name: rawName ? nameField.stringValue : (name.isEmpty ? host : name),
             host: host,
-            port: Int(portField.stringValue) ?? 9091,
+            port: portForEditor(),
             useHTTPS: httpsCheckbox.state == .on,
             rpcPath: path.isEmpty ? "/transmission/rpc" : path,
             username: usernameField.stringValue.isEmpty ? nil : usernameField.stringValue,
@@ -221,11 +270,13 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
 
     @objc private func fieldEnded() {
         guard !isLoading else { return }
+        validatePort()
         onEdit?(currentServer(), true)
     }
 
     func controlTextDidChange(_ obj: Notification) {
         guard !isLoading else { return }
+        validatePort()
         onEdit?(currentServer(rawName: true), false)
     }
 
