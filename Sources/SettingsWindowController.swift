@@ -1,640 +1,410 @@
 import AppKit
 
-/// Native Settings window (⌘,) replacing the old hand-edited JSONC file. Two
-/// tabs: **Servers** (a default-server picker, a list of connections with
-/// editable host/port/auth, Test Connection / Save Server) and **General**,
-/// itself split by a divider into a "General" group (poll interval, auto-update
-/// check) and an "Incoming Torrents" group (default add-file handling, add-options
-/// sheet toggle, clipboard pickup, default-app rows).
+/// The one Settings window (⌘,): a System Settings–style sidebar with
+/// **App ▸ General** and one row per **server**. Selecting a server shows a
+/// header and five tabs — **Connection** (stored on this Mac) and **Transfers /
+/// Speed / Network / Advanced** (the daemon's session settings, stored on the
+/// server).
 ///
-/// Servers edits mutate an in-memory working copy of `AppConfig`; nothing is
-/// persisted or applied to the live connection until the user presses **Save
-/// Server** — closing with unsaved server changes prompts to save or discard.
-/// General controls apply immediately (no Save button) — each change is
-/// persisted and applied live as soon as it's made, so they never interact with
-/// the Servers pane's dirty/Save-button state.
+/// - General applies immediately and never touches any server's dirty state.
+/// - Each server has one **Apply** and one **Revert**. Apply writes the server
+///   side first (conflict check + verified readback); only when that succeeds
+///   are the Mac-side fields (connection, presets) saved through `onChange`.
+/// - Return commits the focused field and never applies; Esc does nothing
+///   special. Changing rows, closing (⌘W) or quitting with unsaved edits asks
+///   Apply / Discard / Cancel. Switching tabs keeps edits.
+/// - Reorder, remove (undoable) and Make Default apply immediately.
+/// - Server tabs are blocked until the server is reachable: an unsaved new
+///   server, connecting, or offline (Retry / Test Connection). The Mac-side
+///   speed presets stay editable throughout.
 @MainActor
 final class SettingsWindowController: NSWindowController {
-    /// Called with the edited config when the user saves (persist + apply live).
+    typealias Tab = ServerSettingsScope.Tab
+
+    enum Selection: Equatable {
+        case general
+        case server(UUID)
+    }
+
+    /// A service bound to one server, plus the endpoint it reached.
+    struct ResolvedService: Sendable {
+        let service: any ServerOptionsService
+        let endpoint: String
+    }
+
+    /// Persist + apply a saved config (General change, applied server, list edit).
     var onChange: ((AppConfig) -> Void)?
+    /// After an Apply: refresh the live session and the speed menus.
+    var onApplied: ((UUID) -> Void)?
+    /// The main window's active server, for the header and routing.
+    var activeServerID: () -> UUID? = { nil }
+    /// Builds a session-settings service for a server. Defaults to resolving its
+    /// host candidates with a fresh client; the app reuses the live client for
+    /// the active server. Injected by tests.
+    var serviceProvider: (@MainActor (ServerConfig) async throws -> ResolvedService)?
 
-    /// The editing model: working copy + saved baseline + all mutations.
-    private var editor: SettingsEditor
+    /// The editing model: working copy + saved baseline.
+    var editor: SettingsEditor
+    private(set) var selection: Selection = .general
 
-    private let tabView = NSTabView()
-    static let serversTabID = "servers"
+    /// Remote (session-settings) state per server, bound by id.
+    final class RemoteState {
+        var session: ServerOptionsSession?
+        var load: ServerSettingsScope.Load = .notLoaded
+        var endpoint: String?
+        var generation = 0
+        /// A poll saw speed limits change while the Speed tab had edits.
+        var changedOnServer = false
+    }
+    private(set) var remote: [UUID: RemoteState] = [:]
+
+    // Sidebar.
     private static let serverRowType = NSPasteboard.PasteboardType("com.nickvance.transmission-remote-mac.server-row")
+    let sidebar = NSTableView()
+    private let addButton = NSButton()
+    var addButtonForTesting: NSButton { addButton }
+    let removeButton = NSButton()
+    let defaultButton = NSButton()
+    private enum Row: Equatable { case header(String), general, server(UUID) }
+    private var rows: [Row] {
+        [.header("App"), .general, .header("Servers")] + editor.servers.map { .server($0.id) }
+    }
+    private static let firstServerRow = 3
+    static let footerButtonHeight: CGFloat = 24
 
-    // Servers pane.
-    private let defaultServerPopup = NSPopUpButton()
-    private let serverTable = NSTableView()
-    private var selectedIndex: Int? { serverTable.selectedRow >= 0 ? serverTable.selectedRow : nil }
-    private let nameField = NSTextField()
-    private let hostField = NSTextField()
-    private let portField = NSTextField()
-    private let httpsCheckbox = NSButton(checkboxWithTitle: "Use HTTPS", target: nil, action: nil)
-    private let rpcPathField = NSTextField()
-    private let usernameField = NSTextField()
-    private let passwordField = NSSecureTextField()
-    private let downPresetsField = NSTextField()
-    private let upPresetsField = NSTextField()
-    private let pathMappingsView = PlaceholderTextView()   // multi-line: one `remote=local` per line
-    private let removeButton = NSButton()
-    private var detailFields: [NSControl] = []
-
-    // General pane.
-    private let refreshField = NSTextField()
-    private let refreshStepper = NSStepper()
-    private let autoCheckBox = NSButton(checkboxWithTitle: "Automatically check for updates",
-                                        target: nil, action: nil)
-    private let removeFileMethodPopup = NSPopUpButton()
-    private let showAddOptionsBox = NSButton(checkboxWithTitle: "Show options when adding torrents",
-                                             target: nil, action: nil)
-    private let foldersFirstBox = NSButton(checkboxWithTitle: "List folders before files in the Files tab",
-                                          target: nil, action: nil)
-    private let pieceMapBox = NSButton(checkboxWithTitle: "Show piece map in the Info tab",
-                                        target: nil, action: nil)
-    private let clipboardBox = NSButton(checkboxWithTitle: "Add magnet links copied to the clipboard",
-                                        target: nil, action: nil)
-    /// "Magnet links: <app>" / ".torrent files: <app>" status + Make Default,
-    /// keyed by kind. These act immediately (system-wide), not on Save.
-    private var handlerStatusLabels: [DefaultHandlers.Kind: NSTextField] = [:]
-    private var handlerButtons: [DefaultHandlers.Kind: NSButton] = [:]
+    // Panes.
+    private(set) var generalPane: SettingsGeneralPane!
+    let connectionPane = SettingsConnectionPane()
+    private(set) var form: ServerSettingsFormController!
+    let serverView = NSView()
+    let nameLabel = NSTextField(labelWithString: "")
+    let stateLabel = NSTextField(labelWithString: "")
+    let detailLabel = NSTextField(labelWithString: "")
+    let notActiveLabel = NSTextField(labelWithString: "Not the active server")
+    let tabPicker = ServerOptionsSectionPicker(labels: Tab.allCases.map(\.rawValue), trackingMode: .selectOne, target: nil, action: nil)
+    let tabView = NSTabView()
 
     // Bottom bar.
-    private let testButton = NSButton()
-    private let saveButton = NSButton()
-    private let testSpinner = NSProgressIndicator()
+    let statusLabel = NSTextField(wrappingLabelWithString: "")
+    private let spinner = NSProgressIndicator()
+    let revertButton = NSButton(title: "Revert", target: nil, action: nil)
+    let applyButton = NSButton(title: "Apply", target: nil, action: nil)
+    private(set) var working = false
+    private var groupsController: BandwidthGroupsWindowController?
+    private var isSelectingProgrammatically = false
+
+    // Remembered UI state (UserDefaults; skipped under TestIsolation).
+    private var tabByServer: [UUID: Tab] = [:]
+    private static let selectionKey = "SettingsSelection"
+    private static let tabsKey = "SettingsServerTabs"
+    private static let expansionKey = "SettingsExpandedGroups"
+    static let frameName = "SettingsWindow2"
+    /// Off under TestIsolation; unit tests turn it off too, so a run never reads
+    /// or leaves remembered selection/tab/expansion state.
+    static var remembersUIState = true
+    private static var remembers: Bool { remembersUIState && !TestIsolation.isActive }
 
     init(config: AppConfig) {
-        self.editor = SettingsEditor(config)
-        // Fixed size (no .resizable): sized to fit the taller Servers tab, so
-        // switching to General never resizes the window.
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 580, height: 460),
-            styleMask: [.titled, .closable, .miniaturizable],
+        editor = SettingsEditor(config)
+        let window = SettingsWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 640),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = "Settings"
+        window.contentMinSize = NSSize(width: 760, height: 560)
+        window.isReleasedWhenClosed = false
         super.init(window: window)
         window.delegate = self
-        // Restore the saved position, matching the main window's pattern
-        // (`setFrameAutosaveName` alone doesn't reliably persist under this app's
-        // manual run loop); center on first launch when there's nothing saved yet.
-        window.setFrameAutosaveName("SettingsWindow")
-        if !window.setFrameUsingName("SettingsWindow") {
-            window.center()
-        }
+        window.onControlTab = { [weak self] backwards in self?.cycleTab(backwards: backwards) }
+        // Restore the saved frame explicitly (this app's manual run loop doesn't
+        // reliably flush AppKit's autosave); center when there's nothing saved.
+        window.setFrameAutosaveName(Self.frameName)
+        if !window.setFrameUsingName(Self.frameName) { window.center() }
+        loadRememberedState()
+        generalPane = SettingsGeneralPane(read: { [unowned self] in editor },
+                                          apply: { [unowned self] change in onChange?(change(&editor)) })
+        generalPane.window = window
+        form = ServerSettingsFormController(presets: connectionPane.presetsView, expansion: Self.storedExpansion())
         window.contentView = buildContent()
-        reloadEverything()
+        window.initialFirstResponder = sidebar   // ↑/↓ move through the sidebar
+        wireForm()
+        connectionPane.onEdit = { [weak self] server, normalize in self?.connectionEdited(server, normalize: normalize) }
+        connectionPane.onTestConnection = { [weak self] in
+            guard let self else { return }
+            runTestConnection(connectionPane.currentServer())
+        }
+        generalPane.reload()
+        sidebar.reloadData()
+        select(rememberedSelection(), tab: nil)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    /// Re-seed the working copy when the window is reopened, so it always reflects
-    /// the current saved config (and never lingering discarded edits).
-    func reset(to config: AppConfig) {
-        editor.reset(to: config)
-        reloadEverything()
-    }
-
-    /// Bring the Servers tab to the front.
-    func showServersTab() {
-        tabView.selectTabViewItem(withIdentifier: Self.serversTabID)
-    }
-
-    /// Refresh all UI from the editor and select the first server.
-    private func reloadEverything() {
-        reloadServerList()
-        reloadDefaultServerPopup()
-        reloadGeneral()
-        selectServer(at: editor.serverCount == 0 ? nil : 0)
-        updateDirtyState()
-    }
-
     // MARK: - Layout
 
     private func buildContent() -> NSView {
-        // Two tabs, each sized independently — the window itself is fixed-size
-        // (see init) so switching tabs never resizes it.
-        setupServerActionButtons()
+        let root = NSView()
+        let column = NSTableColumn(identifier: .init("row"))
+        sidebar.addTableColumn(column)
+        sidebar.headerView = nil
+        sidebar.style = .sourceList
+        sidebar.rowSizeStyle = .default
+        sidebar.dataSource = self
+        sidebar.delegate = self
+        sidebar.allowsEmptySelection = false
+        sidebar.registerForDraggedTypes([Self.serverRowType])
+        sidebar.setAccessibilityLabel("Settings sections and servers")
+        sidebar.setAccessibilityIdentifier("settings-sidebar")
+        let menu = NSMenu()
+        menu.delegate = self
+        sidebar.menu = menu
 
-        let serversPane = buildServersPane()
-        let serversItem = NSTabViewItem(identifier: Self.serversTabID)
-        serversItem.label = "Servers"
-        serversItem.view = serversPane
-
-        let generalPane = buildGeneralPane()
-        let generalItem = NSTabViewItem(identifier: "general")
-        generalItem.label = "General"
-        generalItem.view = generalPane
-
-        tabView.translatesAutoresizingMaskIntoConstraints = false
-        tabView.addTabViewItem(generalItem)
-        tabView.addTabViewItem(serversItem)
-
-        let container = NSView()
-        container.addSubview(tabView)
-        NSLayoutConstraint.activate([
-            tabView.topAnchor.constraint(equalTo: container.topAnchor, constant: 12),
-            tabView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
-            tabView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
-            tabView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -12),
-        ])
-        return container
-    }
-
-    private func setupServerActionButtons() {
-        testSpinner.translatesAutoresizingMaskIntoConstraints = false
-        testSpinner.style = .spinning
-        testSpinner.controlSize = .small
-        testSpinner.isDisplayedWhenStopped = false
-
-        testButton.translatesAutoresizingMaskIntoConstraints = false
-        testButton.title = "Test Connection"
-        testButton.bezelStyle = .rounded
-        testButton.target = self
-        testButton.action = #selector(testConnection)
-
-        saveButton.translatesAutoresizingMaskIntoConstraints = false
-        saveButton.title = "Save Server"
-        saveButton.bezelStyle = .rounded
-        // Deliberately NOT the default (Return) button: Return while editing a
-        // field should commit that field, not save+apply the whole dialog. Save is
-        // an explicit click only.
-        saveButton.target = self
-        saveButton.action = #selector(save)
-    }
-
-    private func buildServersPane() -> NSView {
-        let pane = NSView()
-
-        // Top: the default-server picker.
-        defaultServerPopup.target = self
-        defaultServerPopup.action = #selector(defaultServerChanged)
-        let defaultRow = stack([label("Default server:"), defaultServerPopup])
-        defaultRow.translatesAutoresizingMaskIntoConstraints = false
-
-        // Left: the server list with +/- buttons beneath it.
-        let column = NSTableColumn(identifier: .init("name"))
-        column.title = "Server"
-        serverTable.addTableColumn(column)
-        serverTable.headerView = nil
-        serverTable.dataSource = self
-        serverTable.delegate = self
-        serverTable.allowsEmptySelection = true
-        serverTable.registerForDraggedTypes([Self.serverRowType])
-
-        let scroll = NSScrollView()
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.documentView = serverTable
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-
-        let addButton = NSButton()
-        addButton.translatesAutoresizingMaskIntoConstraints = false
+        let sidebarScroll = NSScrollView()
+        sidebarScroll.documentView = sidebar
+        sidebarScroll.hasVerticalScroller = true
+        sidebarScroll.autohidesScrollers = true
+        sidebarScroll.drawsBackground = false
+        sidebar.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        column.resizingMask = .autoresizingMask
         addButton.bezelStyle = .smallSquare
         addButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add server")
         addButton.target = self
         addButton.action = #selector(addServer)
-
-        removeButton.translatesAutoresizingMaskIntoConstraints = false
+        addButton.setAccessibilityIdentifier("settings-add-server")
         removeButton.bezelStyle = .smallSquare
         removeButton.image = NSImage(systemSymbolName: "minus", accessibilityDescription: "Remove server")
         removeButton.target = self
         removeButton.action = #selector(removeServer)
+        removeButton.setAccessibilityIdentifier("settings-remove-server")
+        defaultButton.bezelStyle = .smallSquare
+        defaultButton.title = "Default"
+        defaultButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        defaultButton.target = self
+        defaultButton.action = #selector(makeSelectedDefault(_:))
+        defaultButton.toolTip = "Make this the default server"
+        defaultButton.setAccessibilityLabel("Make this the default server")
+        defaultButton.setAccessibilityIdentifier("settings-make-default")
+        let divider = NSBox()
+        divider.boxType = .separator
 
-        // Right: the detail form for the selected server.
-        let form = buildServerForm()
+        let detail = NSView()
+        buildServerView()
+        for view in [generalPane.view, serverView] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            detail.addSubview(view)
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(equalTo: detail.topAnchor),
+                view.leadingAnchor.constraint(equalTo: detail.leadingAnchor),
+                view.trailingAnchor.constraint(equalTo: detail.trailingAnchor),
+                view.bottomAnchor.constraint(equalTo: detail.bottomAnchor),
+            ])
+        }
 
-        pane.addSubview(defaultRow)
-        pane.addSubview(scroll)
-        pane.addSubview(addButton)
-        pane.addSubview(removeButton)
-        pane.addSubview(form)
-        pane.addSubview(testSpinner)
-        pane.addSubview(testButton)
-        pane.addSubview(saveButton)
+        for view in [sidebarScroll, addButton, removeButton, defaultButton, divider, detail] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            root.addSubview(view)
+        }
+        // Explicit constraints (not a stack view): see CLAUDE.md gotcha #3.
         NSLayoutConstraint.activate([
-            defaultRow.topAnchor.constraint(equalTo: pane.topAnchor, constant: 16),
-            defaultRow.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 16),
-
-            scroll.topAnchor.constraint(equalTo: defaultRow.bottomAnchor, constant: 14),
-            scroll.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 16),
-            scroll.widthAnchor.constraint(equalToConstant: 160),
-            // Match the list's height to the detail form beside it (previously
-            // stretched all the way to the pane's bottom, making it much taller
-            // than the form) — then place add/remove directly below.
-            scroll.bottomAnchor.constraint(equalTo: form.bottomAnchor),
-
-            addButton.topAnchor.constraint(greaterThanOrEqualTo: scroll.bottomAnchor, constant: 8),
-            addButton.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
+            sidebarScroll.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
+            sidebarScroll.leadingAnchor.constraint(equalTo: root.leadingAnchor),
+            sidebarScroll.widthAnchor.constraint(equalToConstant: 200),
+            sidebarScroll.bottomAnchor.constraint(equalTo: addButton.topAnchor, constant: -6),
+            addButton.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
+            addButton.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -10),
             addButton.widthAnchor.constraint(equalToConstant: 24),
-            // Bottom-align add/remove with the Test Connection / Save Server row
-            // below, rather than floating on intrinsic content height alone.
-            addButton.bottomAnchor.constraint(equalTo: saveButton.bottomAnchor),
-            removeButton.leadingAnchor.constraint(equalTo: addButton.trailingAnchor, constant: 4),
+            removeButton.leadingAnchor.constraint(equalTo: addButton.trailingAnchor, constant: 2),
             removeButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
             removeButton.widthAnchor.constraint(equalToConstant: 24),
-
-            form.topAnchor.constraint(equalTo: scroll.topAnchor),
-            form.leadingAnchor.constraint(equalTo: scroll.trailingAnchor, constant: 16),
-            form.trailingAnchor.constraint(equalTo: pane.trailingAnchor, constant: -16),
-
-            // Test Connection / Save Server sit directly below the form's
-            // path-mappings caption (the form's own bottom), right-aligned —
-            // anchored to the Servers content, not the window's outer edge.
-            saveButton.topAnchor.constraint(equalTo: form.bottomAnchor, constant: 16),
-            saveButton.trailingAnchor.constraint(equalTo: pane.trailingAnchor, constant: -16),
-            saveButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
-            saveButton.bottomAnchor.constraint(equalTo: pane.bottomAnchor, constant: -16),
-
-            testButton.trailingAnchor.constraint(equalTo: saveButton.leadingAnchor, constant: -10),
-            testButton.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
-
-            testSpinner.trailingAnchor.constraint(equalTo: testButton.leadingAnchor, constant: -8),
-            testSpinner.centerYAnchor.constraint(equalTo: saveButton.centerYAnchor),
+            // Default sits at the footer's trailing edge; one shared height keeps
+            // all three footer buttons identical.
+            defaultButton.trailingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor, constant: -10),
+            defaultButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
+            defaultButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 54),
+            addButton.heightAnchor.constraint(equalToConstant: Self.footerButtonHeight),
+            removeButton.heightAnchor.constraint(equalTo: addButton.heightAnchor),
+            defaultButton.heightAnchor.constraint(equalTo: addButton.heightAnchor),
+            divider.topAnchor.constraint(equalTo: root.topAnchor),
+            divider.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            divider.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor),
+            divider.widthAnchor.constraint(equalToConstant: 1),
+            detail.topAnchor.constraint(equalTo: root.topAnchor, constant: 16),
+            detail.leadingAnchor.constraint(equalTo: divider.trailingAnchor, constant: 20),
+            detail.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+            detail.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -14),
         ])
-        return pane
+        return root
     }
 
-    private func buildServerForm() -> NSView {
-        for field in [nameField, hostField, portField, rpcPathField, usernameField, passwordField,
-                      downPresetsField, upPresetsField] {
-            field.target = self
-            field.action = #selector(serverFieldChanged)   // fires on end-editing (Tab/Return/focus loss)
-            field.delegate = self                            // controlTextDidChange → live per-keystroke
+    private func buildServerView() {
+        nameLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        nameLabel.lineBreakMode = .byTruncatingTail
+        nameLabel.setAccessibilityIdentifier("server-options-server")
+        stateLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        stateLabel.setAccessibilityIdentifier("server-settings-state")
+        detailLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        detailLabel.textColor = .secondaryLabelColor
+        detailLabel.lineBreakMode = .byTruncatingMiddle
+        notActiveLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        notActiveLabel.textColor = .secondaryLabelColor
+        let header = NSStackView(views: [nameLabel, stateLabel, detailLabel, notActiveLabel])
+        header.spacing = 10
+        header.alignment = .firstBaseline
+        header.setHuggingPriority(.defaultLow, for: .horizontal)
+        detailLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        tabPicker.segmentStyle = .rounded
+        tabPicker.selectedSegment = 0
+        tabPicker.target = self
+        tabPicker.action = #selector(tabPicked(_:))
+        tabPicker.setAccessibilityLabel("Server Settings tabs")
+        tabPicker.setAccessibilityIdentifier("server-options-sections")
+
+        // Start at a usable size so adding items before Auto Layout doesn't squeeze them.
+        tabView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        tabView.tabViewType = .noTabsNoBorder
+        tabView.drawsBackground = false
+        tabView.delegate = self
+        for tab in Tab.allCases {
+            let item = NSTabViewItem(identifier: tab.rawValue)
+            item.label = tab.rawValue
+            item.view = tab.pane.flatMap { form.paneViews[$0] } ?? connectionPane.view
+            tabView.addTabViewItem(item)
         }
-        httpsCheckbox.target = self
-        httpsCheckbox.action = #selector(serverFieldChanged)
-        hostField.placeholderString = "host, or comma/line-separated list of fallbacks"
-        hostField.toolTip = "One host, or a comma- or line-separated list of fallbacks tried in "
-            + "order — e.g. 10.0.1.2, n5.local, https://transmission.example.ts.net. "
-            + "Each may include a scheme/port; the app connects to the first that responds."
-        // Two-line wrapping field so a multi-host fallback list is visible at once.
-        hostField.usesSingleLineMode = false
-        hostField.lineBreakMode = .byWordWrapping
-        hostField.cell?.wraps = true
-        hostField.cell?.isScrollable = false
-        hostField.maximumNumberOfLines = 3
-        hostField.heightAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
-        portField.placeholderString = "9091"
-        rpcPathField.placeholderString = "/transmission/rpc"
-        usernameField.placeholderString = "(none)"
 
-        downPresetsField.placeholderString = SpeedPresets.format(SpeedPresets.defaults)
-        upPresetsField.placeholderString = SpeedPresets.format(SpeedPresets.defaults)
-        let presetsCaption = label("Speed-limit menu choices in KB/s, comma-separated. The limits themselves are stored on the server.")
-        presetsCaption.font = .systemFont(ofSize: 10)
-        presetsCaption.textColor = .secondaryLabelColor
-        presetsCaption.lineBreakMode = .byWordWrapping
-        presetsCaption.maximumNumberOfLines = 0
-
-        detailFields = [nameField, hostField, portField, httpsCheckbox,
-                        rpcPathField, usernameField, passwordField,
-                        downPresetsField, upPresetsField]
-
-        let mappingsScroll = buildPathMappingsEditor()
-        let caption = label("Remote→local, one per line.\ne.g.  /video=/Volumes/Video\nLocal side also accepts smb://host/share/path, resolved to wherever that share is currently mounted.")
-        caption.font = .systemFont(ofSize: 10)
-        caption.textColor = .secondaryLabelColor
-        caption.lineBreakMode = .byWordWrapping
-        caption.maximumNumberOfLines = 0
-
-        let grid = NSGridView(views: [
-            [label("Name:"), nameField],
-            [label("Host:"), hostField],
-            [label("Port:"), portField],
-            [NSView(), httpsCheckbox],
-            [label("RPC Path:"), rpcPathField],
-            [label("Username:"), usernameField],
-            [label("Password:"), passwordField],
-            [label("Path Mappings:"), mappingsScroll],
-            [NSView(), caption],
-            [label("Download Presets:"), downPresetsField],
-            [label("Upload Presets:"), upPresetsField],
-            [NSView(), presetsCaption],
-        ])
-        grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.column(at: 0).xPlacement = .trailing
-        grid.rowAlignment = .firstBaseline
-        grid.column(at: 1).width = 240
-        // The mappings editor is multi-line; top-align its row so the label sits at
-        // the first line rather than floating to the vertical centre.
-        grid.row(at: 7).yPlacement = .top
-        grid.row(at: 7).rowAlignment = .none
-        return grid
-    }
-
-    /// A multi-line text editor (scrollable `NSTextView`) for the `remote=local`
-    /// path-mapping lines — the native take on the legacy app's `edPaths` memo.
-    private func buildPathMappingsEditor() -> NSScrollView {
-        let scroll = NSScrollView()
-        scroll.translatesAutoresizingMaskIntoConstraints = false
-        scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        scroll.heightAnchor.constraint(equalToConstant: 96).isActive = true
-        scroll.widthAnchor.constraint(equalToConstant: 240).isActive = true
-
-        pathMappingsView.delegate = self
-        pathMappingsView.isRichText = false
-        pathMappingsView.isAutomaticQuoteSubstitutionEnabled = false
-        pathMappingsView.isAutomaticDashSubstitutionEnabled = false
-        pathMappingsView.isAutomaticSpellingCorrectionEnabled = false
-        pathMappingsView.font = .monospacedSystemFont(ofSize: 11, weight: .regular)
-        pathMappingsView.placeholderString = "/video=/Volumes/Video\n/backup=/Volumes/backup\n/downloads=smb://nas/share/downloads"
-        pathMappingsView.textContainerInset = NSSize(width: 2, height: 4)
-        pathMappingsView.isVerticallyResizable = true
-        pathMappingsView.isHorizontallyResizable = false
-        pathMappingsView.autoresizingMask = [.width]
-        pathMappingsView.textContainer?.widthTracksTextView = true
-        scroll.documentView = pathMappingsView
-        return scroll
-    }
-
-    private func buildGeneralPane() -> NSView {
-        let pane = NSView()
-
-        refreshField.translatesAutoresizingMaskIntoConstraints = false
-        refreshField.target = self
-        refreshField.action = #selector(refreshChanged)
-        refreshField.delegate = self
-        refreshField.widthAnchor.constraint(equalToConstant: 60).isActive = true
-
-        refreshStepper.target = self
-        refreshStepper.action = #selector(stepperChanged)
-        refreshStepper.minValue = 1
-        refreshStepper.maxValue = 600
-        refreshStepper.increment = 1
-        refreshStepper.valueWraps = false
-
-        autoCheckBox.target = self
-        autoCheckBox.action = #selector(autoCheckChanged)
-
-        removeFileMethodPopup.target = self
-        removeFileMethodPopup.action = #selector(removeFileMethodChanged)
-        removeFileMethodPopup.configure(for: TorrentFileRemoval.self)
-
-        // A plain leading-aligned vertical stack: every row starts flush with
-        // the "R" in "Refresh every:". (An NSGridView with several merged
-        // full-width checkbox rows collapsed those rows onto one line.)
-        showAddOptionsBox.target = self
-        showAddOptionsBox.action = #selector(showAddOptionsChanged)
-        showAddOptionsBox.toolTip = "When off, clicked magnet links, opened .torrent files, drops, and "
-            + "clipboard links are added straight away to the server's default folder and started."
-        foldersFirstBox.target = self
-        foldersFirstBox.action = #selector(foldersFirstChanged)
-        foldersFirstBox.toolTip = "When sorting the Files tab by a column, keep folders above files. "
-            + "Off mixes them by the sort order."
-        pieceMapBox.target = self
-        pieceMapBox.action = #selector(pieceMapChanged)
-        pieceMapBox.toolTip = "Show the progress bar and map of downloaded pieces at the top of the "
-            + "Info tab. Off also stops fetching the piece bitfield."
-        clipboardBox.target = self
-        clipboardBox.action = #selector(clipboardChanged)
-        clipboardBox.toolTip = "When the app becomes active, add a magnet link, .torrent URL, or "
-            + "info-hash that was newly copied to the clipboard."
-
-        // Two groups, divided: "General" (poll interval, auto-update check) above
-        // an "Incoming Torrents" group (default add-file handling, add-options
-        // sheet, clipboard pickup, default-app rows) below.
-        let generalRows: [NSView] = [
-            sectionHeader("General"),
-            stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
-            autoCheckBox,
-            foldersFirstBox,
-            pieceMapBox,
-        ]
-
-        let methodRow = stack([label("Default when adding torrents:"), removeFileMethodPopup])
-        var incomingRows: [NSView] = [
-            sectionHeader("Incoming Torrents"),
-            methodRow,
-            showAddOptionsBox,
-            clipboardBox,
-        ]
-        for kind in DefaultHandlers.Kind.allCases {
-            let status = NSTextField(labelWithString: "")
-            status.textColor = .secondaryLabelColor
-            let button = NSButton(title: "Make Default", target: self, action: #selector(makeDefaultHandler(_:)))
-            button.controlSize = .small
-            button.bezelStyle = .push
-            handlerStatusLabels[kind] = status
-            handlerButtons[kind] = button
-            incomingRows.append(stack([label(kind.title), status, button]))
+        statusLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        statusLabel.textColor = .secondaryLabelColor
+        statusLabel.setAccessibilityIdentifier("server-options-status")
+        spinner.style = .spinning
+        spinner.controlSize = .small
+        spinner.isDisplayedWhenStopped = false
+        for (button, action, identifier) in [
+            (revertButton, #selector(revertSettings(_:)), "server-options-revert"),
+            (applyButton, #selector(applySettings(_:)), "server-options-apply"),
+        ] {
+            button.bezelStyle = .rounded
+            button.target = self
+            button.action = action
+            button.setAccessibilityIdentifier(identifier)
         }
+        // Deliberately no key equivalents: Return commits the focused field and
+        // Esc never discards; Apply and Revert are explicit clicks only.
+        revertButton.keyEquivalent = ""
+        applyButton.keyEquivalent = ""
+        revertButton.toolTip = "Discard unsaved changes to this server and load its current values from the server."
 
         let separator = NSBox()
         separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-
-        var rows = generalRows
-        rows.append(separator)
-        rows.append(contentsOf: incomingRows)
-
-        let column = NSStackView(views: rows)
-        column.orientation = .vertical
-        column.alignment = .leading
-        column.spacing = 8
-        column.setCustomSpacing(14, after: separator)
-        // The separator itself needs an explicit width since the stack view
-        // otherwise sizes it to zero (it has no intrinsic content width).
-        separator.widthAnchor.constraint(equalToConstant: 360).isActive = true
-        column.translatesAutoresizingMaskIntoConstraints = false
-
-        pane.addSubview(column)
+        for view in [header, tabPicker, tabView, separator, statusLabel, spinner, revertButton, applyButton] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            serverView.addSubview(view)
+        }
         NSLayoutConstraint.activate([
-            column.topAnchor.constraint(equalTo: pane.topAnchor, constant: 8),
-            column.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 24),
-            // Size the pane to its content, so it doesn't leave a dead-space gap.
-            pane.bottomAnchor.constraint(equalTo: column.bottomAnchor, constant: 2),
+            header.topAnchor.constraint(equalTo: serverView.topAnchor),
+            header.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
+            header.trailingAnchor.constraint(lessThanOrEqualTo: serverView.trailingAnchor),
+            tabPicker.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
+            tabPicker.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
+            tabPicker.trailingAnchor.constraint(lessThanOrEqualTo: serverView.trailingAnchor),
+            tabView.topAnchor.constraint(equalTo: tabPicker.bottomAnchor, constant: 12),
+            tabView.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
+            tabView.trailingAnchor.constraint(equalTo: serverView.trailingAnchor),
+            separator.topAnchor.constraint(equalTo: tabView.bottomAnchor, constant: 8),
+            separator.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: serverView.trailingAnchor),
+            statusLabel.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 8),
+            statusLabel.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
+            statusLabel.trailingAnchor.constraint(equalTo: serverView.trailingAnchor),
+            statusLabel.heightAnchor.constraint(greaterThanOrEqualToConstant: 16),
+            applyButton.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 8),
+            applyButton.trailingAnchor.constraint(equalTo: serverView.trailingAnchor),
+            applyButton.bottomAnchor.constraint(equalTo: serverView.bottomAnchor),
+            applyButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 80),
+            revertButton.trailingAnchor.constraint(equalTo: applyButton.leadingAnchor, constant: -8),
+            revertButton.centerYAnchor.constraint(equalTo: applyButton.centerYAnchor),
+            spinner.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
+            spinner.centerYAnchor.constraint(equalTo: applyButton.centerYAnchor),
+            spinner.widthAnchor.constraint(equalToConstant: 16),
+            spinner.heightAnchor.constraint(equalToConstant: 16),
         ])
-        return pane
     }
 
-    private func sectionHeader(_ text: String) -> NSTextField {
-        let l = label(text)
-        l.font = .boldSystemFont(ofSize: 12)
-        return l
-    }
-
-    private func label(_ text: String) -> NSTextField {
-        NSTextField(labelWithString: text)
-    }
-
-    private func stack(_ views: [NSView]) -> NSStackView {
-        let s = NSStackView(views: views)
-        s.orientation = .horizontal
-        s.spacing = 6
-        s.alignment = .firstBaseline
-        return s
-    }
-
-    // MARK: - Server list
-
-    private func reloadServerList() {
-        serverTable.reloadData()
-    }
-
-    private func selectServer(at index: Int?) {
-        if let index, editor.servers.indices.contains(index) {
-            serverTable.selectRowIndexes([index], byExtendingSelection: false)
+    private func wireForm() {
+        form.onEdit = { [weak self] in self?.updateDirtyState() }
+        form.onTestPort = { [weak self] choice in self?.runPortTest(choice) }
+        form.onManageGroups = { [weak self] in self?.manageGroups() }
+        form.onRetry = { [weak self] in
+            guard let self, case .server(let id) = selection else { return }
+            ensureLoaded(id, force: true)
         }
-        loadDetail()
-    }
-
-    private func loadDetail() {
-        let enabled = selectedIndex != nil
-        for field in detailFields { field.isEnabled = enabled }
-        pathMappingsView.isEditable = enabled
-        pathMappingsView.isSelectable = enabled
-        removeButton.isEnabled = enabled && editor.serverCount > 1
-        // Test reads the form fields directly (see currentServerFromFields) and
-        // validates the host itself, so keep it available whenever a row is shown.
-        testButton.isEnabled = enabled
-
-        guard let i = selectedIndex, let s = editor.server(at: i) else {
-            nameField.stringValue = ""; hostField.stringValue = ""; portField.stringValue = ""
-            rpcPathField.stringValue = ""; usernameField.stringValue = ""; passwordField.stringValue = ""
-            httpsCheckbox.state = .off
-            pathMappingsView.string = ""
-            downPresetsField.stringValue = ""; upPresetsField.stringValue = ""
-            return
+        form.onTestConnection = { [weak self] in
+            guard let self, selectedServerID != nil else { return }
+            runTestConnection(connectionPane.currentServer())
         }
-        nameField.stringValue = s.name
-        hostField.stringValue = s.host
-        portField.stringValue = String(s.port)
-        httpsCheckbox.state = s.useHTTPS ? .on : .off
-        rpcPathField.stringValue = s.rpcPath
-        usernameField.stringValue = s.username ?? ""
-        passwordField.stringValue = s.password ?? ""
-        pathMappingsView.string = PathMapping.format(s.pathMappings)
-        downPresetsField.stringValue = SpeedPresets.format(s.downSpeedPresets)
-        upPresetsField.stringValue = SpeedPresets.format(s.upSpeedPresets)
-    }
-
-    @objc private func addServer() {
-        let index = editor.addServer()
-        reloadServerList()
-        reloadDefaultServerPopup()
-        selectServer(at: index)
-        updateDirtyState()
-    }
-
-    @objc private func removeServer() {
-        guard let i = selectedIndex else { return }
-        editor.removeServer(at: i)
-        reloadServerList()
-        reloadDefaultServerPopup()
-        selectServer(at: min(i, editor.serverCount - 1))
-        updateDirtyState()
-    }
-
-    /// End-of-edit (Tab/Return/focus loss): normalize the name and commit the row.
-    @objc private func serverFieldChanged() {
-        guard let i = selectedIndex else { return }
-        let stored = editor.updateServer(at: i, to: currentServerFromFields(), normalizeName: true)
-        // The normalized name may differ (trim / dedupe) — reflect it in the field.
-        nameField.stringValue = stored.name
-        updateRowLabel(at: i)
-        reloadDefaultServerPopup()
-        updateDirtyState()
-    }
-
-    @objc private func defaultServerChanged() {
-        editor.setDefaultServer(defaultServerPopup.titleOfSelectedItem)
-        updateDirtyState()
-    }
-
-    private func reloadDefaultServerPopup() {
-        let previous = editor.currentServer
-        defaultServerPopup.removeAllItems()
-        defaultServerPopup.addItems(withTitles: editor.serverNames)
-        if let previous, editor.serverNames.contains(previous) {
-            defaultServerPopup.selectItem(withTitle: previous)
-        } else if let first = editor.serverNames.first {
-            defaultServerPopup.selectItem(withTitle: first)
+        form.onExpansionChange = { expansion in
+            guard Self.remembers else { return }
+            UserDefaults.standard.set(expansion, forKey: Self.expansionKey)
         }
     }
 
-    // MARK: - General
+    // MARK: - Remembered state
 
-    private func reloadGeneral() {
-        refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
-        refreshStepper.doubleValue = editor.refreshSeconds
-        autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
-        removeFileMethodPopup.select(editor.removeTorrentFileMethod)
-        showAddOptionsBox.state = editor.showAddOptions ? .on : .off
-        foldersFirstBox.state = editor.filesFoldersFirst ? .on : .off
-        pieceMapBox.state = editor.showPieceMap ? .on : .off
-        showToolbarLayout(editor.toolbarLayout)
-        clipboardBox.state = editor.addLinksFromClipboard ? .on : .off
-        reloadHandlerStatus()
+    private static func storedExpansion() -> [String: Bool] {
+        guard remembers else { return [:] }
+        return UserDefaults.standard.dictionary(forKey: expansionKey) as? [String: Bool] ?? [:]
     }
 
-    /// Refresh the "Magnet links / .torrent files: <app>" rows from Launch Services.
-    private func reloadHandlerStatus() {
-        for kind in DefaultHandlers.Kind.allCases {
-            let status = DefaultHandlers.status(of: kind)
-            switch status {
-            case .thisApp: handlerStatusLabels[kind]?.stringValue = "Transmission Remote ✓"
-            case .other(let name): handlerStatusLabels[kind]?.stringValue = name
-            case .none: handlerStatusLabels[kind]?.stringValue = "No app"
-            }
-            handlerButtons[kind]?.isHidden = status == .thisApp
+    private func loadRememberedState() {
+        guard Self.remembers,
+              let stored = UserDefaults.standard.dictionary(forKey: Self.tabsKey) as? [String: String] else { return }
+        for (id, tab) in stored {
+            if let uuid = UUID(uuidString: id), let tab = Tab(rawValue: tab) { tabByServer[uuid] = tab }
         }
     }
 
-    @objc private func makeDefaultHandler(_ sender: NSButton) {
-        guard let kind = handlerButtons.first(where: { $0.value === sender })?.key else { return }
-        Task { @MainActor in
-            do {
-                try await DefaultHandlers.makeDefault(kind)
-            } catch {
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = "Couldn't change the default app"
-                alert.informativeText = error.localizedDescription
-                if let window { alert.beginSheetModal(for: window, completionHandler: nil) }
-            }
-            reloadHandlerStatus()
+    private func rememberedSelection() -> Selection {
+        guard Self.remembers, let raw = UserDefaults.standard.string(forKey: Self.selectionKey),
+              let id = UUID(uuidString: raw), editor.index(of: id) != nil else { return .general }
+        return .server(id)
+    }
+
+    private func rememberSelection() {
+        guard Self.remembers else { return }
+        switch selection {
+        case .general: UserDefaults.standard.set("general", forKey: Self.selectionKey)
+        case .server(let id): UserDefaults.standard.set(id.uuidString, forKey: Self.selectionKey)
         }
+        let tabs = Dictionary(uniqueKeysWithValues: tabByServer.map { ($0.key.uuidString, $0.value.rawValue) })
+        UserDefaults.standard.set(tabs, forKey: Self.tabsKey)
     }
 
-    // General controls apply immediately: no Save button on this pane, each
-    // change is persisted + applied live as soon as it's made.
+    // MARK: - Routing
 
-    @objc private func foldersFirstChanged() {
-        onChange?(editor.setFilesFoldersFirst(foldersFirstBox.state == .on))
+    /// The tab a server opens on: its last-used tab, else Transfers (Connection
+    /// for a server that isn't saved yet).
+    func lastTab(for id: UUID) -> Tab {
+        tabByServer[id] ?? (editor.isSaved(id) ? .transfers : .connection)
     }
 
-    @objc private func pieceMapChanged() {
-        onChange?(editor.setShowPieceMap(pieceMapBox.state == .on))
+    /// Re-seed from the saved config. Only for a window that isn't open: an
+    /// open window keeps its unsaved edits, and routing just changes selection.
+    func reset(to config: AppConfig) {
+        let target = selection
+        editor.reset(to: config)
+        remote = [:]
+        generalPane.reload()
+        sidebar.reloadData()
+        select(target, tab: nil)   // falls back to General if that server is gone
     }
 
-    @objc private func showAddOptionsChanged() {
-        onChange?(editor.setShowAddOptions(showAddOptionsBox.state == .on))
-    }
-
-    @objc private func clipboardChanged() {
-        onChange?(editor.setAddLinksFromClipboard(clipboardBox.state == .on))
-    }
-
-    @objc private func refreshChanged() {
-        let config = editor.setRefreshSeconds(max(1, Double(refreshField.stringValue) ?? editor.refreshSeconds))
-        refreshStepper.doubleValue = editor.refreshSeconds
-        refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
-        onChange?(config)
-    }
-
-    @objc private func stepperChanged() {
-        let config = editor.setRefreshSeconds(max(1, refreshStepper.doubleValue))
-        refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
-        onChange?(config)
-    }
-
-    @objc private func autoCheckChanged() {
-        onChange?(editor.setAutoCheckForUpdates(autoCheckBox.state == .on))
+    /// Called whenever Settings is opened from a menu or button. Re-seeds from the
+    /// saved config only when nothing would be lost: never with pending edits
+    /// (a minimized or hidden window reports `isVisible == false` too), and never
+    /// while the window is on screen.
+    func reopen(with config: AppConfig) {
+        guard !hasPendingEdits, window?.isVisible != true, !working else { return }
+        reset(to: config)
     }
 
     /// Keep the editor in step with a toolbar layout changed in the View menu,
@@ -643,255 +413,718 @@ final class SettingsWindowController: NSWindowController {
         editor.setToolbarLayout(layout)
     }
 
-    @objc private func removeFileMethodChanged() {
-        onChange?(editor.setRemoveTorrentFileMethod(removeFileMethodPopup.selectedCase(default: .none)))
+    /// ⌘, (last selection), Server Settings… (active server's last tab), Manage
+    /// Servers… (Connection), Edit Presets… (Speed, presets focused). If another
+    /// server has unsaved edits, asks first.
+    func route(to target: Selection?, tab: Tab? = nil, focusPresets: Bool = false) {
+        let destination = target ?? selection
+        let go = { [weak self] in
+            guard let self else { return }
+            select(destination, tab: tab)
+            if focusPresets { focusPresetsField() }
+        }
+        if destination != selection, case .server(let current) = selection, isDirty(current) {
+            resolvePendingEdits(for: current, action: "Switching servers", then: go)
+        } else {
+            go()
+        }
     }
 
-    // MARK: - Dirty / Save
+    var selectedServerID: UUID? {
+        if case .server(let id) = selection { return id }
+        return nil
+    }
+
+    private func select(_ target: Selection, tab: Tab?) {
+        var target = target
+        if case .server(let id) = target, editor.index(of: id) == nil { target = .general }
+        selection = target
+        let row: Int
+        switch target {
+        case .general: row = 1
+        case .server(let id): row = Self.firstServerRow + (editor.index(of: id) ?? 0)
+        }
+        isSelectingProgrammatically = true
+        sidebar.selectRowIndexes([row], byExtendingSelection: false)
+        sidebar.scrollRowToVisible(row)
+        isSelectingProgrammatically = false
+        showSelection(tab: tab)
+    }
+
+    private func showSelection(tab: Tab?) {
+        switch selection {
+        case .general:
+            generalPane.view.isHidden = false
+            serverView.isHidden = true
+            window?.title = "Settings"
+            generalPane.reload()
+        case .server(let id):
+            generalPane.view.isHidden = true
+            serverView.isHidden = false
+            let target = tab ?? lastTab(for: id)
+            tabByServer[id] = target
+            showTab(target)
+            connectionPane.load(editor.servers.first { $0.id == id })
+            ensureLoaded(id)
+            refreshServerUI()
+        }
+        updateFooter()
+        rememberSelection()
+    }
+
+    private func showTab(_ tab: Tab) {
+        tabView.selectTabViewItem(withIdentifier: tab.rawValue)
+        tabPicker.selectedSegment = Tab.allCases.firstIndex(of: tab) ?? 0
+    }
+
+    var selectedTab: Tab {
+        Tab(rawValue: tabView.selectedTabViewItem?.identifier as? String ?? "") ?? .connection
+    }
+
+    @objc private func tabPicked(_ sender: ServerOptionsSectionPicker) {
+        guard Tab.allCases.indices.contains(sender.selectedSegment) else { return }
+        selectTab(Tab.allCases[sender.selectedSegment])
+        // Pointer selection should not leave a focus halo around the segment.
+        if !sender.isKeyboardSelection { window?.makeFirstResponder(nil) }
+    }
+
+    func selectTab(_ tab: Tab) {
+        showTab(tab)
+        if let id = selectedServerID { tabByServer[id] = tab; rememberSelection() }
+        refreshServerUI()
+    }
+
+    /// Ctrl-Tab / Ctrl-Shift-Tab cycle the server tabs (⌘1–9 switch servers).
+    private func cycleTab(backwards: Bool) {
+        guard selectedServerID != nil, let index = Tab.allCases.firstIndex(of: selectedTab) else { return }
+        let count = Tab.allCases.count
+        selectTab(Tab.allCases[(index + (backwards ? count - 1 : 1)) % count])
+    }
+
+    private func focusPresetsField() {
+        if let presets = form.groupViews["Menu presets"], !presets.isExpanded { presets.setExpanded(true) }
+        window?.makeFirstResponder(connectionPane.downPresetsField)
+    }
+
+    // MARK: - Remote state
+
+    private func state(_ id: UUID) -> RemoteState {
+        if let state = remote[id] { return state }
+        let state = RemoteState()
+        remote[id] = state
+        return state
+    }
+
+    /// Load the server's session settings once (or again, with `force`).
+    func ensureLoaded(_ id: UUID, force: Bool = false) {
+        guard editor.isSaved(id), let server = editor.savedServer(id) else { refreshServerUI(); return }
+        let state = state(id)
+        if !force {
+            switch state.load {
+            case .loading, .loaded, .failed: refreshServerUI(); return
+            case .notLoaded: break
+            }
+        }
+        state.generation += 1
+        let generation = state.generation
+        state.load = .loading
+        refreshServerUI()
+        let provider = serviceProvider ?? Self.resolveService
+        Task { [weak self] in
+            var load = ServerSettingsScope.Load.loaded
+            var session: ServerOptionsSession?
+            var endpoint: String?
+            do {
+                let resolved = try await provider(server)
+                let fresh = ServerOptionsSession(service: resolved.service)
+                try await fresh.load()
+                session = fresh
+                endpoint = resolved.endpoint
+            } catch {
+                load = .failed(Self.shortMessage(error))
+            }
+            guard let self, state.generation == generation, remote[id] === state else { return }
+            state.load = load
+            if let session { state.session = session; state.endpoint = endpoint; state.changedOnServer = false }
+            if selectedServerID == id {
+                form.session = state.session
+                refreshServerUI()
+            }
+            updateRow(id)
+        }
+    }
+
+    /// The default provider: race the server's host candidates with a fresh client.
+    static func resolveService(_ server: ServerConfig) async throws -> ResolvedService {
+        let winner = await ConnectionResolver.firstToRespond(server.connectionCandidates) { candidate -> ServerConfig? in
+            guard let client = try? TransmissionClient(server: candidate, timeout: 5),
+                  (try? await client.fetchSession()) != nil else { return nil }
+            return candidate
+        }
+        guard let winner else {
+            throw ServerOptionsError(message: server.hasMultipleHostCandidates
+                ? "None of its \(server.connectionCandidates.count) hosts responded." : "The server didn’t respond.")
+        }
+        return ResolvedService(service: try TransmissionClient(server: winner, timeout: 30),
+                               endpoint: SettingsConnectionPane.endpointLabel(winner))
+    }
+
+    private static func shortMessage(_ error: Error) -> String {
+        guard error is TransmissionError else { return error.localizedDescription }
+        let reason = SettingsConnectionPane.shortError(error)
+        return reason.prefix(1).uppercased() + reason.dropFirst() + "."
+    }
+
+    /// The live poll saw a new `session-get` for `id`: follow speed limits
+    /// changed from the menus, unless the Speed tab has edits (then ask for a Revert).
+    func sessionObserved(_ info: SessionInfo?, serverID id: UUID?) {
+        guard let info, let id, let state = remote[id], let session = state.session, !working else { return }
+        switch session.absorb(info.speedOptionValues) {
+        case .unchanged: return
+        case .updated:
+            if selectedServerID == id { form.render() }
+        case .conflict:
+            state.changedOnServer = true
+        }
+        if selectedServerID == id { refreshServerUI() }
+    }
+
+    // MARK: - Dirty state and the header
+
+    /// Unsaved edits for one server: connection/presets or server-side drafts.
+    func isDirty(_ id: UUID) -> Bool {
+        ServerSettingsScope.isDirty(localDirty: editor.isServerDirty(id),
+                                    remoteDirty: remote[id]?.session?.editor?.isDirty == true)
+    }
+
+    var hasPendingEdits: Bool { editor.servers.contains { isDirty($0.id) } || groupsController?.session.editor.isDirty == true }
+
+    private func availability(_ id: UUID) -> ServerSettingsScope.Availability {
+        ServerSettingsScope.availability(isSaved: editor.isSaved(id), load: remote[id]?.load ?? .notLoaded)
+    }
 
     private func updateDirtyState() {
-        saveButton.isEnabled = editor.isDirty
+        guard let id = selectedServerID else { window?.isDocumentEdited = hasPendingEdits; return }
+        let dirty = isDirty(id)
+        let plan = applyPlan(id)
+        applyButton.isEnabled = !working && dirty && connectionPane.portValidationError == nil
+            && { if case .blocked = plan { false } else { true } }()
+        // Revert also clears a pending "load the server's values" state (failed
+        // write, or speed limits changed elsewhere while edited).
+        let stale = remote[id]?.session?.needsReload == true || remote[id]?.changedOnServer == true
+        revertButton.isEnabled = !working && (dirty || stale)
+        window?.isDocumentEdited = hasPendingEdits
+        updateRow(id)
+        updateFooter()
     }
 
-    @objc private func save() {
-        let saved = editor.save()
-        onChange?(saved)
+    private func applyPlan(_ id: UUID) -> ServerSettingsScope.ApplyPlan {
+        let session = remote[id]?.session
+        return ServerSettingsScope.plan(localDirty: editor.isServerDirty(id),
+                                        remoteDirty: session?.editor?.isDirty == true,
+                                        remoteNeedsReload: session?.needsReload == true)
+    }
+
+    private func refreshServerUI() {
+        guard let id = selectedServerID, let server = editor.servers.first(where: { $0.id == id }) else { return }
+        let availability = availability(id)
+        let state = remote[id]
+        nameLabel.stringValue = server.name
+        window?.title = "Settings — \(server.name)"
+        switch availability {
+        case .unsavedNewServer:
+            stateLabel.stringValue = "Not saved"
+            stateLabel.textColor = .secondaryLabelColor
+            detailLabel.stringValue = ""
+        case .connecting:
+            stateLabel.stringValue = "Connecting…"
+            stateLabel.textColor = .secondaryLabelColor
+            detailLabel.stringValue = ""
+        case .offline:
+            stateLabel.stringValue = "● Offline"
+            stateLabel.textColor = .systemOrange
+            detailLabel.stringValue = ""
+        case .ready:
+            stateLabel.stringValue = "● Connected"
+            stateLabel.textColor = .systemGreen
+            let version = state?.session?.editor?.baseline.version
+            detailLabel.stringValue = [state?.endpoint.map { "via \($0)" }, version.map { "Transmission \($0)" }]
+                .compactMap { $0 }.joined(separator: " · ")
+        }
+        notActiveLabel.isHidden = activeServerID() == id || !editor.isSaved(id)
+        if form.session !== state?.session { form.session = state?.session }
+        form.setAvailability(availability, serverName: server.name)
+        form.updateEnabledState(working: working)
+        if !working { statusLabel.stringValue = statusMessage(id, availability: availability); statusLabel.textColor = .secondaryLabelColor }
         updateDirtyState()
     }
 
-    // MARK: - Live field editing
-
-    /// Build a `ServerConfig` from the form's current text (used by Test
-    /// Connection so the user can test edits before saving). Independent of the
-    /// table selection — it reads whatever is in the fields right now.
-    private func currentServerFromFields() -> ServerConfig {
-        let name = nameField.stringValue.trimmingCharacters(in: .whitespaces)
-        let host = hostField.stringValue.trimmingCharacters(in: .whitespaces)
-        let path = rpcPathField.stringValue.trimmingCharacters(in: .whitespaces)
-        return ServerConfig(
-            name: name.isEmpty ? host : name,
-            host: host,
-            port: Int(portField.stringValue) ?? 9091,
-            useHTTPS: httpsCheckbox.state == .on,
-            rpcPath: path.isEmpty ? "/transmission/rpc" : path,
-            username: usernameField.stringValue.isEmpty ? nil : usernameField.stringValue,
-            password: passwordField.stringValue.isEmpty ? nil : passwordField.stringValue,
-            pathMappings: PathMapping.parse(pathMappingsView.string),
-            downSpeedPresets: SpeedPresets.parse(downPresetsField.stringValue),
-            upSpeedPresets: SpeedPresets.parse(upPresetsField.stringValue))
+    private func statusMessage(_ id: UUID, availability: ServerSettingsScope.Availability) -> String {
+        if selectedServerID == id, let problem = connectionPane.portValidationError { return problem }
+        if remote[id]?.changedOnServer == true { return "Speed limits changed on the server. Click Revert to load them (this discards your unsaved changes)." }
+        if remote[id]?.session?.needsReload == true { return "Click Revert to load the server’s current values before applying again." }
+        if case .ready = availability, let editor = remote[id]?.session?.editor {
+            let missing = ServerOption.allCases.filter { !editor.supports($0) }.count
+            if missing > 0 { return "\(missing) settings are unavailable on this server. Changes apply only when you click Apply." }
+        }
+        if case .unsavedNewServer = availability { return "Fill in the connection, then click Apply to save this server." }
+        return "Changes apply only when you click Apply. Revert discards them and loads the server’s current values."
     }
 
-    /// Sync the selected server from the form's current text on every keystroke,
-    /// so Save enables immediately (the field's target/action only fires on
-    /// end-editing). Kept light: no trimming/uniqueness reset while typing — that
-    /// normalization happens on end-editing in `serverFieldChanged`. Crucially it
-    /// does NOT call `reloadData()` (which would drop the table selection mid-edit
-    /// and break Test/Remove); it updates only the affected row label.
-    private func liveSyncSelectedServer() {
-        guard let i = selectedIndex else { return }
-        // Take the raw fields as-is (no name normalization while typing); the
-        // editor handles the currentServer-rename follow.
-        var candidate = currentServerFromFields()
-        candidate.name = nameField.stringValue   // keep raw (currentServerFromFields trims)
-        editor.updateServer(at: i, to: candidate, normalizeName: false)
-        updateRowLabel(at: i)
-        reloadDefaultServerPopup()
-        updateDirtyState()
-    }
+    // MARK: - Sidebar rows
 
-    /// Update one server row's displayed name in place, without `reloadData()`
-    /// (which would reset the table selection).
-    private func updateRowLabel(at index: Int) {
-        guard let server = editor.server(at: index) else { return }
-        if let cell = serverTable.view(atColumn: 0, row: index, makeIfNecessary: false)
-            as? NSTableCellView {
-            cell.textField?.stringValue = server.name
+    private func updateRow(_ id: UUID) {
+        guard let index = editor.index(of: id) else { return }
+        let row = Self.firstServerRow + index
+        if let cell = sidebar.view(atColumn: 0, row: row, makeIfNecessary: false) as? ServerRowCell {
+            configure(cell, id: id)
         }
     }
 
-    // MARK: - Test Connection
-
-    /// One candidate's probe outcome.
-    private struct HostProbeResult {
-        let server: ServerConfig
-        let version: String?      // non-nil on success
-        let error: Error?         // non-nil on failure
-        var ok: Bool { version != nil }
+    private func configure(_ cell: ServerRowCell, id: UUID) {
+        guard let server = editor.servers.first(where: { $0.id == id }) else { return }
+        let saved = editor.isSaved(id)
+        let state = remote[id]?.load ?? .notLoaded
+        let isActive = activeServerID() == id
+        let status: (NSColor, String)
+        switch (saved, state) {
+        case (false, _): status = (.tertiaryLabelColor, "not saved")
+        case (_, .loaded): status = (.systemGreen, "connected")
+        case (_, .failed): status = (.systemOrange, "offline")
+        case (_, .loading): status = (.secondaryLabelColor, "connecting")
+        case (_, .notLoaded): status = (isActive ? .systemGreen : .tertiaryLabelColor, isActive ? "active" : "not checked")
+        }
+        let isDefault = editor.currentServer == server.name
+        let dirty = isDirty(id)
+        cell.configure(name: server.name, dot: status.0, badge: isDefault ? "Default" : nil, edited: dirty)
+        cell.setAccessibilityLabel([server.name, "server", status.1, isDefault ? "default" : nil, dirty ? "edited" : nil]
+            .compactMap { $0 }.joined(separator: ", "))
     }
 
-    @objc private func testConnection() {
-        // Test exactly what's typed in the form right now, even if not yet saved.
-        // The host field may list several candidates; probe EVERY one and report
-        // which ones worked (not just the first), so the user can see the full
-        // failover picture.
-        let candidates = currentServerFromFields().connectionCandidates.filter { !$0.host.isEmpty }
-        guard !candidates.isEmpty else {
-            let alert = NSAlert()
-            alert.alertStyle = .warning
-            alert.messageText = "Enter a host to test"
-            alert.informativeText = "Type a host name or IP address first, then try again."
-            if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+    /// Names in the sidebar's server rows (tests).
+    var sidebarServerNames: [String] {
+        (0..<editor.serverCount).map { index in
+            (tableView(sidebar, viewFor: nil, row: Self.firstServerRow + index) as? ServerRowCell)?.nameField.stringValue ?? "?"
+        }
+    }
+
+    // MARK: - Add / remove / default
+
+    @objc private func addServer() {
+        let add = { [weak self] in
+            guard let self else { return }
+            let index = editor.addServer()
+            sidebar.reloadData()
+            select(.server(editor.servers[index].id), tab: .connection)
+            window?.makeFirstResponder(connectionPane.nameField)
+        }
+        if let current = selectedServerID, isDirty(current) {
+            resolvePendingEdits(for: current, action: "Adding a server", then: add)
+        } else {
+            add()
+        }
+    }
+
+    /// Applies immediately; Edit ▸ Undo puts the server back.
+    @objc private func removeServer() {
+        guard let id = selectedServerID, let index = editor.index(of: id), editor.canRemoveServer(at: index) else { return }
+        let saved = editor.isSaved(id)
+        let wasDefault = editor.currentServer == editor.servers[index].name
+        guard let removed = editor.removeServer(at: index) else { return }
+        remote[id] = nil
+        if saved { onChange?(editor.savedConfig) }
+        sidebar.reloadData()
+        select(.server(editor.servers[min(index, editor.serverCount - 1)].id), tab: nil)
+        window?.undoManager?.registerUndo(withTarget: self) { target in
+            target.editor.restoreServer(removed, at: index, saved: saved, wasDefault: wasDefault)
+            if saved { target.onChange?(target.editor.savedConfig) }
+            target.sidebar.reloadData()
+            target.select(.server(removed.id), tab: nil)
+        }
+        window?.undoManager?.setActionName("Remove Server")
+    }
+
+    /// Sidebar footer: − needs a server and more than one; Default needs a saved, non-default server.
+    func updateFooter() {
+        let id = selectedServerID
+        // One rule, the editor's: at least one server stays, and no *other* server has pending edits.
+        removeButton.isEnabled = id.flatMap(editor.index(of:)).map(editor.canRemoveServer(at:)) ?? false
+        defaultButton.isEnabled = id.map(canMakeDefault) ?? false
+    }
+
+    private func canMakeDefault(_ id: UUID) -> Bool {
+        editor.isSaved(id) && editor.currentServer != editor.servers.first { $0.id == id }?.name
+    }
+
+    @objc private func makeDefaultFromMenu(_ sender: NSMenuItem) {
+        if let id = sender.representedObject as? UUID { makeDefault(id) }
+    }
+
+    @objc func makeSelectedDefault(_ sender: Any?) {
+        if let id = selectedServerID { makeDefault(id) }
+    }
+
+    /// Applies immediately, like the other list edits.
+    func makeDefault(_ id: UUID) {
+        guard canMakeDefault(id), let server = editor.servers.first(where: { $0.id == id }) else { return }
+        let previous = editor.currentServer
+        editor.setDefaultServer(server.name)
+        onChange?(editor.savedConfig)
+        for other in editor.servers where other.name == previous || other.id == id { updateRow(other.id) }
+        updateFooter()
+    }
+
+    // MARK: - Editing
+
+    private func connectionEdited(_ candidate: ServerConfig, normalize: Bool) {
+        guard let id = selectedServerID, let index = editor.index(of: id) else { return }
+        let stored = editor.updateServer(at: index, to: candidate, normalizeName: normalize)
+        if normalize, connectionPane.nameField.stringValue != stored.name { connectionPane.nameField.stringValue = stored.name }
+        nameLabel.stringValue = stored.name
+        window?.title = "Settings — \(stored.name)"
+        if !working {
+            statusLabel.stringValue = statusMessage(id, availability: availability(id))
+            statusLabel.textColor = connectionPane.portValidationError == nil ? .secondaryLabelColor : .systemRed
+        }
+        updateDirtyState()
+    }
+
+    // MARK: - Apply / Revert
+
+    @objc func applySettings(_ sender: Any?) { applySelected(completion: nil) }
+
+    /// Remote first; Mac-side fields only after it succeeds. On failure every
+    /// edit stays put, and the failing field's group is opened and focused.
+    func applySelected(completion: ((Bool) -> Void)?) {
+        guard let id = selectedServerID, !working else { completion?(false); return }
+        window?.makeFirstResponder(nil)   // commit the focused field (end-of-edit normalize)
+        // An unusable port is never saved (the editor holds the last valid one).
+        if let problem = connectionPane.validatePort() {
+            selectTab(.connection)
+            window?.makeFirstResponder(connectionPane.portField)
+            statusLabel.stringValue = problem
+            statusLabel.textColor = .systemRed
+            completion?(false)
             return
         }
-        testButton.isEnabled = false
-        testSpinner.startAnimation(nil)
-
-        Task { [weak self] in
-            let results = await Self.probeAll(candidates)
-            guard let self else { return }
-            self.testSpinner.stopAnimation(nil)
-            self.testButton.isEnabled = self.selectedIndex != nil
-            self.presentTestResults(results)
-        }
-    }
-
-    /// Probe all candidates concurrently; results are returned in candidate order.
-    private static func probeAll(_ candidates: [ServerConfig]) async -> [HostProbeResult] {
-        await withTaskGroup(of: (Int, HostProbeResult).self) { group in
-            for (index, candidate) in candidates.enumerated() {
-                group.addTask {
-                    do {
-                        let client = try TransmissionClient(server: candidate, timeout: 5)
-                        let info = try await client.fetchSession()
-                        return (index, HostProbeResult(server: candidate, version: info.version, error: nil))
-                    } catch {
-                        return (index, HostProbeResult(server: candidate, version: nil, error: error))
-                    }
-                }
-            }
-            var byIndex: [Int: HostProbeResult] = [:]
-            for await (index, result) in group { byIndex[index] = result }
-            return candidates.indices.compactMap { byIndex[$0] }
-        }
-    }
-
-    private func endpointLabel(_ s: ServerConfig) -> String {
-        "\(s.useHTTPS ? "https" : "http")://\(s.host):\(s.port)"
-    }
-
-    private func presentTestResults(_ results: [HostProbeResult]) {
-        let okCount = results.filter(\.ok).count
-        let alert = NSAlert()
-
-        if results.count == 1 {
-            // Single host: keep the focused success/failure message.
-            let r = results[0]
-            if let version = r.version {
-                alert.alertStyle = .informational
-                alert.messageText = "Connection succeeded"
-                alert.informativeText = "Connected to \(endpointLabel(r.server)).\nTransmission \(version)."
+        let plan = applyPlan(id)
+        if plan == .nothing { completion?(true); return }
+        let session = remote[id]?.session
+        let before = editor.savedServer(id)
+        let serverName = editor.servers.first { $0.id == id }?.name ?? "the server"
+        perform(message: "Applying and verifying changes…", completion: completion) { [self] in
+            try await ServerSettingsScope.apply(plan, remote: {
+                guard let session else { return }
+                try await session.apply()
+            }, local: {
+                onChange?(editor.applyServer(id))
+            })
+            remote[id]?.changedOnServer = false
+            let after = editor.savedServer(id)
+            if before == nil || !Self.sameConnection(before, after) {
+                // New or re-pointed server: reconnect with the saved details.
+                remote[id] = nil
+                ensureLoaded(id)
             } else {
-                alert.alertStyle = .warning
-                alert.messageText = "Connection failed"
-                alert.informativeText = r.error.map { ConnectionDiagnostics.message(for: $0, server: r.server) }
-                    ?? "Could not reach the server."
+                form.render()
             }
-        } else {
-            alert.alertStyle = okCount > 0 ? .informational : .warning
-            alert.messageText = okCount > 0
-                ? "\(okCount) of \(results.count) hosts responded"
-                : "No hosts responded"
-            // One line per candidate, in order. The app uses the first ✓ at runtime.
-            alert.informativeText = results.map { r in
-                if let version = r.version {
-                    return "✓  \(endpointLabel(r.server)) — Transmission \(version)"
-                } else {
-                    return "✗  \(endpointLabel(r.server)) — \(Self.shortError(r.error))"
-                }
-            }.joined(separator: "\n")
-        }
-        if let window { alert.beginSheetModal(for: window) }
-        else { alert.runModal() }
-    }
-
-    /// A terse failure reason for the per-host list.
-    private static func shortError(_ error: Error?) -> String {
-        guard let error else { return "no response" }
-        switch error as? TransmissionError {
-        case .authenticationFailed: return "auth failed (check username/password)"
-        case .httpError(404): return "no RPC at that path (404)"
-        case .httpError(let code): return "HTTP \(code)"
-        case .connectionFailed: return "could not connect"
-        case .invalidURL: return "invalid URL"
-        case .rpcError(let m): return m
-        case .decodingFailed: return "not a Transmission RPC endpoint"
-        case .none: return error.localizedDescription
-        }
-    }
-}
-
-// MARK: - Live text editing
-
-extension SettingsWindowController: NSTextFieldDelegate {
-    func controlTextDidChange(_ obj: Notification) {
-        if (obj.object as AnyObject) === refreshField {
-            // General applies on end-of-edit only (`refreshChanged`), not per
-            // keystroke — typing "10" would otherwise apply "1" first. Just
-            // reflect the in-progress typed value on the stepper for feedback.
-            if let value = Double(refreshField.stringValue) {
-                refreshStepper.doubleValue = max(1, value)
+            onApplied?(id)
+            for server in editor.servers { updateRow(server.id) }   // name / Default badge
+            switch plan {
+            case .localOnly: return "Saved \(serverName) on this Mac."
+            default: return "Changes saved and verified on \(serverName)."
             }
+        }
+    }
+
+    private static func sameConnection(_ a: ServerConfig?, _ b: ServerConfig?) -> Bool {
+        guard let a, let b else { return false }
+        return a.host == b.host && a.port == b.port && a.useHTTPS == b.useHTTPS && a.rpcPath == b.rpcPath
+            && a.username == b.username && a.password == b.password
+    }
+
+    /// Revert: discard this server's unsaved edits (connection, presets and
+    /// server tabs) and load its current values from the server again. This is
+    /// also how to clear "changed on the server" or a failed, unverified write.
+    @objc func revertSettings(_ sender: Any?) {
+        guard let id = selectedServerID, !working else { return }
+        revert(id, refetch: true)
+    }
+
+    /// `refetch: false` (Discard in the close/quit/switch prompts) only drops
+    /// edits locally; a session that needed a refetch is dropped so it loads
+    /// again next time the server is shown.
+    private func revert(_ id: UUID, refetch: Bool = false) {
+        window?.makeFirstResponder(nil)
+        let wasSaved = editor.isSaved(id)
+        let index = editor.index(of: id) ?? 0
+        editor.revertServer(id)
+        if let state = remote[id], let session = state.session {
+            session.revert()
+            if !refetch, session.needsReload || state.changedOnServer { remote[id] = nil }
+        }
+        if wasSaved {
+            if selectedServerID == id {
+                connectionPane.load(editor.servers.first { $0.id == id })
+                form.render()
+                refreshServerUI()
+            }
+            updateRow(id)
+            if refetch { refetchServerValues(id) }
         } else {
-            liveSyncSelectedServer()
+            remote[id] = nil
+            sidebar.reloadData()
+            if selectedServerID == id {
+                select(editor.serverCount > 0 ? .server(editor.servers[max(0, min(index, editor.serverCount) - 1)].id) : .general, tab: nil)
+            }
+        }
+        window?.isDocumentEdited = hasPendingEdits
+    }
+
+    private func refetchServerValues(_ id: UUID) {
+        guard let session = remote[id]?.session else { ensureLoaded(id, force: true); return }
+        perform(message: "Loading the server’s current values…", completion: nil) { [self] in
+            try await session.load()
+            remote[id]?.changedOnServer = false
+            if selectedServerID == id { form.render() }
+            return "Reverted to the server’s current values."
+        }
+    }
+
+    /// Test Connection probes the Connection form as typed (unsaved edits
+    /// included), so it works for a new server or one whose tabs are blocked.
+    private func runTestConnection(_ server: ServerConfig) {
+        if let problem = connectionPane.validatePort() {   // e.g. from the offline notice
+            statusLabel.stringValue = problem
+            statusLabel.textColor = .systemRed
+            return
+        }
+        connectionPane.setTesting(true)
+        SettingsConnectionPane.testConnection(server, window: window) { [weak self] in
+            self?.connectionPane.setTesting(false)
+        }
+    }
+
+    private func runPortTest(_ choice: PeerPortProtocol) {
+        guard let id = selectedServerID, let session = remote[id]?.session else { return }
+        perform(message: "Testing the server’s applied incoming port (\(choice.displayName))…", completion: nil) {
+            let current = try await session.service.fetchServerOptions()
+            let result = try await session.testPort(protocol: choice)
+            let port = current.values[.peerPort]?.text(for: .peerPort) ?? "unknown"
+            return "Port \(port) — " + result.description(requested: choice)
+        }
+    }
+
+    /// Opens the bandwidth groups editor as a sheet; it keeps its own Apply Group.
+    private func manageGroups() {
+        guard let id = selectedServerID, let session = remote[id]?.session, let window, groupsController == nil else { return }
+        let name = editor.servers.first { $0.id == id }?.name ?? ""
+        let controller = BandwidthGroupsWindowController(serverName: name, service: session.service)
+        groupsController = controller
+        guard let sheet = controller.window else { return }
+        window.beginSheet(sheet) { [weak self] _ in self?.groupsController = nil }
+        controller.loadGroups()
+    }
+
+    private func perform(message: String, completion: ((Bool) -> Void)?,
+                         action: @escaping @MainActor () async throws -> String) {
+        guard !working else { completion?(false); return }
+        working = true
+        statusLabel.stringValue = message
+        statusLabel.textColor = .secondaryLabelColor
+        spinner.startAnimation(nil)
+        refreshServerUI()
+        Task { [self] in
+            var focusKey: ServerOption?
+            var ok = true
+            do {
+                statusLabel.stringValue = try await action()
+            } catch {
+                ok = false
+                statusLabel.stringValue = error.localizedDescription
+                statusLabel.textColor = .systemRed
+                focusKey = (error as? ServerOptionsError)?.fields.first
+            }
+            working = false
+            spinner.stopAnimation(nil)
+            let result = statusLabel.stringValue
+            let color = statusLabel.textColor
+            refreshServerUI()
+            statusLabel.stringValue = result
+            statusLabel.textColor = color
+            if let window {
+                NSAccessibility.post(element: window, notification: .announcementRequested,
+                                     userInfo: [.announcement: result, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+            }
+            if let key = focusKey { focus(key) }
+            completion?(ok)
+        }
+    }
+
+    /// Expand the field's group, switch to its tab, and focus it.
+    func focus(_ key: ServerOption) {
+        form.reveal(key)
+        selectTab(Tab(key.definition.pane))
+        if let control = form.controls[key]?.first {
+            control.scrollToVisible(control.bounds)
+            window?.makeFirstResponder((control as? ServerOptionsTextArea)?.textView ?? control)
+        }
+    }
+
+    // MARK: - Pending-edit guards
+
+    /// Apply / Discard / Cancel before leaving a server with unsaved edits.
+    private func resolvePendingEdits(for id: UUID, action: String, then proceed: @escaping () -> Void) {
+        guard isDirty(id), !working else { if !working { proceed() }; return }
+        switch askAboutPendingEdits(id, detail: "\(action) leaves edits that haven’t been applied.") {
+        case .apply:
+            if selectedServerID != id { select(.server(id), tab: nil) }
+            applySelected { ok in if ok { proceed() } }
+        case .discard:
+            revert(id)
+            proceed()
+        case .cancel:
+            // Keep the sidebar on the edited server.
+            if selectedServerID == id { select(.server(id), tab: selectedTab) }
+        }
+    }
+
+    enum PendingChoice { case apply, discard, cancel }
+
+    /// The Apply / Discard / Cancel question for one server's unsaved edits.
+    private func askAboutPendingEdits(_ id: UUID, detail: String) -> PendingChoice {
+        let name = editor.servers.first { $0.id == id }?.name ?? "this server"
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Apply changes to “\(name)”?"
+        alert.informativeText = detail
+        alert.addButton(withTitle: "Apply")
+        alert.addButton(withTitle: "Discard")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .apply
+        case .alertSecondButtonReturn: return .discard
+        default: return .cancel
+        }
+    }
+
+    /// For Quit: resolves pending edits, then reports whether quitting may go
+    /// ahead. Apply is asynchronous, so the answer may come later.
+    func confirmQuit(_ reply: @escaping (Bool) -> Void) {
+        if let groupsController, !groupsController.canQuit() { reply(false); return }
+        // Every server with pending edits: Connection/presets *or* server-tab drafts.
+        confirmQuitEdits(for: editor.servers.map(\.id).filter(isDirty), reply: reply)
+    }
+
+    /// Asks about each server in `ids` that still has edits, one at a time. Apply
+    /// continues to the next server only if it succeeded; Cancel on any server aborts the quit.
+    private func confirmQuitEdits(for ids: [UUID], reply: @escaping (Bool) -> Void) {
+        guard let id = ids.first else { reply(true); return }
+        let remaining = Array(ids.dropFirst())
+        guard isDirty(id) else { confirmQuitEdits(for: remaining, reply: reply); return }
+        if selectedServerID != id { select(.server(id), tab: nil) }
+        window?.makeKeyAndOrderFront(nil)
+        switch askAboutPendingEdits(id, detail: "Your changes haven’t been applied. Apply them before quitting?") {
+        case .apply:
+            applySelected { [weak self] ok in
+                guard ok else { reply(false); return }
+                self?.confirmQuitEdits(for: remaining, reply: reply)
+            }
+        case .discard:
+            revert(id)
+            confirmQuitEdits(for: remaining, reply: reply)
+        case .cancel:
+            reply(false)
         }
     }
 }
 
-extension SettingsWindowController: NSTextViewDelegate {
-    /// The multi-line path-mappings editor changed — sync it live like the text
-    /// fields, so Save enables on each keystroke.
-    func textDidChange(_ notification: Notification) {
-        guard (notification.object as AnyObject) === pathMappingsView else { return }
-        liveSyncSelectedServer()
-    }
-}
-
-// MARK: - Server table data source / delegate
+// MARK: - Sidebar data source / delegate
 
 extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
-    func numberOfRows(in tableView: NSTableView) -> Int { editor.serverCount }
+    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
+
+    func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
+        if case .header = rows[row] { return true }
+        return false
+    }
+
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
+        if case .header = rows[row] { return 24 }
+        return 26
+    }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let id = NSUserInterfaceItemIdentifier("serverCell")
-        let cell = (tableView.makeView(withIdentifier: id, owner: self) as? NSTableCellView)
-            ?? {
-                let c = NSTableCellView()
-                let tf = NSTextField(labelWithString: "")
-                tf.translatesAutoresizingMaskIntoConstraints = false
-                tf.lineBreakMode = .byTruncatingTail
-                c.addSubview(tf)
-                c.textField = tf
-                c.identifier = id
-                NSLayoutConstraint.activate([
-                    tf.leadingAnchor.constraint(equalTo: c.leadingAnchor, constant: 4),
-                    tf.trailingAnchor.constraint(equalTo: c.trailingAnchor, constant: -4),
-                    tf.centerYAnchor.constraint(equalTo: c.centerYAnchor),
-                ])
-                return c
-            }()
-        cell.textField?.stringValue = editor.server(at: row)?.name ?? ""
-        return cell
+        guard rows.indices.contains(row) else { return nil }
+        switch rows[row] {
+        case .header(let title):
+            let label = NSTextField(labelWithString: title.uppercased())
+            label.font = .systemFont(ofSize: 10, weight: .semibold)
+            label.textColor = .secondaryLabelColor
+            let cell = NSTableCellView()
+            label.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 6),
+                label.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -3),
+            ])
+            return cell
+        case .general:
+            let cell = ServerRowCell()
+            cell.configure(name: "General", dot: nil, badge: nil, edited: false)
+            cell.icon.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
+            cell.icon.contentTintColor = .secondaryLabelColor
+            cell.setAccessibilityLabel("General settings")
+            return cell
+        case .server(let id):
+            let cell = (tableView.makeView(withIdentifier: ServerRowCell.reuseID, owner: self) as? ServerRowCell) ?? ServerRowCell()
+            configure(cell, id: id)
+            return cell
+        }
+    }
+
+    func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
+        guard rows.indices.contains(row) else { return false }
+        if case .header = rows[row] { return false }
+        if isSelectingProgrammatically { return true }
+        let target: Selection
+        switch rows[row] {
+        case .general: target = .general
+        case .server(let id): target = .server(id)
+        case .header: return false
+        }
+        if target != selection, let current = selectedServerID, isDirty(current) {
+            // Ask outside the delegate callback, then select programmatically.
+            DispatchQueue.main.async { [weak self] in self?.route(to: target) }
+            return false
+        }
+        return true
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
-        loadDetail()
+        guard !isSelectingProgrammatically, rows.indices.contains(sidebar.selectedRow) else { return }
+        switch rows[sidebar.selectedRow] {
+        case .general: selection = .general
+        case .server(let id): selection = .server(id)
+        case .header: return
+        }
+        showSelection(tab: nil)
     }
 
-    // Drag-to-reorder. The new order is a working-copy edit, so it enables
-    // Save Server like any other server change.
+    // Drag-to-reorder the server rows; applies immediately.
 
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? {
+        guard row >= Self.firstServerRow, rows.indices.contains(row) else { return nil }
         let item = NSPasteboardItem()
-        item.setString(String(row), forType: Self.serverRowType)
+        item.setString(String(row - Self.firstServerRow), forType: Self.serverRowType)
         return item
     }
 
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo,
-                   proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation)
-        -> NSDragOperation {
+                   proposedRow row: Int, proposedDropOperation dropOperation: NSTableView.DropOperation) -> NSDragOperation {
         let operation = serverDropOperation(for: info.draggingPasteboard)
-        // Dropping onto a row means "next to it": retarget to the gap above.
-        if !operation.isEmpty { tableView.setDropRow(row, dropOperation: .above) }
+        guard !operation.isEmpty, row >= Self.firstServerRow else { return [] }
+        tableView.setDropRow(row, dropOperation: .above)   // onto a row means "next to it"
         return operation
     }
 
@@ -905,77 +1138,141 @@ extension SettingsWindowController: NSTableViewDataSource, NSTableViewDelegate {
         pasteboard.types?.contains(Self.serverRowType) == true ? .move : []
     }
 
-    /// Move the dragged server to the gap before `row` (drop-position semantics).
+    /// Move the dragged server to the gap before sidebar `row`.
     func acceptServerDrop(from pasteboard: NSPasteboard, row: Int) -> Bool {
-        guard let source = pasteboard.string(forType: Self.serverRowType).flatMap(Int.init),
-              let newIndex = editor.moveServer(from: source, to: row) else { return false }
-        reloadServerList()
-        reloadDefaultServerPopup()
-        selectServer(at: newIndex)
-        updateDirtyState()
+        // Reorder isn't gated: it persists only the saved list's order, never another
+        // server's pending edits (those stay in the working copy).
+        guard row >= Self.firstServerRow,
+              let source = pasteboard.string(forType: Self.serverRowType).flatMap(Int.init),
+              editor.moveServer(from: source, to: row - Self.firstServerRow) != nil else { return false }
+        onChange?(editor.savedConfig)
+        sidebar.reloadData()
+        select(selection, tab: selectedServerID.map { _ in selectedTab })
         return true
+    }
+}
+
+// MARK: - Sidebar context menu (Make Default)
+
+extension SettingsWindowController: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.removeAllItems()
+        let row = sidebar.clickedRow
+        guard rows.indices.contains(row), case .server(let id) = rows[row] else { return }
+        let item = menu.addItem(withTitle: "Make Default", action: #selector(makeDefaultFromMenu(_:)), keyEquivalent: "")
+        item.target = self
+        item.representedObject = id
+        item.isEnabled = canMakeDefault(id)
+    }
+}
+
+extension SettingsWindowController: NSTabViewDelegate {
+    func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        guard let tabViewItem else { return }
+        tabPicker.selectedSegment = tabView.indexOfTabViewItem(tabViewItem)
+        // Don't start editing the first text field of the newly shown tab.
+        window?.makeFirstResponder(tabPicker)
     }
 }
 
 // MARK: - Window delegate
 
 extension SettingsWindowController: NSWindowDelegate {
-    /// The default handler can change outside the app (or via the system's
-    /// confirmation prompt), so re-read it whenever Settings comes forward.
+    /// The default handler can change outside the app, so re-read it on focus.
     func windowDidBecomeKey(_ notification: Notification) {
-        reloadHandlerStatus()
+        generalPane.reloadHandlerStatus()
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard editor.isDirty else { return true }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = "Save changes to settings?"
-        alert.informativeText = "Your changes haven’t been saved. Save them before closing?"
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Discard")
-        alert.addButton(withTitle: "Cancel")
-        switch alert.runModal() {
-        case .alertFirstButtonReturn:   // Save
-            save()
+        if let groupsController, !groupsController.canQuit() { return false }
+        guard let id = editor.servers.map(\.id).first(where: isDirty) else { return true }
+        if selectedServerID != id { select(.server(id), tab: nil) }
+        switch askAboutPendingEdits(id, detail: "Your changes haven’t been applied. Apply them before closing?") {
+        case .apply:
+            // Apply is asynchronous (a server round trip): close once it succeeds.
+            applySelected { [weak self] ok in if ok { self?.window?.close() } }
+            return false
+        case .discard:
+            for server in editor.servers where isDirty(server.id) { revert(server.id) }
             return true
-        case .alertSecondButtonReturn:  // Discard
-            reset(to: editor.savedBaseline)
-            return true
-        default:                        // Cancel
+        case .cancel:
             return false
         }
     }
 
-    /// Explicit save, paired with the `setFrameUsingName` restore above — mirrors
-    /// `AppDelegate.applicationWillTerminate`'s note that this app's manual run
-    /// loop doesn't reliably flush AppKit's automatic frame autosave.
     func windowWillClose(_ notification: Notification) {
-        window?.saveFrame(usingName: "SettingsWindow")
+        window?.saveFrame(usingName: Self.frameName)
+        rememberSelection()
     }
 }
 
-/// An `NSTextView` that draws greyed-out placeholder text while it is empty —
-/// `NSTextView` has no built-in placeholder the way `NSTextField` does.
-final class PlaceholderTextView: NSTextView {
-    var placeholderString: String = "" {
-        didSet { needsDisplay = true }
+// MARK: - Window and cells
+
+/// Settings window: blank-space clicks end editing (from `ServerOptionsWindow`),
+/// and Ctrl-Tab cycles the server tabs.
+@MainActor
+final class SettingsWindow: ServerOptionsWindow {
+    var onControlTab: ((Bool) -> Void)?
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, event.keyCode == 48, event.modifierFlags.contains(.control), let onControlTab {
+            onControlTab(event.modifierFlags.contains(.shift))
+            return
+        }
+        super.sendEvent(event)
+    }
+}
+
+/// A sidebar row: status dot (or icon), name, "Default" badge, unsaved-edit dot.
+@MainActor
+final class ServerRowCell: NSTableCellView {
+    static let reuseID = NSUserInterfaceItemIdentifier("serverRow")
+    let icon = NSImageView()
+    let nameField = NSTextField(labelWithString: "")
+    let badge = NSTextField(labelWithString: "")
+    let editedDot = NSTextField(labelWithString: "●")
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        identifier = Self.reuseID
+        nameField.lineBreakMode = .byTruncatingTail
+        badge.font = .systemFont(ofSize: 10)
+        badge.textColor = .secondaryLabelColor
+        editedDot.font = .systemFont(ofSize: 8)
+        editedDot.textColor = .controlAccentColor
+        editedDot.toolTip = "Unsaved changes"
+        textField = nameField
+        imageView = icon
+        for view in [icon, nameField, badge, editedDot] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        nameField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 16),
+            icon.heightAnchor.constraint(equalToConstant: 16),
+            nameField.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6),
+            nameField.centerYAnchor.constraint(equalTo: centerYAnchor),
+            editedDot.leadingAnchor.constraint(greaterThanOrEqualTo: nameField.trailingAnchor, constant: 4),
+            editedDot.centerYAnchor.constraint(equalTo: centerYAnchor),
+            badge.leadingAnchor.constraint(equalTo: editedDot.trailingAnchor, constant: 4),
+            badge.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            badge.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        guard string.isEmpty, !placeholderString.isEmpty else { return }
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: font ?? .systemFont(ofSize: NSFont.systemFontSize),
-            .foregroundColor: NSColor.placeholderTextColor,
-        ]
-        let origin = NSPoint(x: textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0),
-                             y: textContainerInset.height)
-        placeholderString.draw(at: origin, withAttributes: attrs)
-    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    override func didChangeText() {
-        super.didChangeText()
-        needsDisplay = true
+    func configure(name: String, dot: NSColor?, badge text: String?, edited: Bool) {
+        nameField.stringValue = name
+        if let dot {
+            icon.image = NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 7, weight: .regular))
+            icon.contentTintColor = dot
+        }
+        badge.stringValue = text ?? ""
+        badge.isHidden = text == nil
+        editedDot.isHidden = !edited
     }
 }

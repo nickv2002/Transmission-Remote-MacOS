@@ -38,7 +38,7 @@ enum TransmissionError: LocalizedError {
 
 /// Talks to a single Transmission daemon over JSON-RPC. Handles HTTP Basic auth
 /// and the CSRF `X-Transmission-Session-Id` 409 dance (see `rpc.pas`).
-actor TransmissionClient {
+actor TransmissionClient: ServerOptionsService {
     private let endpoint: URL
     private let authHeader: String?
     private let session: URLSession
@@ -46,7 +46,8 @@ actor TransmissionClient {
 
     private static let sessionIdHeader = "X-Transmission-Session-Id"
 
-    init(server: ServerConfig, timeout: TimeInterval = 15) throws {
+    init(server: ServerConfig, timeout: TimeInterval = 15,
+         configuration: URLSessionConfiguration = .ephemeral) throws {
         var components = URLComponents()
         components.scheme = server.useHTTPS ? "https" : "http"
         components.host = server.host
@@ -65,7 +66,6 @@ actor TransmissionClient {
             self.authHeader = nil
         }
 
-        let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = timeout
         self.session = URLSession(configuration: configuration)
     }
@@ -78,6 +78,80 @@ actor TransmissionClient {
             throw TransmissionError.decodingFailed("missing session arguments")
         }
         return info
+    }
+
+    func fetchServerOptions() async throws -> ServerOptionsSnapshot {
+        let response: RPCResponse<ServerOptionsSnapshot> = try await send(method: "session-get", arguments: [:])
+        guard let options = response.arguments else {
+            throw TransmissionError.decodingFailed("missing server options")
+        }
+        return options
+    }
+
+    func setServerOptions(_ changes: [ServerOption: ServerOptionValue]) async throws {
+        guard !changes.isEmpty else { return }
+        let arguments = Dictionary(uniqueKeysWithValues: changes.map { ($0.key.rawValue, $0.value.jsonValue) })
+        try await sendIgnoringResult(method: "session-set", arguments: arguments)
+    }
+
+    func testPeerPort() async throws -> Bool {
+        try await testPeerPort(protocol: .automatic).isOpen
+    }
+
+    func testPeerPort(protocol choice: PeerPortProtocol) async throws -> PeerPortResult {
+        let arguments: [String: Any] = choice == .automatic ? [:] : ["ip_protocol": choice.rawValue]
+        let response: RPCResponse<PeerPortResult> = try await send(method: "port-test", arguments: arguments)
+        guard let result = response.arguments else { throw TransmissionError.decodingFailed("missing port-test result") }
+        if choice != .automatic, let actual = result.ipProtocol, actual != choice.rawValue {
+            throw TransmissionError.decodingFailed("the server tested a different IP protocol")
+        }
+        return result
+    }
+
+
+
+    func fetchBandwidthGroups() async throws -> [BandwidthGroup] {
+        struct Result: Decodable { let group: [BandwidthGroup] }
+        let response: RPCResponse<Result> = try await send(method: "group-get", arguments: [:])
+        guard let groups = response.arguments?.group else { throw TransmissionError.decodingFailed("missing bandwidth groups") }
+        return groups
+    }
+
+    func setBandwidthGroup(name: String, changes: [BandwidthGroup.Field: ServerOptionValue]) async throws {
+        guard !changes.isEmpty else { return }
+        var arguments = Dictionary(uniqueKeysWithValues: changes.map { ($0.key.rawValue, $0.value.jsonValue) })
+        arguments["name"] = name
+        try await sendIgnoringResult(method: "group-set", arguments: arguments)
+    }
+
+    struct TorrentGroup: Decodable, Sendable, Equatable {
+        let hashString: String
+        let group: String
+    }
+
+    func fetchTorrentGroups(hashes: [String]) async throws -> [TorrentGroup] {
+        guard !hashes.isEmpty else { return [] }
+        struct Result: Decodable { let torrents: [TorrentGroup] }
+        let response: RPCResponse<Result> = try await send(method: "torrent-get", arguments: ["ids": hashes, "fields": ["hashString", "group"]])
+        guard let torrents = response.arguments?.torrents else { throw TransmissionError.decodingFailed("missing torrent groups") }
+        return torrents
+    }
+
+    /// Torrent hashes avoid reusing numeric IDs if a daemon restarts while a sheet is open.
+    func assignBandwidthGroup(_ name: String, baseline: [TorrentGroup]) async throws {
+        guard !baseline.isEmpty else { return }
+        let hashes = baseline.map(\.hashString)
+        let latest = try await fetchTorrentGroups(hashes: hashes)
+        guard Set(latest.map(\.hashString)) == Set(hashes), latest.allSatisfy({ torrent in
+            baseline.contains { $0.hashString == torrent.hashString && ($0.group == torrent.group || torrent.group == name) }
+        }) else { throw ServerOptionsError(message: "The selected torrents changed on the server. Reopen the group selector.") }
+        let changed = latest.filter { $0.group != name }.map(\.hashString)
+        guard !changed.isEmpty else { return }
+        try await sendIgnoringResult(method: "torrent-set", arguments: ["ids": changed, "group": name])
+        let verified = try await fetchTorrentGroups(hashes: changed)
+        guard Set(verified.map(\.hashString)) == Set(changed), verified.allSatisfy({ $0.group == name }) else {
+            throw ServerOptionsError(message: "The group assignment could not be verified. Reopen the selector to inspect the current assignments.")
+        }
     }
 
     /// Sets (or clears, with nil) the regular speed limit for one direction in
@@ -270,14 +344,15 @@ actor TransmissionClient {
     /// retries once. Decodes the typed envelope and verifies `result == "success"`.
     private func send<Arguments: Decodable>(
         method: String,
-        arguments: [String: Any]
+        arguments: [String: Any],
+        timeout: TimeInterval? = nil
     ) async throws -> RPCResponse<Arguments> {
         let body = try JSONSerialization.data(withJSONObject: [
             "method": method,
             "arguments": arguments,
         ])
 
-        let (data, http) = try await perform(body: body, allowRetry: true)
+        let (data, http) = try await perform(body: body, allowRetry: true, timeout: timeout)
 
         if trPerfLogEnabled, method == "torrent-get" {
             perfLog("torrent-get response: \(data.count) bytes")
@@ -309,10 +384,11 @@ actor TransmissionClient {
     /// couple more attempts rather than hard-failing on the first re-rotation.
     private static let maxSessionRetries = 3
 
-    private func perform(body: Data, allowRetry: Bool) async throws -> (Data, HTTPURLResponse) {
+    private func perform(body: Data, allowRetry: Bool, timeout: TimeInterval?) async throws -> (Data, HTTPURLResponse) {
         var attempt = 0
         while true {
             var request = URLRequest(url: endpoint)
+            if let timeout { request.timeoutInterval = timeout }
             request.httpMethod = "POST"
             request.httpBody = body
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")

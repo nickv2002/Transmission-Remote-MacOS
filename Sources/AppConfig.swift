@@ -3,6 +3,11 @@ import Foundation
 /// One named Transmission server connection. Holds exactly the per-connection
 /// fields `TransmissionClient` needs.
 struct ServerConfig: Codable, Sendable, Equatable {
+    /// Stable identity, independent of the (editable) name and host. Settings binds
+    /// per-server state to it, so a rename or a resolved host candidate (which
+    /// copies this value) still matches. Minted on decode for configs written
+    /// before it existed; `PreferencesStore` then writes the minted ids back.
+    var id: UUID
     var name: String
     var host: String
     var port: Int
@@ -18,15 +23,16 @@ struct ServerConfig: Codable, Sendable, Equatable {
     var upSpeedPresets: [Int]
 
     enum CodingKeys: String, CodingKey {
-        case name, host, port, useHTTPS, rpcPath, username, password, pathMappings
+        case id, name, host, port, useHTTPS, rpcPath, username, password, pathMappings
         case downSpeedPresets, upSpeedPresets
     }
 
-    init(name: String, host: String, port: Int, useHTTPS: Bool, rpcPath: String,
+    init(id: UUID = UUID(), name: String, host: String, port: Int, useHTTPS: Bool, rpcPath: String,
          username: String? = nil, password: String? = nil,
          pathMappings: [PathMapping] = [],
          downSpeedPresets: [Int] = SpeedPresets.defaults,
          upSpeedPresets: [Int] = SpeedPresets.defaults) {
+        self.id = id
         self.name = name
         self.host = host
         self.port = port
@@ -41,6 +47,9 @@ struct ServerConfig: Codable, Sendable, Equatable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Backward-compatible: older preferences have no id, so mint one.
+        // A malformed id (hand-edited file) is replaced rather than failing the whole decode.
+        id = (try? c.decodeIfPresent(String.self, forKey: .id)).flatMap { $0.flatMap(UUID.init(uuidString:)) } ?? UUID()
         host = try c.decodeIfPresent(String.self, forKey: .host) ?? "localhost"
         port = try c.decodeIfPresent(Int.self, forKey: .port) ?? 9091
         // Default the display name to "host:port" if none was given.
@@ -59,6 +68,27 @@ struct ServerConfig: Codable, Sendable, Equatable {
     static let localhost = ServerConfig(
         name: "localhost", host: "localhost", port: 9091,
         useHTTPS: false, rpcPath: "/transmission/rpc")
+}
+
+/// Validation for a server port as typed in Settings. Pure and Foundation-only, so
+/// the Settings pane and the tests share one rule: digits only, 1–65535. It never
+/// substitutes a default for bad input.
+enum ServerPort {
+    static let validRange = 1...65535
+
+    /// The port for `text` (surrounding spaces ignored), or nil when it is blank,
+    /// not all ASCII digits, or outside 1–65535.
+    static func parse(_ text: String) -> Int? {
+        let raw = text.trimmingCharacters(in: .whitespaces)
+        guard !raw.isEmpty, raw.allSatisfy({ $0.isASCII && $0.isNumber }),
+              let port = Int(raw), validRange.contains(port) else { return nil }
+        return port
+    }
+
+    /// The message to show for an unusable port, or nil when `text` is valid.
+    static func validationMessage(for text: String) -> String? {
+        parse(text) == nil ? "Enter a port number from 1 to 65535." : nil
+    }
 }
 
 /// How the local `.torrent` file is disposed of after the daemon has accepted
@@ -166,7 +196,7 @@ struct AppConfig: Codable, Sendable, Equatable {
          filesFoldersFirst: Bool = true,
          showPieceMap: Bool = true,
          toolbarLayout: ToolbarLayout = .default) {
-        self.servers = Self.dedupeNames(servers.isEmpty ? [.localhost] : servers)
+        self.servers = Self.normalizedServers(servers.isEmpty ? [.localhost] : servers)
         self.refreshSeconds = max(1, refreshSeconds)
         self.currentServer = currentServer
         self.autoCheckForUpdates = autoCheckForUpdates
@@ -176,6 +206,23 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.filesFoldersFirst = filesFoldersFirst
         self.showPieceMap = showPieceMap
         self.toolbarLayout = toolbarLayout
+    }
+
+    /// Makes every server's id unique: a later entry repeating an earlier id (a
+    /// hand-edited preferences file) gets a fresh one, so each row resolves to its
+    /// own server. The first occurrence keeps its id.
+    private static func dedupeIDs(_ servers: [ServerConfig]) -> [ServerConfig] {
+        var seen: Set<UUID> = []
+        return servers.map { server in
+            var server = server
+            if !seen.insert(server.id).inserted { server.id = UUID() }
+            return server
+        }
+    }
+
+    /// Applies the id and name de-duplication used on every decode and init.
+    private static func normalizedServers(_ servers: [ServerConfig]) -> [ServerConfig] {
+        dedupeNames(dedupeIDs(servers))
     }
 
     /// Disambiguates servers that share a name (e.g. two decoded entries that both
@@ -203,7 +250,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         let decoded = try c.decodeIfPresent([ServerConfig].self, forKey: .servers) ?? []
         // Fall back to a single localhost default so the app still launches when
         // `servers` is empty or missing.
-        servers = Self.dedupeNames(decoded.isEmpty ? [.localhost] : decoded)
+        servers = Self.normalizedServers(decoded.isEmpty ? [.localhost] : decoded)
         let refresh = try c.decodeIfPresent(Double.self, forKey: .refreshSeconds) ?? 4
         refreshSeconds = max(1, refresh)
         currentServer = try c.decodeIfPresent(String.self, forKey: .currentServer)
@@ -254,6 +301,11 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// The server with the given name, if any.
     func server(named name: String) -> ServerConfig? {
         servers.first { $0.name == name }
+    }
+
+    /// The server with the given stable id, if any.
+    func server(id: UUID) -> ServerConfig? {
+        servers.first { $0.id == id }
     }
 }
 
@@ -356,7 +408,14 @@ enum PreferencesStore {
             } catch {
                 throw ConfigError.unreadable(error.localizedDescription)
             }
-            return (try decode(data), false)
+            let config = try decode(data)
+            // Older stores have servers without ids, and hand-edited stores can repeat
+            // one: decoding minted or de-duplicated them, so write the ids back once,
+            // or every launch would mint different ones.
+            if let migrated = addingServerIDs(to: data, from: config) {
+                try? migrated.write(to: storeURL, options: .atomic)
+            }
+            return (config, false)
         }
 
         // First run for the native store: migrate the legacy JSONC if present,
@@ -375,6 +434,34 @@ enum PreferencesStore {
         } catch {
             throw ConfigError.unreadable(error.localizedDescription)
         }
+    }
+
+    /// True when any stored server entry has no `id` key (written before ids existed).
+    static func lacksServerIDs(_ data: Data) -> Bool {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let servers = object["servers"] as? [[String: Any]] else { return false }
+        return servers.contains { $0["id"] == nil }
+    }
+
+    /// The stored JSON with the ids from `config` written back wherever the file
+    /// lacks one or repeats one (minted or de-duplicated on decode) — every other
+    /// key, including any this version doesn't know, is kept as it was. Nil when
+    /// nothing differs (the file is then never rewritten on launch).
+    static func addingServerIDs(to data: Data, from config: AppConfig) -> Data? {
+        guard var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              var servers = object["servers"] as? [[String: Any]],
+              servers.count == config.servers.count else { return nil }
+        var changed = false
+        for i in servers.indices {
+            let id = config.servers[i].id.uuidString
+            if servers[i]["id"] as? String != id {
+                servers[i]["id"] = id
+                changed = true
+            }
+        }
+        guard changed else { return nil }
+        object["servers"] = servers
+        return try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
     }
 
     /// Decode native preferences JSON into an `AppConfig`.

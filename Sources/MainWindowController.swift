@@ -84,8 +84,12 @@ final class MainWindowController: NSWindowController {
     var serverPopup: NSPopUpButton?
     /// The live Speed Limits toolbar item (`+Speed.swift`); nil until the toolbar builds.
     var speedLimitsItem: NSMenuToolbarItem?
-    /// Asks the app delegate to open Settings on the Servers tab (Edit Presets…).
+    /// Asks the app delegate to open Settings on the active server's Speed tab (Edit Presets…).
     var onEditPresets: (() -> Void)?
+    /// Server Settings toolbar button: the active server's last-used Settings tab.
+    var onServerSettings: (() -> Void)?
+    /// Every new `session-get` for the active server (Settings follows speed limits).
+    var onSessionObserved: ((SessionInfo?) -> Void)?
 
     /// Full sorted model — every torrent from the server.
     var torrents: [Torrent] = []
@@ -478,6 +482,7 @@ final class MainWindowController: NSWindowController {
             guard let self else { return }
             self.updateSpeedLimitsItem()
             self.updateStatusBar(state: self.refresh.state)
+            self.onSessionObserved?(self.refresh.session)
         }
         refresh.onFreeSpaceChanged = { [weak self] in
             guard let self else { return }

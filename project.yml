@@ -114,6 +114,10 @@ targets:
       - path: Sources/Models.swift
       - path: Sources/AppConfig.swift
       - path: Sources/TransmissionClient.swift
+      - path: Sources/ServerOptionsFeatures.swift
+      - path: Sources/ServerOptions.swift
+      - path: Sources/ServerSettingsPane.swift
+      - path: Sources/BandwidthGroupsWindowController.swift
       - path: Sources/ConnectionDiagnostics.swift
       - path: Sources/SettingsEditor.swift
       - path: Sources/HostCandidates.swift
@@ -125,6 +129,7 @@ targets:
       - path: Sources/PieceMapView.swift
       - path: Sources/RecentFolders.swift
       - path: Sources/RefreshController.swift
+      - path: Sources/ServerIdentity.swift
       - path: Sources/TorrentFileRemover.swift
       - path: Sources/TorrentFileTree.swift
       - path: Sources/TorrentLink.swift
@@ -133,6 +138,8 @@ targets:
       - path: Sources/ToolbarLayoutAppKit.swift
       - path: Sources/SidebarController.swift
       - path: Sources/SettingsWindowController.swift
+      - path: Sources/SettingsGeneralPane.swift
+      - path: Sources/SettingsConnectionPane.swift
       - path: Sources/DefaultHandlers.swift
     settings:
       base:

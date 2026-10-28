@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                          action: #selector(toggleToolbar(_:)), keyEquivalent: "")
     private let toolbarLabelsItem = NSMenuItem(title: "Show Button Labels",
                                                action: #selector(toggleToolbarLabels(_:)), keyEquivalent: "")
-    /// The native Settings window, created lazily on first open.
+    /// The one Settings window (General + per-server settings), created lazily on first open.
     private var settingsController: SettingsWindowController?
     /// The live app config (servers + poll interval), kept in sync with the
     /// preferences store and the Settings window.
@@ -77,13 +77,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = MainWindowController(config: config)
         windowController = controller
         controller.onToolbarLayoutChange = { [weak self] in self?.setToolbarLayout($0) }
-        controller.onEditPresets = { [weak self] in self?.showSettings(serversTab: true) }
+        controller.onServerSettings = { [weak self] in self?.showServerSettings(nil) }
+        controller.onEditPresets = { [weak self] in self?.openSettings(.activeServer(.speed), focusPresets: true) }
+        controller.onSessionObserved = { [weak self] info in
+            guard let self, let settings = settingsController, settings.window?.isVisible == true else { return }
+            settings.sessionObserved(info, serverID: windowController?.refresh.activeServerConfig.id)
+        }
         controller.showWindow(nil)
         rebuildServerMenu()
 
         // First launch: the placeholder server can't work, so send the user
-        // straight to the Servers tab to add theirs.
-        if isFirstRun, !TestIsolation.isActive { showSettings(serversTab: true) }
+        // straight to its Connection tab to add theirs.
+        if isFirstRun, !TestIsolation.isActive { openSettings(.activeServer(.connection)) }
+        // Verification hook, only with an isolated -PreferencesPath: open Settings
+        // at launch (`-OpenSettings general|connection|transfers|speed|network|advanced`).
+        if TestIsolation.isActive, let raw = Self.launchArgument("-OpenSettings") {
+            openSettings(raw == "general" ? .general : .activeServer(SettingsWindowController.Tab(rawValue: raw.capitalized) ?? .transfers))
+        }
 
         // Flush any files opened before the controller existed (cold launch via
         // double-clicking a .torrent, where `application(_:open:)` fires first).
@@ -95,6 +105,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let settings = settingsController, settings.hasPendingEdits else { return .terminateNow }
+        // Apply / Discard / Cancel; Apply is a server round trip, so answer later.
+        DispatchQueue.main.async {
+            settings.confirmQuit { NSApp.reply(toApplicationShouldTerminate: $0) }
+        }
+        return .terminateLater
+    }
+
+    private static func launchArgument(_ name: String) -> String? {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: name), args.indices.contains(i + 1) else { return nil }
+        return args[i + 1]
     }
 
     /// Persist the window frame on quit. AppKit's automatic frame autosave doesn't
@@ -122,19 +147,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Menu actions
 
-    /// Open (or focus) the native Settings window. Edits are persisted to the
-    /// preferences store and applied to the live connection immediately.
+    /// Where a menu item or button opens Settings.
+    enum SettingsDestination {
+        /// ⌘,: whatever was selected last.
+        case lastSelection
+        case general
+        /// The active server: a given tab, or nil for its last-used tab.
+        case activeServer(SettingsWindowController.Tab?)
+    }
+
+    /// App ▸ Settings… (⌘,): the last selection.
     @objc private func showSettings(_ sender: Any?) {
-        showSettings(serversTab: false)
+        openSettings(.lastSelection)
     }
 
+    /// Server ▸ Manage Servers…: the active server's Connection tab.
     @objc private func manageServers(_ sender: Any?) {
-        showSettings(serversTab: true)
+        openSettings(.activeServer(.connection))
     }
 
-    private func showSettings(serversTab: Bool) {
-        if settingsController == nil {
-            let controller = SettingsWindowController(config: config)
+    /// Server ▸ Server Settings… (⌥⌘,) and the toolbar button: the active
+    /// server's last-used tab.
+    @objc private func showServerSettings(_ sender: Any?) {
+        openSettings(.activeServer(nil))
+    }
+
+    /// Open (or focus) Settings. A window that isn't open is re-seeded from the
+    /// saved config; an open one keeps its unsaved edits and only changes the
+    /// selection (asking first if another server has unsaved edits).
+    func openSettings(_ destination: SettingsDestination, focusPresets: Bool = false) {
+        let controller: SettingsWindowController
+        if let existing = settingsController {
+            controller = existing
+            existing.reopen(with: config)   // keeps unsaved edits, even if minimized
+        } else {
+            controller = SettingsWindowController(config: config)
             controller.onChange = { [weak self] updated in
                 guard let self else { return }
                 self.config = updated
@@ -147,15 +194,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.rebuildServerMenu()
                 self.updaterController?.updater.automaticallyChecksForUpdates = updated.autoCheckForUpdates
             }
+            controller.onApplied = { [weak self] _ in
+                // The toolbar speed pull-down and Server ▸ Speed Limits re-render
+                // from the refreshed session (onSessionChanged); rebuild the menu now too.
+                self?.windowController?.refresh.refreshNow()
+                self?.rebuildServerMenu()
+            }
+            controller.activeServerID = { [weak self] in self?.windowController?.refresh.activeServerConfig.id }
+            controller.serviceProvider = { [weak self] server in
+                // The active server reuses the live, already-resolved client.
+                if let refresh = self?.windowController?.refresh, refresh.activeServerConfig.id == server.id,
+                   let client = refresh.activeClient, let resolved = refresh.resolvedServer {
+                    return .init(service: client, endpoint: SettingsConnectionPane.endpointLabel(resolved))
+                }
+                return try await SettingsWindowController.resolveService(server)
+            }
             settingsController = controller
-        } else {
-            // Reopened: reflect the latest saved config, discarding any prior edits.
-            settingsController?.reset(to: config)
         }
-        if serversTab { settingsController?.showServersTab() }
-        settingsController?.showWindow(nil)
-        settingsController?.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        switch destination {
+        case .lastSelection: controller.route(to: nil)
+        case .general: controller.route(to: .general)
+        case .activeServer(let tab):
+            let id = windowController?.refresh.activeServerConfig.id ?? config.servers.first?.id
+            controller.route(to: id.map { .server($0) } ?? .general, tab: tab, focusPresets: focusPresets)
+        }
+        controller.showWindow(nil)
+        controller.window?.makeKeyAndOrderFront(nil)
+        if !TestIsolation.isActive { NSApp.activate(ignoringOtherApps: true) }
     }
 
     @objc private func showAboutPanel(_ sender: Any?) {
@@ -287,6 +352,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let editMenuItem = NSMenuItem()
         mainMenu.addItem(editMenuItem)
         let editMenu = NSMenu(title: "Edit")
+        // Undo/Redo route to the key window's undo manager (text fields; Settings'
+        // Remove Server is undoable).
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
         editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
@@ -359,6 +429,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         torrentMenu.addItem(withTitle: "Queue", action: nil, keyEquivalent: "")
             .submenu = queueSub
 
+        torrentMenu.addItem(withTitle: "Bandwidth Group…", action: #selector(MainWindowController.assignBandwidthGroupSelected(_:)), keyEquivalent: "")
         let prioritySub = NSMenu(title: "Priority")
         for p in [BandwidthPriority.high, .normal, .low] {
             prioritySub.addItem(withTitle: p.displayName,
@@ -478,6 +549,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             item.state = (name == active) ? .on : .off
         }
         serverMenu.addItem(.separator())
+        // ⌥⌘, — the conventional sibling of ⌘, (Settings…). Always enabled: an
+        // offline server opens on its "Can't reach" state, with Retry.
+        let optionsItem = serverMenu.addItem(withTitle: "Server Settings…",
+                                            action: #selector(showServerSettings(_:)), keyEquivalent: ",")
+        optionsItem.keyEquivalentModifierMask = [.command, .option]
+        optionsItem.target = self
         let manageItem = serverMenu.addItem(withTitle: "Manage Servers…",
                                             action: #selector(manageServers(_:)), keyEquivalent: "")
         manageItem.target = self

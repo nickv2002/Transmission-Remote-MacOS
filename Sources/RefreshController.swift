@@ -26,11 +26,9 @@ final class RefreshController {
     private var config: AppConfig
     private var client: TransmissionClient?
 
-    /// The active server's name, resolved from UserDefaults → config → first server.
-    private var selectedServerName: String
-
-    /// UserDefaults key persisting the user's server selection across launches.
-    private static let selectedServerKey = "SelectedServerName"
+    /// The active server's id, resolved from UserDefaults → config → first server.
+    /// Ids (not names) so a rename keeps the selection.
+    private var selectedServerID: UUID
 
     /// Count of fetch spans currently in flight (drives the bottom-left spinner).
     /// A count, not a Bool, because refreshNow() and the scheduled poll loop can
@@ -91,32 +89,31 @@ final class RefreshController {
 
     init(config: AppConfig) {
         self.config = config
-        self.selectedServerName = Self.resolveSelectedName(config: config)
+        self.selectedServerID = Self.resolveSelectedID(config: config)
     }
 
     /// Resolve which server to connect to: persisted UserDefaults selection (if it
     /// still exists) → `config.currentServer` → the first server.
-    private static func resolveSelectedName(config: AppConfig) -> String {
+    private static func resolveSelectedID(config: AppConfig) -> UUID {
         if !TestIsolation.isActive,
-           let saved = UserDefaults.standard.string(forKey: selectedServerKey),
-           config.server(named: saved) != nil {
+           let saved = SelectedServerStore.restore(in: config, defaults: .standard) {
             return saved
         }
-        if let current = config.currentServer, config.server(named: current) != nil {
-            return current
+        if let current = config.currentServer, let server = config.server(named: current) {
+            return server.id
         }
-        return config.servers.first?.name ?? ServerConfig.localhost.name
+        return config.servers.first?.id ?? ServerConfig.localhost.id
     }
 
-    /// The active server, resolved from `selectedServerName` (falling back to the
-    /// first server if the name somehow no longer matches).
+    /// The active server, resolved from `selectedServerID` (falling back to the
+    /// first server if the id somehow no longer matches).
     private var activeServer: ServerConfig {
-        config.server(named: selectedServerName)
+        config.server(id: selectedServerID)
             ?? config.servers.first ?? .localhost
     }
 
     /// The active server's display name.
-    var currentServerName: String { selectedServerName }
+    var currentServerName: String { activeServer.name }
 
     /// The active server's full config — used by the torrent actions to map a
     /// remote download path to a local one (`pathMappings`).
@@ -127,28 +124,31 @@ final class RefreshController {
 
     /// Switch to a different server by name: persist the choice and restart.
     func selectServer(named name: String) {
-        guard config.server(named: name) != nil, name != selectedServerName else { return }
-        selectedServerName = name
+        guard let target = config.server(named: name), target.id != selectedServerID else { return }
+        selectedServerID = target.id
         if !TestIsolation.isActive {
-            UserDefaults.standard.set(name, forKey: Self.selectedServerKey)
+            SelectedServerStore.save(target.id, defaults: .standard)
         }
         restart()
     }
 
     /// Swap in a new config (e.g. from Settings). Only restarts the connection
     /// (dropping the client, flashing "Connecting…") when the **active server's**
-    /// connection details actually changed — a General-only edit (refresh
-    /// interval, clipboard pickup, etc.) just updates `config` in place, which
-    /// `runLoop` already reads live on its next tick, with no reconnect. If the
-    /// previously selected server no longer exists, fall back to the resolved default.
+    /// connection details changed (`requiresReconnect`) — a General-only edit, a
+    /// rename, or a preset/path-mapping edit just updates `config` in place. The
+    /// connection itself is untouched; speed UI is refreshed so new presets show.
+    /// If the previously selected server no longer exists, fall back to the resolved default.
     func updateConfig(_ config: AppConfig) {
         let previousActiveServer = activeServer
         self.config = config
-        if config.server(named: selectedServerName) == nil {
-            selectedServerName = Self.resolveSelectedName(config: config)
+        if config.server(id: selectedServerID) == nil {
+            selectedServerID = Self.resolveSelectedID(config: config)
+            if !TestIsolation.isActive { SelectedServerStore.save(selectedServerID, defaults: .standard) }
         }
-        if activeServer != previousActiveServer {
+        if activeServer.requiresReconnect(from: previousActiveServer) {
             restart()
+        } else if activeServer != previousActiveServer {
+            onSessionChanged?()
         }
     }
 
@@ -230,10 +230,6 @@ final class RefreshController {
         let info: SessionInfo
     }
 
-    /// UserDefaults key for the host that last answered for the active server, so
-    /// the next launch can try it first (one quick probe) before racing all hosts.
-    private var lastGoodHostKey: String { "LastGoodHost.\(selectedServerName)" }
-
     private func restart() {
         stop()
         client = nil
@@ -292,8 +288,9 @@ final class RefreshController {
         // Fast path: try the host that worked last time, alone, with a tight
         // timeout. The common case (still reachable) connects in one round-trip
         // without spinning up a client per candidate.
+        // The last-good host is keyed by server id (see `LastGoodHostStore`).
         if !TestIsolation.isActive,
-           let saved = UserDefaults.standard.string(forKey: lastGoodHostKey),
+           let saved = LastGoodHostStore.read(for: activeServer, defaults: .standard),
            let lastGood = candidates.first(where: { $0.connectionKey == saved }),
            !Task.isCancelled,
            let resolved = await Self.probe(lastGood, timeout: fastPathTimeout) {
@@ -341,7 +338,7 @@ final class RefreshController {
         onSessionChanged?()
         hasConnectedOnce = true
         if !TestIsolation.isActive {
-            UserDefaults.standard.set(resolved.server.connectionKey, forKey: lastGoodHostKey)
+            LastGoodHostStore.write(resolved.server.connectionKey, for: resolved.server, defaults: .standard)
         }
         state = .connected(version: resolved.info.version)
     }
