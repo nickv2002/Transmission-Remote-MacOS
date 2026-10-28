@@ -194,8 +194,9 @@ struct ServerSettingsWindowTests {
         let c = try await controller(servers: [Self.server, other])
         var saved: [AppConfig] = []
         c.onChange = { saved.append($0) }
-        #expect(c.defaultButton.accessibilityLabel() == "Make Default")
-        #expect(c.defaultButton.toolTip != nil)
+        #expect(c.defaultButton.title == "Default")
+        #expect(c.defaultButton.accessibilityLabel() == "Make this the default server")
+        #expect(c.defaultButton.toolTip == "Make this the default server")
         #expect(!c.defaultButton.isEnabled, "the selected server is already the default")
         c.route(to: .server(other.id))
         #expect(c.defaultButton.isEnabled)

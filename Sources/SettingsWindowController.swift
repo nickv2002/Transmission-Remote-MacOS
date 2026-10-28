@@ -176,11 +176,12 @@ final class SettingsWindowController: NSWindowController {
         removeButton.action = #selector(removeServer)
         removeButton.setAccessibilityIdentifier("settings-remove-server")
         defaultButton.bezelStyle = .smallSquare
-        defaultButton.image = NSImage(systemSymbolName: "star", accessibilityDescription: "Make Default")
+        defaultButton.title = "Default"
+        defaultButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         defaultButton.target = self
         defaultButton.action = #selector(makeSelectedDefault(_:))
-        defaultButton.toolTip = "Make the selected server the default (connected to at launch)"
-        defaultButton.setAccessibilityLabel("Make Default")
+        defaultButton.toolTip = "Make this the default server"
+        defaultButton.setAccessibilityLabel("Make this the default server")
         defaultButton.setAccessibilityIdentifier("settings-make-default")
         let divider = NSBox()
         divider.boxType = .separator
@@ -216,7 +217,7 @@ final class SettingsWindowController: NSWindowController {
             removeButton.widthAnchor.constraint(equalToConstant: 24),
             defaultButton.leadingAnchor.constraint(equalTo: removeButton.trailingAnchor, constant: 2),
             defaultButton.centerYAnchor.constraint(equalTo: addButton.centerYAnchor),
-            defaultButton.widthAnchor.constraint(equalToConstant: 24),
+            defaultButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 54),
             divider.topAnchor.constraint(equalTo: root.topAnchor),
             divider.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             divider.leadingAnchor.constraint(equalTo: sidebarScroll.trailingAnchor),
@@ -734,7 +735,7 @@ final class SettingsWindowController: NSWindowController {
         window?.undoManager?.setActionName("Remove Server")
     }
 
-    /// Sidebar footer: − needs a server and more than one; ★ needs a saved, non-default server.
+    /// Sidebar footer: − needs a server and more than one; Default needs a saved, non-default server.
     func updateFooter() {
         let id = selectedServerID
         removeButton.isEnabled = id != nil && editor.serverCount > 1
