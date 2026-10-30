@@ -27,7 +27,7 @@ date_str=$(date +%Y-%m-%d)
 {
   echo "## ${version} — ${date_str}"
   echo
-  git log "$range" --oneline --no-merges --pretty=format:'- %s'
+  git log "$range" --reverse --oneline --no-merges --pretty=format:'- %s'
   echo
 } > "$notes_file"
 
