@@ -27,7 +27,7 @@ if [[ -n "$prev_tag" ]]; then
   range="${prev_tag}..${end_ref}"
 fi
 
-commits=$(git log "$range" --oneline --no-merges --pretty=format:'- %s' || true)
+commits=$(git log "$range" --reverse --oneline --no-merges --pretty=format:'- %s' || true)
 
 prompt=$(cat <<EOF
 Write a concise, human-readable summary of release ${version} of a macOS Transmission remote app, for the top of its GitHub release page. Base it on these commit subjects:
