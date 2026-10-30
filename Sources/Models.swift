@@ -212,6 +212,19 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         return errorString.localizedCaseInsensitiveCompare(other.errorString) == .orderedAscending
     }
 
+    /// Orders `torrents` by `before` in the requested direction. Descending swaps the
+    /// operands rather than negating the result: `!before(a, b)` makes every tie "before"
+    /// in both directions, which is not a strict weak ordering and lets tied rows
+    /// reshuffle between polls. Ties break on `id`, so the order is total and stable.
+    static func ordered(_ torrents: [Torrent], ascending: Bool, by before: (Torrent, Torrent) -> Bool) -> [Torrent] {
+        torrents.sorted { a, b in
+            let (x, y) = ascending ? (a, b) : (b, a)
+            if before(x, y) { return true }
+            if before(y, x) { return false }
+            return a.id < b.id
+        }
+    }
+
     /// ETA string for display. `eta == -1` ("∞") is only meaningful for a torrent
     /// that is genuinely still downloading; for a completed/seeding/stopped torrent
     /// there is nothing left to finish, so show "—" instead.
