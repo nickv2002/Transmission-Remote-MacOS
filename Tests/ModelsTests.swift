@@ -17,6 +17,27 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(TorrentFactory.make(["errorString": ""]).hasError)
     }
 
+    func testSortsBeforeByErrorPutsErroredTorrentsFirst() {
+        let errored = TorrentFactory.make(["errorString": "tracker down"])
+        let clean = TorrentFactory.make(["errorString": ""])
+        XCTAssertTrue(errored.sortsBeforeByError(clean))
+        XCTAssertFalse(clean.sortsBeforeByError(errored))
+    }
+
+    func testSortsBeforeByErrorOrdersMessagesCaseInsensitively() {
+        let lower = TorrentFactory.make(["errorString": "bad piece"])
+        let upper = TorrentFactory.make(["errorString": "Tracker down"])
+        XCTAssertTrue(lower.sortsBeforeByError(upper))
+        XCTAssertFalse(upper.sortsBeforeByError(lower))
+    }
+
+    func testSortsBeforeByErrorTiesNeitherWay() {
+        let a = TorrentFactory.make(["id": 1, "errorString": ""])
+        let b = TorrentFactory.make(["id": 2, "errorString": ""])
+        XCTAssertFalse(a.sortsBeforeByError(b))
+        XCTAssertFalse(b.sortsBeforeByError(a))
+    }
+
     func testEtaDisplayDashWhenComplete() {
         let seeding = TorrentFactory.make([
             "status": TorrentStatus.seeding.rawValue, "percentDone": 1.0, "eta": -1])

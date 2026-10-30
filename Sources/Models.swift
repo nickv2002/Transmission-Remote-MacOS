@@ -205,6 +205,13 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     /// True when the daemon reported a tracker/local error for this torrent.
     var hasError: Bool { !errorString.isEmpty }
 
+    /// Ascending order for the Error column: errored torrents first (so one header
+    /// click surfaces them above the error-free majority), then by message.
+    func sortsBeforeByError(_ other: Torrent) -> Bool {
+        guard hasError == other.hasError else { return hasError }
+        return errorString.localizedCaseInsensitiveCompare(other.errorString) == .orderedAscending
+    }
+
     /// ETA string for display. `eta == -1` ("∞") is only meaningful for a torrent
     /// that is genuinely still downloading; for a completed/seeding/stopped torrent
     /// there is nothing left to finish, so show "—" instead.

@@ -52,8 +52,8 @@ implemented:
   download-dir, Start-when-added) → `torrent-add` with duplicate detection.
 - **Sidebar filter groups** — source-list `NSOutlineView`: Status / Trackers /
   Folders with live counts (native take on `filtering.pas`). Applied before search.
-- **Column customization** — Size / Added / Tracker columns (hidden by default),
-  all sortable; right-click header menu toggles visibility + Auto-Size; reordering
+- **Column customization** — Size / Added / Tracker / Error columns (hidden by
+  default), all sortable (Error ascending lists errored torrents first); right-click header menu toggles visibility + Auto-Size; reordering
   and column state persist.
 - **Aggregate status bar + free-space** — per-status counts and the download dir's
   free space (`free-space` RPC).
