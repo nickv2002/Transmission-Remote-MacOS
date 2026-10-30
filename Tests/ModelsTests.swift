@@ -17,6 +17,49 @@ final class ModelsTests: XCTestCase {
         XCTAssertFalse(TorrentFactory.make(["errorString": ""]).hasError)
     }
 
+    func testSortsBeforeByErrorPutsErroredTorrentsFirst() {
+        let errored = TorrentFactory.make(["errorString": "tracker down"])
+        let clean = TorrentFactory.make(["errorString": ""])
+        XCTAssertTrue(errored.sortsBeforeByError(clean))
+        XCTAssertFalse(clean.sortsBeforeByError(errored))
+    }
+
+    func testSortsBeforeByErrorOrdersMessagesCaseInsensitively() {
+        let lower = TorrentFactory.make(["errorString": "bad piece"])
+        let upper = TorrentFactory.make(["errorString": "Tracker down"])
+        XCTAssertTrue(lower.sortsBeforeByError(upper))
+        XCTAssertFalse(upper.sortsBeforeByError(lower))
+    }
+
+    func testSortsBeforeByErrorTiesNeitherWay() {
+        let a = TorrentFactory.make(["id": 1, "errorString": ""])
+        let b = TorrentFactory.make(["id": 2, "errorString": ""])
+        XCTAssertFalse(a.sortsBeforeByError(b))
+        XCTAssertFalse(b.sortsBeforeByError(a))
+    }
+
+    func testOrderedDescendingReversesKeyOrder() {
+        let torrents = [1, 3, 2].map { TorrentFactory.make(["id": $0, "queuePosition": $0]) }
+        let byQueue: (Torrent, Torrent) -> Bool = { $0.queuePosition < $1.queuePosition }
+        XCTAssertEqual(Torrent.ordered(torrents, ascending: true, by: byQueue).map(\.id), [1, 2, 3])
+        XCTAssertEqual(Torrent.ordered(torrents, ascending: false, by: byQueue).map(\.id), [3, 2, 1])
+    }
+
+    func testOrderedDescendingPutsCleanRowsFirstForErrorKey() {
+        let errored = TorrentFactory.make(["id": 1, "errorString": "tracker down"])
+        let clean = TorrentFactory.make(["id": 2, "errorString": ""])
+        let byError: (Torrent, Torrent) -> Bool = { $0.sortsBeforeByError($1) }
+        XCTAssertEqual(Torrent.ordered([errored, clean], ascending: true, by: byError).map(\.id), [1, 2])
+        XCTAssertEqual(Torrent.ordered([errored, clean], ascending: false, by: byError).map(\.id), [2, 1])
+    }
+
+    func testOrderedAllTiedRowsBreakByIdInBothDirections() {
+        let torrents = [3, 1, 2].map { TorrentFactory.make(["id": $0, "errorString": ""]) }
+        let byError: (Torrent, Torrent) -> Bool = { $0.sortsBeforeByError($1) }
+        XCTAssertEqual(Torrent.ordered(torrents, ascending: true, by: byError).map(\.id), [1, 2, 3])
+        XCTAssertEqual(Torrent.ordered(torrents, ascending: false, by: byError).map(\.id), [1, 2, 3])
+    }
+
     func testEtaDisplayDashWhenComplete() {
         let seeding = TorrentFactory.make([
             "status": TorrentStatus.seeding.rawValue, "percentDone": 1.0, "eta": -1])
