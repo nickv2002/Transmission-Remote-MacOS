@@ -73,6 +73,12 @@ final class LiveConnectionTests: XCTestCase {
         try await assertHTTPReachable("10.0.1.2")
     }
 
+    /// Second LAN address for the same N5 server (reachable from the other network).
+    func testConnectViaSecondIP() async throws {
+        try requireLive()
+        try await assertHTTPReachable("10.0.3.2")
+    }
+
     func testConnectViaLocalHostname() async throws {
         try requireLive()
         try await assertHTTPReachable("n5.local")
