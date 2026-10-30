@@ -22,11 +22,16 @@ final class LiveConnectionTests: XCTestCase {
         }
     }
 
-    /// Username/password from the first server in the user's legacy JSONC.
+    /// Username/password for the owner's N5 server: from the native preferences
+    /// store, falling back to the legacy JSONC (only present before migration).
     private func credentials() throws -> (user: String?, pass: String?) {
+        if let cfg = try? PreferencesStore.load(storeURL: PreferencesStore.storeURL, legacyURL: nil),
+           let server = cfg.servers.first(where: { $0.name == "N5" }) ?? cfg.servers.first {
+            return (server.username, server.password)
+        }
         guard let cfg = try PreferencesStore.loadLegacyJSONC(from: PreferencesStore.legacyConfigURL),
               let first = cfg.servers.first else {
-            throw XCTSkip("No legacy config to read credentials from.")
+            throw XCTSkip("No preferences store or legacy config to read credentials from.")
         }
         return (first.username, first.password)
     }
