@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.10.30.1 — 2026-10-30
+
+- Add sortable Error column to the transfer list (#25)
+- Request only the torrent fields that visible columns and tabs need
+- Make fixture tests real and the fixture gate strict
+- Read live-test credentials from the native preferences store
+- Add live test for the second N5 LAN address
+- Make the N5 LAN-address live test pass when either address answers
+- List release notes oldest-first
+
 ## 2026.10.27.1 — 2026-10-27
 
 - Settings bug-bash fixes: port validation, id-keyed state, safer saves

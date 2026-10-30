@@ -343,5 +343,17 @@
         length="5021237"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.10.30.1</title>
+      <sparkle:version>2026.10.30.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 30 Oct 2026 23:18:06 +0000</pubDate>
+      <description><![CDATA[<p>Adds a sortable Error column to the transfer list and makes the app fetch only the data its visible columns and tabs need.</p><ul><li>Add sortable Error column to the transfer list (#25)</li><li>Request only the torrent fields that visible columns and tabs need</li><li>Make fixture tests real and the fixture gate strict</li><li>Read live-test credentials from the native preferences store</li><li>Add live test for the second N5 LAN address</li><li>Make the N5 LAN-address live test pass when either address answers</li><li>List release notes oldest-first</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.10.30.1/Transmission.Remote-2026.10.30.1.zip"
+        sparkle:edSignature="BQyUMLadg20bVTYa2K6CpfBoVxzNFxojm+q3KZ/WY6Lq9aw/44phNyUFMyu4vpKJ32J4EukGqUhJmo+/dUonCA=="
+        length="5036287"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
