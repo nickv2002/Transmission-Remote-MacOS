@@ -218,7 +218,7 @@ final class MainWindowController: NSWindowController {
 
     // Column identifiers double as sort keys.
     private enum Column: String, CaseIterable {
-        case queue, name, size, status, progress, down, up, eta, ratio, uploaded, ratioLimit, added, tracker, seeds, peers
+        case queue, name, size, status, progress, down, up, eta, ratio, uploaded, ratioLimit, added, tracker, error, seeds, peers
 
         var title: String {
             switch self {
@@ -235,6 +235,7 @@ final class MainWindowController: NSWindowController {
             case .ratioLimit: return "Ratio Limit"
             case .added: return "Added"
             case .tracker: return "Tracker"
+            case .error: return "Error"
             case .seeds: return "Seeds"
             case .peers: return "Peers"
             }
@@ -254,6 +255,7 @@ final class MainWindowController: NSWindowController {
             case .ratioLimit: return 80
             case .added: return 130
             case .tracker: return 150
+            case .error: return 200
             case .seeds, .peers: return 70
             }
         }
@@ -261,7 +263,7 @@ final class MainWindowController: NSWindowController {
         /// Columns hidden by default (still toggleable from the header menu).
         var hiddenByDefault: Bool {
             switch self {
-            case .size, .uploaded, .ratioLimit, .added, .tracker, .seeds, .peers: return true
+            case .size, .uploaded, .ratioLimit, .added, .tracker, .error, .seeds, .peers: return true
             default: return false
             }
         }
@@ -872,26 +874,25 @@ final class MainWindowController: NSWindowController {
             return
         }
         let ascending = descriptor.ascending
-        torrents.sort { a, b in
-            let result: Bool
+        torrents = Torrent.ordered(torrents, ascending: ascending) { a, b in
             switch column {
-            case .queue: result = a.queuePosition < b.queuePosition
-            case .name: result = a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            case .size: result = a.totalSize < b.totalSize
-            case .status: result = a.statusRaw < b.statusRaw
-            case .progress: result = a.displayProgress < b.displayProgress
-            case .down: result = a.rateDownload < b.rateDownload
-            case .up: result = a.rateUpload < b.rateUpload
-            case .eta: result = a.eta < b.eta
-            case .ratio: result = a.uploadRatio < b.uploadRatio
-            case .uploaded: result = a.uploadedEver < b.uploadedEver
-            case .ratioLimit: result = a.effectiveRatioLimit < b.effectiveRatioLimit
-            case .added: result = a.addedDate < b.addedDate
-            case .tracker: result = (a.trackerHost ?? "").localizedCaseInsensitiveCompare(b.trackerHost ?? "") == .orderedAscending
-            case .seeds: result = a.seedsConnected < b.seedsConnected
-            case .peers: result = a.peersConnectedForUpload < b.peersConnectedForUpload
+            case .queue: return a.queuePosition < b.queuePosition
+            case .name: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+            case .size: return a.totalSize < b.totalSize
+            case .status: return a.statusRaw < b.statusRaw
+            case .progress: return a.displayProgress < b.displayProgress
+            case .down: return a.rateDownload < b.rateDownload
+            case .up: return a.rateUpload < b.rateUpload
+            case .eta: return a.eta < b.eta
+            case .ratio: return a.uploadRatio < b.uploadRatio
+            case .uploaded: return a.uploadedEver < b.uploadedEver
+            case .ratioLimit: return a.effectiveRatioLimit < b.effectiveRatioLimit
+            case .added: return a.addedDate < b.addedDate
+            case .tracker: return (a.trackerHost ?? "").localizedCaseInsensitiveCompare(b.trackerHost ?? "") == .orderedAscending
+            case .error: return a.sortsBeforeByError(b)
+            case .seeds: return a.seedsConnected < b.seedsConnected
+            case .peers: return a.peersConnectedForUpload < b.peersConnectedForUpload
             }
-            return ascending ? result : !result
         }
     }
 
@@ -1016,6 +1017,7 @@ final class MainWindowController: NSWindowController {
         case .ratioLimit: return t.seedRatioDisplay
         case .added: return Formatters.date(t.addedDate)
         case .tracker: return t.trackerHost ?? "—"
+        case .error: return t.errorString.components(separatedBy: .newlines).joined(separator: " ")
         case .seeds: return Formatters.peerCount(connected: t.seedsConnected, total: t.seedsTotal)
         case .peers: return Formatters.peerCount(connected: t.peersConnectedForUpload, total: t.leechersTotal)
         }
@@ -1177,6 +1179,8 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
         let rightAligned: Set<Column> = [.queue, .size, .down, .up, .eta, .ratio, .uploaded, .ratioLimit]
         cell.textField?.stringValue = cellText(for: column, torrent: t)
+        // The Error column clips long messages, so the full text (with the code, as the Info tab shows it) goes in the tooltip.
+        cell.toolTip = column == .error && t.hasError ? "[\(t.errorCode)] \(t.errorString)" : nil
         cell.textField?.alignment = rightAligned.contains(column) ? .right : .left
         return cell
     }
