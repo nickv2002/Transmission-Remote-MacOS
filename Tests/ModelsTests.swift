@@ -257,6 +257,51 @@ final class ModelsTests: XCTestCase {
         XCTAssertLessThan(slim.count, full.count)
     }
 
+    /// Every group on: the request is exactly the field set the app read before
+    /// groups existed, with no duplicates.
+    func testAllGroupsRequestEveryPreviouslyRequestedField() {
+        let expected: Set<String> = [
+            "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
+            "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
+            "downloadDir", "errorString", "peersConnected", "peersSendingToUs",
+            "peersGettingFromUs", "addedDate", "hashString", "queuePosition",
+            "bandwidthPriority", "trackers", "trackerStats", "comment", "error", "doneDate",
+            "activityDate", "downloadedEver", "uploadedEver", "seedRatioLimit",
+            "seedRatioMode", "recheckProgress",
+        ]
+        let fields = Torrent.fields(for: .all)
+        XCTAssertEqual(Set(fields), expected)
+        XCTAssertEqual(fields.count, expected.count)
+    }
+
+    /// No optional group: identity, sidebar/filter inputs and the cheap scalars
+    /// stay, while column- and Info-only data is not requested.
+    func testBaseRequestOmitsOptionalGroupFields() {
+        let base = Set(Torrent.fields(for: []))
+        for field in ["id", "name", "trackers", "errorString", "error", "downloadDir", "hashString", "queuePosition"] {
+            XCTAssertTrue(base.contains(field), field)
+        }
+        for field in ["trackerStats", "peersSendingToUs", "peersGettingFromUs", "uploadedEver",
+                      "seedRatioLimit", "seedRatioMode", "addedDate", "comment", "peersConnected",
+                      "doneDate", "activityDate", "downloadedEver"] {
+            XCTAssertFalse(base.contains(field), field)
+        }
+    }
+
+    /// Each group adds exactly its own fields on top of the base request.
+    func testEachFieldGroupAddsOnlyItsFields() {
+        let base = Set(Torrent.fields(for: []))
+        func added(_ group: Torrent.FieldGroups) -> Set<String> {
+            Set(Torrent.fields(for: group)).subtracting(base)
+        }
+        XCTAssertEqual(added(.seedsAndPeers), ["trackerStats", "peersSendingToUs", "peersGettingFromUs"])
+        XCTAssertEqual(added(.uploaded), ["uploadedEver"])
+        XCTAssertEqual(added(.ratioLimit), ["seedRatioLimit", "seedRatioMode"])
+        XCTAssertEqual(added(.added), ["addedDate"])
+        XCTAssertEqual(added(.info), ["peersConnected", "peersSendingToUs", "peersGettingFromUs", "addedDate",
+                                      "comment", "doneDate", "activityDate", "downloadedEver", "uploadedEver"])
+    }
+
     func testFilesEntryMergesFilesAndStats() {
         let json = """
         {"id":1,"files":[
