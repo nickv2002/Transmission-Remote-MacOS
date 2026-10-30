@@ -56,30 +56,37 @@ final class FixtureTransmissionTests: XCTestCase {
 
     // MARK: - Fixtures
 
-    /// The four Ubuntu .torrent files' base64 metainfo. Only their bytes are
-    /// read — the ISOs themselves are never fetched.
+    /// Four distinct torrent names. Each gets its own generated metainfo, so the
+    /// test never reads a file from the user's machine.
     private static let torrentFileNames = [
-        "ubuntu-26.04.1-live-server-arm64.iso.torrent",
-        "ubuntu-26.04.1-live-server-amd64.iso.torrent",
-        "ubuntu-26.04.1-desktop-arm64.iso.torrent",
-        "ubuntu-26.04.1-desktop-amd64.iso.torrent",
+        "fixture-alpha.bin",
+        "fixture-beta.bin",
+        "fixture-gamma.bin",
+        "fixture-delta.bin",
     ]
 
-    private func metainfoBase64(_ fileName: String) throws -> String {
-        let url = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Downloads")
-            .appendingPathComponent(fileName)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            throw XCTSkip("\(fileName) not found in ~/Downloads; skipping.")
-        }
-        let data = try Data(contentsOf: url)
-        return data.base64EncodedString()
+    /// A valid single-file `.torrent` built in-process (bencoded, one 16 KiB piece,
+    /// zeroed piece hash). The daemon adds it paused and nothing downloads or
+    /// verifies, so the hash only has to be well-formed. Same name → same info-hash,
+    /// which is what the duplicate-detection test relies on.
+    private static func generatedMetainfoBase64(name: String) -> String {
+        let pieceLength = 16_384
+        func str(_ s: String) -> [UInt8] { Array("\(s.utf8.count):\(s)".utf8) }
+        func int(_ n: Int) -> [UInt8] { Array("i\(n)e".utf8) }
+        let infoDict = Array("d".utf8)
+            + str("length") + int(pieceLength)
+            + str("name") + str(name)
+            + str("piece length") + int(pieceLength)
+            + str("pieces") + Array("20:".utf8) + [UInt8](repeating: 0, count: 20)
+            + Array("e".utf8)
+        let torrent = Array("d".utf8) + str("info") + infoDict + Array("e".utf8)
+        return Data(torrent).base64EncodedString()
     }
 
     /// Adds one torrent (paused by default) and tracks it for teardown.
     @discardableResult
     private func addTorrent(_ fileName: String, paused: Bool = true) async throws -> Int {
-        let metainfo = try metainfoBase64(fileName)
+        let metainfo = Self.generatedMetainfoBase64(name: fileName)
         let outcome = try await client.addTorrent(
             metainfoBase64: metainfo, filename: nil, downloadDir: nil, paused: paused)
         XCTAssertFalse(outcome.duplicate, "\(fileName) should not already be a duplicate on a fresh fixture")
@@ -222,8 +229,10 @@ final class FixtureTransmissionTests: XCTestCase {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("scripts/fixture/.data/config/fixture-delete-me.torrent")
+        // Requested fixture + missing seed file is a broken setup, not a skip.
         guard FileManager.default.fileExists(atPath: url.path) else {
-            throw XCTSkip("fixture-delete-me.torrent not found; run scripts/fixture/up.sh first.")
+            XCTFail("fixture-delete-me.torrent not found at \(url.path); run scripts/fixture/up.sh first.")
+            throw CancellationError()
         }
         return try Data(contentsOf: url).base64EncodedString()
     }
@@ -325,9 +334,33 @@ final class FixtureTransmissionTests: XCTestCase {
         let name = Self.torrentFileNames[0]
         try await addTorrent(name, paused: true)
 
-        let metainfo = try metainfoBase64(name)
+        let metainfo = Self.generatedMetainfoBase64(name: name)
         let outcome = try await client.addTorrent(
             metainfoBase64: metainfo, filename: nil, downloadDir: nil, paused: true)
         XCTAssertTrue(outcome.duplicate, "re-adding the same torrent should be reported as a duplicate")
+    }
+
+    // MARK: - Optional torrent-get field groups
+
+    /// The base request (no optional groups) must decode against the real daemon.
+    /// Fields outside it must come back as their decoded defaults, not break the poll.
+    func testBaseFieldRequestDecodesWithDefaultsForOmittedFields() async throws {
+        let id = try await addTorrent(Self.torrentFileNames[0])
+        let torrents = try await client.fetchTorrents(fields: Torrent.fields(for: []))
+        let t = try XCTUnwrap(torrents.first { $0.id == id })
+        XCTAssertEqual(t.name, Self.torrentFileNames[0])
+        XCTAssertEqual(t.addedDate, 0, "addedDate is outside the base request, so it must decode to its default")
+        XCTAssertEqual(t.uploadedEver, 0)
+        XCTAssertEqual(t.comment, "")
+        XCTAssertTrue(t.trackerStats.isEmpty)
+    }
+
+    /// Every group on: the full field set decodes and the optional fields are populated.
+    func testAllGroupsRequestPopulatesOptionalFields() async throws {
+        let id = try await addTorrent(Self.torrentFileNames[0])
+        let torrents = try await client.fetchTorrents(fields: Torrent.fields(for: .all))
+        let t = try XCTUnwrap(torrents.first { $0.id == id })
+        XCTAssertGreaterThan(t.addedDate, 0, "the daemon sets addedDate on add")
+        XCTAssertFalse(t.hashString.isEmpty)
     }
 }

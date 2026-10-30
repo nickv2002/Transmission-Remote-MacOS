@@ -473,6 +473,15 @@ xcodebuild -project TransmissionRemote.xcodeproj -scheme TransmissionRemote \
   -configuration Debug test
 ```
 
+**Test policy.** The default `xcodebuild test` run is hermetic: it never touches a
+daemon and never probes a port, so the same tree gives the same answer on any
+machine. Daemon-backed tests are opt-in through their env vars. The one-command
+gate for the fixture is `scripts/fixture/run-tests.sh`: it runs the fixture classes
+(`FixtureTransmissionTests`, `FixtureConcurrencyTests`, `FixtureFailoverTests`) and
+exits non-zero on any skip, so a passing fixture run means every test ran. Skips in
+the default run are fine (they are the opt-in gates); a skip in opt-in mode is a
+failure. Tests needing local files must generate them, not read `~/Downloads`.
+
 **Live connection tests** (`LiveConnectionTests`) hit the real daemon and are
 **skipped by default**. They read credentials from the legacy JSONC at runtime
 (never hard-coded) and cover IP/`.local`/Tailscale-HTTPS, multi-host failover
