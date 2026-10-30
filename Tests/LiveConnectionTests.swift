@@ -68,15 +68,18 @@ final class LiveConnectionTests: XCTestCase {
 
     // MARK: - Real hosts
 
-    func testConnectViaIP() async throws {
+    /// N5's two LAN addresses are never reachable at the same time (each is only
+    /// on one network), so this passes when either one answers. Both unreachable
+    /// is the failure.
+    func testLANAddressAnswers() async throws {
         try requireLive()
-        try await assertHTTPReachable("10.0.1.2")
-    }
-
-    /// Second LAN address for the same N5 server (reachable from the other network).
-    func testConnectViaSecondIP() async throws {
-        try requireLive()
-        try await assertHTTPReachable("10.0.3.2")
+        let c = try credentials()
+        var answered: [String] = []
+        for host in ["10.0.1.2", "10.0.3.2"] {
+            let client = try TransmissionClient(server: make(host, user: c.user, pass: c.pass))
+            if (try? await client.fetchSession()) != nil { answered.append(host) }
+        }
+        XCTAssertFalse(answered.isEmpty, "neither 10.0.1.2 nor 10.0.3.2 answered")
     }
 
     func testConnectViaLocalHostname() async throws {
