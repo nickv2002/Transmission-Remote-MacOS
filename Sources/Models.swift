@@ -343,16 +343,58 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         return uri
     }
 
-    /// The list of fields the MVP requests from `torrent-get`.
-    static let requestedFields = [
+    /// Field groups the regular poll can request. Each one is asked for only while
+    /// the UI that shows it is on screen (see `MainWindowController.requiredFieldGroups`),
+    /// so a hidden column or a closed Info tab costs nothing on the wire.
+    struct FieldGroups: OptionSet, Sendable {
+        let rawValue: Int
+        /// Seeds and Peers columns: connected counts plus the tracker scrape totals.
+        static let seedsAndPeers = FieldGroups(rawValue: 1 << 0)
+        /// Uploaded column.
+        static let uploaded = FieldGroups(rawValue: 1 << 1)
+        /// Ratio-Limit column.
+        static let ratioLimit = FieldGroups(rawValue: 1 << 2)
+        /// Added column, and the default order when no sort key is set.
+        static let added = FieldGroups(rawValue: 1 << 3)
+        /// Info tab: comment, dates, ever-totals, peer counts.
+        static let info = FieldGroups(rawValue: 1 << 4)
+        static let all: FieldGroups = [.seedsAndPeers, .uploaded, .ratioLimit, .added, .info]
+    }
+
+    /// Always requested: identity, sidebar and filter inputs (`trackers`,
+    /// `errorString`, `downloadDir`), the progress/rate columns, and the cheap
+    /// scalars the scripting dictionary and context menu read.
+    private static let baseFields = [
         "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
         "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
-        "downloadDir", "errorString", "peersConnected", "peersSendingToUs",
-        "peersGettingFromUs", "addedDate", "hashString", "queuePosition",
-        "bandwidthPriority", "trackers", "trackerStats", "comment", "error", "doneDate",
-        "activityDate", "downloadedEver", "uploadedEver", "seedRatioLimit",
-        "seedRatioMode", "recheckProgress",
+        "downloadDir", "errorString", "error", "hashString", "queuePosition",
+        "bandwidthPriority", "trackers", "recheckProgress",
     ]
+
+    private static func groupFields(_ group: FieldGroups) -> [String] {
+        switch group {
+        case .seedsAndPeers: return ["peersSendingToUs", "peersGettingFromUs", "trackerStats"]
+        case .uploaded: return ["uploadedEver"]
+        case .ratioLimit: return ["seedRatioLimit", "seedRatioMode"]
+        case .added: return ["addedDate"]
+        case .info: return ["peersConnected", "peersSendingToUs", "peersGettingFromUs", "addedDate",
+                            "comment", "doneDate", "activityDate", "downloadedEver", "uploadedEver"]
+        default: return []
+        }
+    }
+
+    /// The `torrent-get` field list for the given groups: the base fields plus each
+    /// requested group's fields, de-duplicated in first-seen order.
+    static func fields(for groups: FieldGroups) -> [String] {
+        let all = baseFields + [FieldGroups.seedsAndPeers, .uploaded, .ratioLimit, .added, .info]
+            .filter { groups.contains($0) }
+            .flatMap(groupFields)
+        var seen = Set<String>()
+        return all.filter { seen.insert($0).inserted }
+    }
+
+    /// Every field the UI can read; equal to the list the app used before groups.
+    static let requestedFields = fields(for: .all)
 
     /// A slimmer field set for the very first poll after a fresh connect, so the
     /// cold list paints sooner — especially over high-latency LTE. Drops the two

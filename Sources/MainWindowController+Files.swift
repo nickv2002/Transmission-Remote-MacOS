@@ -626,6 +626,7 @@ extension MainWindowController: NSTabViewDelegate {
         loadTrackersIfNeeded()
         loadPeersIfNeeded()
         loadPiecesIfNeeded()
+        applyFieldGroups()
     }
 }
 

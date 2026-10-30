@@ -575,6 +575,7 @@ final class MainWindowController: NSWindowController {
                 mainSplit.setPosition(190, ofDividerAt: 0)
             }
         }
+        applyFieldGroups()
     }
 
     private func configureColumns() {
@@ -625,6 +626,7 @@ final class MainWindowController: NSWindowController {
         guard let key = sender.representedObject as? String,
               let col = tableView.tableColumns.first(where: { $0.identifier.rawValue == key }) else { return }
         col.isHidden.toggle()
+        applyFieldGroups()
     }
 
     /// Refresh the header menu checkmarks to reflect current column visibility.
@@ -896,6 +898,41 @@ final class MainWindowController: NSWindowController {
         }
     }
 
+    // MARK: - Requested fields
+
+    /// The `torrent-get` field groups the visible UI reads: a column's group while
+    /// that column is shown (or is the sort key, which may be hidden), and the Info
+    /// group while the Info tab is selected. The default order uses `addedDate`, so
+    /// that group is kept when no sort key is set.
+    private func requiredFieldGroups() -> Torrent.FieldGroups {
+        var groups: Torrent.FieldGroups = []
+        let shown = tableView.tableColumns
+            .filter { !$0.isHidden }
+            .compactMap { Column(rawValue: $0.identifier.rawValue) }
+        let sortColumn = tableView.sortDescriptors.first?.key.flatMap(Column.init(rawValue:))
+        if sortColumn == nil { groups.insert(.added) }
+        for column in shown + [sortColumn].compactMap({ $0 }) {
+            switch column {
+            case .seeds, .peers: groups.insert(.seedsAndPeers)
+            case .uploaded: groups.insert(.uploaded)
+            case .ratioLimit: groups.insert(.ratioLimit)
+            case .added: groups.insert(.added)
+            default: break
+            }
+        }
+        if detailTabView.selectedTabViewItem?.identifier as? String == "info" { groups.insert(.info) }
+        return groups
+    }
+
+    /// Re-reads which field groups the UI needs and triggers a poll straight away
+    /// when that set changes, so a newly shown column fills in without waiting.
+    func applyFieldGroups() {
+        let groups = requiredFieldGroups()
+        guard groups != refresh.fieldGroups else { return }
+        refresh.fieldGroups = groups
+        refresh.refreshNow()
+    }
+
     // MARK: - Selection helpers
 
     private func selectedTorrentIds() -> Set<Int> {
@@ -1097,6 +1134,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             UserDefaults.standard.set(key, forKey: "TorrentSortKey")
             UserDefaults.standard.set(descriptor.ascending, forKey: "TorrentSortAscending")
         }
+        applyFieldGroups()
         let ids = selectedTorrentIds()
         sortTorrents()
         rebuildDisplayed()

@@ -23,6 +23,10 @@ final class RefreshController {
     /// Fired whenever the cached `session` changes (poll, limit edit, server switch).
     var onSessionChanged: (() -> Void)?
 
+    /// Which optional field groups the regular poll requests. The UI sets this from
+    /// what is on screen; `.all` until it does, so nothing goes missing at launch.
+    var fieldGroups: Torrent.FieldGroups = .all
+
     private var config: AppConfig
     private var client: TransmissionClient?
 
@@ -380,10 +384,10 @@ final class RefreshController {
     @discardableResult
     private func poll(client: TransmissionClient) async -> Bool {
         // The first poll after a fresh connect uses a slim field set for a faster
-        // cold paint; later polls fetch the full set (so trackers/comment/etc. fill
-        // in).
+        // cold paint; later polls request the base fields plus the groups whose
+        // columns or tab are on screen.
         let firstFetch = !hasFetchedTorrentsOnce
-        let fields = firstFetch ? Torrent.firstFetchFields : Torrent.requestedFields
+        let fields = firstFetch ? Torrent.firstFetchFields : Torrent.fields(for: fieldGroups)
         let started = Date()
 
         do {
