@@ -837,10 +837,11 @@ final class SettingsWindowController: NSWindowController {
         }
     }
 
-    private static func sameConnection(_ a: ServerConfig?, _ b: ServerConfig?) -> Bool {
+    /// Whether an applied change leaves the connection as it was. Same rule as the
+    /// main window's reconnect (`requiresReconnect`), so the two never disagree.
+    static func sameConnection(_ a: ServerConfig?, _ b: ServerConfig?) -> Bool {
         guard let a, let b else { return false }
-        return a.host == b.host && a.port == b.port && a.useHTTPS == b.useHTTPS && a.rpcPath == b.rpcPath
-            && a.username == b.username && a.password == b.password
+        return !b.requiresReconnect(from: a)
     }
 
     /// Revert: discard this server's unsaved edits (connection, presets and

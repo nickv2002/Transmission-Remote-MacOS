@@ -37,7 +37,8 @@ struct ServerIdentityTests {
     }
 
     @Test func connectionFieldChangesReconnect() {
-        let a = server()
+        var a = server()
+        a.headers = [CustomHeader(name: "X-Client-Id", value: "id"), CustomHeader(name: "X-Client-Secret", value: "s")]
         let changes: [(String, (inout ServerConfig) -> Void)] = [
             ("host", { $0.host = "192.0.2.2" }),
             ("port", { $0.port = 9092 }),
@@ -47,6 +48,11 @@ struct ServerIdentityTests {
             ("username cleared", { $0.username = nil }),
             ("password", { $0.password = "changed" }),
             ("id", { $0.id = UUID() }),
+            ("header added", { $0.headers.append(CustomHeader(name: "X-New", value: "1")) }),
+            ("header removed", { $0.headers.removeLast() }),
+            ("header value", { $0.headers[0].value = "rotated" }),
+            ("header name", { $0.headers[0].name = "X-Renamed" }),
+            ("header order", { $0.headers.reverse() }),
         ]
         for (label, change) in changes {
             var b = a
@@ -56,8 +62,27 @@ struct ServerIdentityTests {
     }
 
     @Test func identicalConfigDoesNotReconnect() {
-        let a = server()
+        var a = server()
         #expect(!a.requiresReconnect(from: a))
+        a.headers = [CustomHeader(name: "X-Client-Id", value: "id")]
+        let copy = a
+        #expect(!copy.requiresReconnect(from: a))
+    }
+
+    /// Settings' post-Apply check must agree with the reconnect rule, or an
+    /// applied header change would leave that server's session on stale headers.
+    @Test func settingsSameConnectionFollowsTheReconnectRule() {
+        let a = server()
+        var renamed = a
+        renamed.name = "Renamed"
+        var headed = a
+        headed.headers = [CustomHeader(name: "X-Token", value: "t")]
+        var rotated = headed
+        rotated.headers[0].value = "t2"
+        #expect(SettingsWindowController.sameConnection(a, renamed))
+        #expect(!SettingsWindowController.sameConnection(a, headed))
+        #expect(!SettingsWindowController.sameConnection(headed, rotated))
+        #expect(!SettingsWindowController.sameConnection(nil, a))
     }
 
     // MARK: - LastGoodHostStore
@@ -168,5 +193,17 @@ struct ServerIdentityTests {
         moved.port = 2
         refresh.updateConfig(AppConfig(servers: [moved], refreshSeconds: 60, currentServer: moved.name))
         #expect(refresh.state == .connecting)
+    }
+
+    @Test func headerChangeRestartsTheConnection() {
+        let a = ServerConfig(name: "Identity refresh C", host: "127.0.0.1", port: 1, useHTTPS: false, rpcPath: "/r",
+                             headers: [CustomHeader(name: "X-Token", value: "old")])
+        let refresh = RefreshController(config: AppConfig(servers: [a], refreshSeconds: 60, currentServer: a.name))
+        defer { refresh.stop() }
+        var rotated = a
+        rotated.headers[0].value = "new"
+        refresh.updateConfig(AppConfig(servers: [rotated], refreshSeconds: 60, currentServer: rotated.name))
+        #expect(refresh.state == .connecting)
+        #expect(refresh.activeServerConfig.headers == rotated.headers)
     }
 }

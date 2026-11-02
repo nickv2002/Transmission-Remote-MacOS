@@ -235,7 +235,11 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         pathMappingsView.string = server.map { PathMapping.format($0.pathMappings) } ?? ""
         downPresetsField.stringValue = server.map { SpeedPresets.format($0.downSpeedPresets) } ?? ""
         upPresetsField.stringValue = server.map { SpeedPresets.format($0.upSpeedPresets) } ?? ""
+        headers = server?.headers ?? []
     }
+
+    /// The shown server's custom headers, carried through edits of the other fields.
+    private(set) var headers: [CustomHeader] = []
 
     /// The port for the editor: the typed port when valid, otherwise the last valid
     /// one (see `validatePort()` for the problem itself).
@@ -265,7 +269,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             password: passwordField.stringValue.isEmpty ? nil : passwordField.stringValue,
             pathMappings: PathMapping.parse(pathMappingsView.string),
             downSpeedPresets: SpeedPresets.parse(downPresetsField.stringValue),
-            upSpeedPresets: SpeedPresets.parse(upPresetsField.stringValue))
+            upSpeedPresets: SpeedPresets.parse(upPresetsField.stringValue),
+            headers: headers)
     }
 
     @objc private func fieldEnded() {

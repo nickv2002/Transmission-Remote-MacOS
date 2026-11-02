@@ -36,6 +36,21 @@ enum TransmissionError: LocalizedError {
     }
 }
 
+/// Supplies extra HTTP headers for each RPC request. The configured custom
+/// headers are one source; a source that obtains a value at runtime (a token
+/// fetched and refreshed on demand, say) can be added without changing the
+/// client. Asked once per request, before any 409 retries.
+protocol RequestHeaderSource: Sendable {
+    func headers() async throws -> [CustomHeader]
+}
+
+/// A fixed list of headers, e.g. a server's configured custom headers.
+struct StaticHeaderSource: RequestHeaderSource {
+    let list: [CustomHeader]
+    init(_ list: [CustomHeader]) { self.list = list }
+    func headers() async throws -> [CustomHeader] { list }
+}
+
 /// Talks to a single Transmission daemon over JSON-RPC. Handles HTTP Basic auth
 /// and the CSRF `X-Transmission-Session-Id` 409 dance (see `rpc.pas`).
 actor TransmissionClient: ServerOptionsService {
@@ -43,11 +58,15 @@ actor TransmissionClient: ServerOptionsService {
     private let authHeader: String?
     private let session: URLSession
     private var sessionId: String?
+    /// Extra headers, applied in order (a later source wins on a repeated name).
+    private let headerSources: [any RequestHeaderSource]
 
     private static let sessionIdHeader = "X-Transmission-Session-Id"
 
+    /// `headerSources` are added after the server's configured custom headers.
     init(server: ServerConfig, timeout: TimeInterval = 15,
-         configuration: URLSessionConfiguration = .ephemeral) throws {
+         configuration: URLSessionConfiguration = .ephemeral,
+         headerSources: [any RequestHeaderSource] = []) throws {
         var components = URLComponents()
         components.scheme = server.useHTTPS ? "https" : "http"
         components.host = server.host
@@ -65,6 +84,8 @@ actor TransmissionClient: ServerOptionsService {
         } else {
             self.authHeader = nil
         }
+
+        self.headerSources = (server.headers.isEmpty ? [] : [StaticHeaderSource(server.headers)]) + headerSources
 
         configuration.timeoutIntervalForRequest = timeout
         self.session = URLSession(configuration: configuration)
@@ -384,13 +405,31 @@ actor TransmissionClient: ServerOptionsService {
     /// couple more attempts rather than hard-failing on the first re-rotation.
     private static let maxSessionRetries = 3
 
+    /// The extra headers for one request. Anything `HeaderValidation` rejects
+    /// (a reserved name, a line break) is dropped here too, in case a hand-edited
+    /// preferences file got past Settings.
+    private func extraHeaders() async throws -> [CustomHeader] {
+        var result: [CustomHeader] = []
+        for source in headerSources {
+            for header in try await source.headers() where HeaderValidation.issue(at: 0, in: [header]) == nil {
+                result.append(CustomHeader(name: header.name.trimmingCharacters(in: .whitespaces), value: header.value))
+            }
+        }
+        return result
+    }
+
     private func perform(body: Data, allowRetry: Bool, timeout: TimeInterval?) async throws -> (Data, HTTPURLResponse) {
+        let extra = try await extraHeaders()
         var attempt = 0
         while true {
             var request = URLRequest(url: endpoint)
             if let timeout { request.timeoutInterval = timeout }
             request.httpMethod = "POST"
             request.httpBody = body
+            // Custom headers first, so the built-in ones below always win.
+            for header in extra {
+                request.setValue(header.value, forHTTPHeaderField: header.name)
+            }
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             if let authHeader {
                 request.setValue(authHeader, forHTTPHeaderField: "Authorization")

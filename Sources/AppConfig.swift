@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 /// One named Transmission server connection. Holds exactly the per-connection
 /// fields `TransmissionClient` needs.
@@ -21,17 +22,22 @@ struct ServerConfig: Codable, Sendable, Equatable {
     /// Preset speed limits (KB/s) offered in this server's speed-limit menus.
     var downSpeedPresets: [Int]
     var upSpeedPresets: [Int]
+    /// Extra HTTP headers sent with every RPC request, in order. Only the names
+    /// are stored in `preferences.json`; the values are kept in the Keychain
+    /// (`HeaderSecretStore`) and filled in by `PreferencesStore` on load.
+    var headers: [CustomHeader]
 
     enum CodingKeys: String, CodingKey {
         case id, name, host, port, useHTTPS, rpcPath, username, password, pathMappings
-        case downSpeedPresets, upSpeedPresets
+        case downSpeedPresets, upSpeedPresets, headers
     }
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, useHTTPS: Bool, rpcPath: String,
          username: String? = nil, password: String? = nil,
          pathMappings: [PathMapping] = [],
          downSpeedPresets: [Int] = SpeedPresets.defaults,
-         upSpeedPresets: [Int] = SpeedPresets.defaults) {
+         upSpeedPresets: [Int] = SpeedPresets.defaults,
+         headers: [CustomHeader] = []) {
         self.id = id
         self.name = name
         self.host = host
@@ -43,6 +49,7 @@ struct ServerConfig: Codable, Sendable, Equatable {
         self.pathMappings = pathMappings
         self.downSpeedPresets = downSpeedPresets
         self.upSpeedPresets = upSpeedPresets
+        self.headers = headers
     }
 
     init(from decoder: Decoder) throws {
@@ -62,6 +69,8 @@ struct ServerConfig: Codable, Sendable, Equatable {
         pathMappings = try c.decodeIfPresent([PathMapping].self, forKey: .pathMappings) ?? []
         downSpeedPresets = try c.decodeIfPresent([Int].self, forKey: .downSpeedPresets) ?? SpeedPresets.defaults
         upSpeedPresets = try c.decodeIfPresent([Int].self, forKey: .upSpeedPresets) ?? SpeedPresets.defaults
+        // Backward-compatible: preferences written before custom headers have no key.
+        headers = try c.decodeIfPresent([CustomHeader].self, forKey: .headers) ?? []
     }
 
     /// The built-in default used when the config has no servers.
@@ -380,16 +389,42 @@ enum PreferencesStore {
     /// and nothing to migrate, so the built-in placeholder server was seeded and
     /// the user still has to configure a real one.
     static func loadReportingFirstRun() throws -> (config: AppConfig, isFirstRun: Bool) {
-        if let override = overrideStoreURL {
-            return try loadReportingFirstRun(storeURL: override, legacyURL: nil)
+        var result = if let override = overrideStoreURL {
+            try loadReportingFirstRun(storeURL: override, legacyURL: nil)
+        } else {
+            try loadReportingFirstRun(storeURL: storeURL, legacyURL: legacyConfigURL)
         }
-        return try loadReportingFirstRun(storeURL: storeURL, legacyURL: legacyConfigURL)
+        do {
+            result.config = try headerSecrets.hydrate(result.config)
+            headerValuesLoaded.withLock { $0 = true }
+        } catch {
+            // Keep running without the values (requests then go out without those
+            // headers), and never write values back this session: the in-memory
+            // copies are empty, and saving them would erase the stored ones.
+            NSLog("Couldn’t read custom header values: \(error.localizedDescription)")
+        }
+        return result
     }
 
     /// Persist the config as pretty-printed JSON, creating the support folder.
+    /// Header values go to the Keychain first (only when they were read at launch);
+    /// the JSON is written even if that fails, and the Keychain error is rethrown.
     static func save(_ config: AppConfig) throws {
+        var secretsError: Error?
+        if headerValuesLoaded.withLock({ $0 }) {
+            do { try headerSecrets.persist(config) } catch { secretsError = error }
+        }
         try save(config, to: overrideStoreURL ?? storeURL)
+        if let secretsError { throw secretsError }
     }
+
+    /// Where header values are kept: the login Keychain, or memory under test
+    /// isolation so a scripted run never touches the real Keychain.
+    static let headerSecrets: any HeaderSecretStore =
+        TestIsolation.isActive ? InMemoryHeaderStore() : KeychainHeaderStore()
+
+    /// Whether this launch read the header values, which gates writing them back.
+    private static let headerValuesLoaded = Mutex(false)
 
     // MARK: - Testable core (path-injectable)
 
