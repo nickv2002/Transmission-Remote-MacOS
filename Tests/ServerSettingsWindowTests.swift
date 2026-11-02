@@ -352,6 +352,154 @@ struct ServerSettingsWindowTests {
         }
     }
 
+    // MARK: - Custom headers
+
+    /// The text field inside the header table's cell at (`row`, `column`).
+    private func headerField(_ c: SettingsWindowController, row: Int, column: Int, make: Bool = false) -> NSTextField? {
+        (c.connectionPane.headersTable.tableView.view(atColumn: column, row: row, makeIfNecessary: make)
+            as? NSTableCellView)?.textField
+    }
+
+    /// Types `text` into the header table's cell at (`row`, `column`) as a keystroke would.
+    private func typeHeader(_ text: String, row: Int, column: Int, _ c: SettingsWindowController) throws {
+        let table = c.connectionPane.headersTable
+        table.tableView.layoutSubtreeIfNeeded()
+        let field = try #require(headerField(c, row: row, column: column, make: true))
+        field.stringValue = text
+        table.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    }
+
+    @Test func headersTableShowsTheServersHeadersWithSecureValues() async throws {
+        var server = Self.server
+        server.headers = [CustomHeader(name: "X-Client-Id", value: "id.access"),
+                          CustomHeader(name: "X-Client-Secret", value: "s3cr3t")]
+        let c = try await controller(servers: [server])
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let table = c.connectionPane.headersTable
+        #expect(table.view.isDescendant(of: c.connectionPane.view))
+        #expect(table.tableView.numberOfRows == 2)
+        #expect(headerField(c, row: 1, column: 0, make: true)?.stringValue == "X-Client-Secret")
+        let value = headerField(c, row: 1, column: 1, make: true)
+        #expect(value is NSSecureTextField)
+        #expect(value?.stringValue == "s3cr3t")
+        #expect(table.addButton.isEnabled)
+        #expect(!table.removeButton.isEnabled, "nothing selected")
+        #expect(!c.applyButton.isEnabled)
+    }
+
+    @Test func addingAHeaderBlocksApplyUntilNamedThenSavesNameAndValue() async throws {
+        let c = try await controller()
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let table = c.connectionPane.headersTable
+
+        table.addHeader()
+        #expect(table.tableView.numberOfRows == 1)
+        #expect(!c.applyButton.isEnabled)
+        #expect(c.statusLabel.stringValue == "Enter a name for each custom header.")
+        c.applySettings(nil)
+        #expect(saved.isEmpty)
+
+        try typeHeader("X-Client-Id", row: 0, column: 0, c)
+        try typeHeader("id.access", row: 0, column: 1, c)
+        #expect(c.applyButton.isEnabled)
+        #expect(c.statusLabel.textColor != .systemRed)
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.headers == [CustomHeader(name: "X-Client-Id", value: "id.access")])
+    }
+
+    @Test func aReservedHeaderNameBlocksApplyWithItsMessage() async throws {
+        let c = try await controller()
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        c.connectionPane.headersTable.addHeader()
+        try typeHeader("Host", row: 0, column: 0, c)
+        try typeHeader("elsewhere", row: 0, column: 1, c)
+
+        #expect(!c.applyButton.isEnabled)
+        #expect(c.statusLabel.stringValue == "“Host” is set by macOS and can’t be overridden.")
+        #expect(c.statusLabel.textColor == .systemRed)
+        let name = try #require(headerField(c, row: 0, column: 0))
+        #expect(name.textColor == .systemRed)
+        #expect(name.toolTip == "“Host” is set by macOS and can’t be overridden.")
+        c.applySettings(nil)
+        #expect(saved.isEmpty)
+
+        try typeHeader("X-Host-Hint", row: 0, column: 0, c)
+        #expect(name.textColor == .controlTextColor)
+        #expect(c.applyButton.isEnabled)
+    }
+
+    /// Red is unreadable on the accent-colored selection, so a flagged name
+    /// follows the selected-text color there and turns red again elsewhere.
+    @Test func aFlaggedNameStaysReadableOnTheEmphasizedSelection() async throws {
+        let c = try await controller()
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        c.connectionPane.headersTable.addHeader()
+        try typeHeader("Host", row: 0, column: 0, c)
+        let cell = try #require(c.connectionPane.headersTable.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+            as? NSTableCellView)
+        cell.backgroundStyle = .emphasized
+        #expect(cell.textField?.textColor == .controlTextColor)
+        cell.backgroundStyle = .normal
+        #expect(cell.textField?.textColor == .systemRed)
+        try typeHeader("X-Fine", row: 0, column: 0, c)
+        #expect(cell.textField?.textColor == .controlTextColor)
+    }
+
+    @Test func removingAHeaderMarksTheServerDirtyAndSavesWithoutIt() async throws {
+        var server = Self.server
+        server.headers = [CustomHeader(name: "X-A", value: "1"), CustomHeader(name: "X-B", value: "2")]
+        let c = try await controller(servers: [server])
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let table = c.connectionPane.headersTable
+        table.tableView.selectRowIndexes([0], byExtendingSelection: false)
+        #expect(table.removeButton.isEnabled)
+        table.removeHeaders()
+        #expect(table.tableView.numberOfRows == 1)
+        #expect(c.applyButton.isEnabled)
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.headers == [CustomHeader(name: "X-B", value: "2")])
+    }
+
+    @Test func revertRestoresTheSavedHeaders() async throws {
+        var server = Self.server
+        server.headers = [CustomHeader(name: "X-A", value: "1")]
+        let c = try await controller(servers: [server])
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        try typeHeader("rotated", row: 0, column: 1, c)
+        #expect(c.applyButton.isEnabled)
+        c.revertSettings(nil)
+        try await waitUntil { !c.revertButton.isEnabled }
+        #expect(c.connectionPane.headersTable.headers == server.headers)
+        #expect(!c.applyButton.isEnabled)
+    }
+
+    @Test func headersTableFitsAtMinimumSize() async throws {
+        let c = try await controller()
+        let window = try #require(c.window)
+        window.setContentSize(NSSize(width: 760, height: 560))
+        c.selectTab(.connection)
+        window.contentView?.layoutSubtreeIfNeeded()
+        let table = c.connectionPane.headersTable
+        #expect(table.view.bounds.width >= 300)
+        #expect(table.view.bounds.height > 100)
+        #expect(!table.view.hasAmbiguousLayout)
+        #expect(!table.addButton.hasAmbiguousLayout)
+    }
+
     @Test func trackerEditorExposesNativeTextAccessibilityAndKeepsMultilineDraft() async throws {
         let c = try await controller()
         let area = try #require(c.form.controls[.defaultTrackers]?.first as? ServerOptionsTextArea)

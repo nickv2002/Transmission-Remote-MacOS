@@ -1,7 +1,7 @@
 import AppKit
 
 /// Settings ▸ <server> ▸ Connection (name, hosts, port, HTTPS, RPC path,
-/// credentials, path mappings) plus the speed-menu presets shown on the Speed
+/// credentials, custom headers, path mappings) plus the speed-menu presets shown on the Speed
 /// tab. All of it is stored on this Mac, in the server's `ServerConfig`.
 ///
 /// Edits sync into the editor on every keystroke (so Apply enables at once)
@@ -28,6 +28,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
     let downPresetsField = NSTextField()
     let upPresetsField = NSTextField()
     let pathMappingsView = PlaceholderTextView()   // multi-line: one `remote=local` per line
+    let headersTable = CustomHeadersTable()
     private var detailFields: [NSControl] = []
     private var isLoading = false
     /// The last port that parsed, used in place of unusable input so the editor is
@@ -39,6 +40,10 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         super.init()
         view = buildForm()
         presetsView = buildPresets()
+        headersTable.onChange = { [weak self] _ in
+            guard let self, !self.isLoading else { return }
+            self.onEdit?(self.currentServer(rawName: true), false)
+        }
     }
 
     private func label(_ text: String) -> NSTextField { NSTextField(labelWithString: text) }
@@ -105,6 +110,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             [label("Username:"), usernameField],
             [label("Password:"), passwordField],
             [NSView(), testRow],
+            [label("Custom Headers:"), headersTable.view],
+            [NSView(), caption("Sent with every request, e.g. the service-token headers an access proxy requires. Values are stored in the Keychain.")],
             [label("Path Mappings:"), buildPathMappingsEditor()],
             [NSView(), caption("Remote→local, one per line.\ne.g.  /video=/Volumes/Video\nLocal side also accepts smb://host/share/path, resolved to wherever that share is currently mounted.")],
         ])
@@ -112,9 +119,11 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
         grid.column(at: 1).width = 300
-        // The mappings editor is multi-line; top-align its row.
-        grid.row(at: 9).yPlacement = .top
-        grid.row(at: 9).rowAlignment = .none
+        // The headers table and the mappings editor are multi-line; top-align their rows.
+        for row in [9, 11] {
+            grid.row(at: row).yPlacement = .top
+            grid.row(at: row).rowAlignment = .none
+        }
         let pane = NSView()
         pane.addSubview(grid)
         NSLayoutConstraint.activate([
@@ -197,15 +206,38 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         return problem
     }
 
+    /// The header problem to show, or nil when every header is valid or no server is loaded.
+    var headersValidationError: String? {
+        guard headersTable.isEnabled else { return nil }
+        return headersTable.validationError
+    }
+
+    /// The first problem in the form (port, then custom headers), or nil. Read-only.
+    var validationError: String? { portValidationError ?? headersValidationError }
+
+    /// Marks the port field and returns the form's first problem, or nil. The
+    /// controller calls this before Apply or Test Connection and stops on a problem.
+    @discardableResult
+    func validate() -> String? {
+        validatePort() ?? headersValidationError
+    }
+
+    /// The control to focus for the current problem.
+    var firstInvalidControl: NSView {
+        portValidationError != nil ? portField : headersTable.tableView
+    }
+
     @objc private func testConnection(_ sender: Any?) {
-        // Never probe with a wrong port: report the problem instead.
-        if let problem = validatePort() {
+        // Never probe with a wrong port or a header that wouldn't be sent: report
+        // the problem instead.
+        if let problem = validate() {
             let alert = NSAlert()
             alert.alertStyle = .warning
-            alert.messageText = "Invalid port"
+            alert.messageText = portValidationError != nil ? "Invalid port" : "Invalid custom header"
             alert.informativeText = problem
+            let focus = firstInvalidControl
             if let window = view.window { alert.beginSheetModal(for: window) } else { alert.runModal() }
-            _ = portField.window?.makeFirstResponder(portField)
+            _ = focus.window?.makeFirstResponder(focus)
             return
         }
         onTestConnection?()
@@ -223,6 +255,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         for field in detailFields { field.isEnabled = server != nil }
         testButton.isEnabled = server != nil
         pathMappingsView.isEditable = server != nil
+        headersTable.isEnabled = server != nil
+        headersTable.load(server?.headers ?? [])
         nameField.stringValue = server?.name ?? ""
         hostField.stringValue = server?.host ?? ""
         portField.stringValue = server.map { String($0.port) } ?? ""
@@ -235,11 +269,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         pathMappingsView.string = server.map { PathMapping.format($0.pathMappings) } ?? ""
         downPresetsField.stringValue = server.map { SpeedPresets.format($0.downSpeedPresets) } ?? ""
         upPresetsField.stringValue = server.map { SpeedPresets.format($0.upSpeedPresets) } ?? ""
-        headers = server?.headers ?? []
     }
-
-    /// The shown server's custom headers, carried through edits of the other fields.
-    private(set) var headers: [CustomHeader] = []
 
     /// The port for the editor: the typed port when valid, otherwise the last valid
     /// one (see `validatePort()` for the problem itself).
@@ -270,7 +300,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             pathMappings: PathMapping.parse(pathMappingsView.string),
             downSpeedPresets: SpeedPresets.parse(downPresetsField.stringValue),
             upSpeedPresets: SpeedPresets.parse(upPresetsField.stringValue),
-            headers: headers)
+            headers: headersTable.headers)
     }
 
     @objc private func fieldEnded() {

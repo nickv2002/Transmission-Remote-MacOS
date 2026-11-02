@@ -607,7 +607,7 @@ final class SettingsWindowController: NSWindowController {
         guard let id = selectedServerID else { window?.isDocumentEdited = hasPendingEdits; return }
         let dirty = isDirty(id)
         let plan = applyPlan(id)
-        applyButton.isEnabled = !working && dirty && connectionPane.portValidationError == nil
+        applyButton.isEnabled = !working && dirty && connectionPane.validationError == nil
             && { if case .blocked = plan { false } else { true } }()
         // Revert also clears a pending "load the server's values" state (failed
         // write, or speed limits changed elsewhere while edited).
@@ -655,12 +655,15 @@ final class SettingsWindowController: NSWindowController {
         if form.session !== state?.session { form.session = state?.session }
         form.setAvailability(availability, serverName: server.name)
         form.updateEnabledState(working: working)
-        if !working { statusLabel.stringValue = statusMessage(id, availability: availability); statusLabel.textColor = .secondaryLabelColor }
+        if !working {
+            statusLabel.stringValue = statusMessage(id, availability: availability)
+            statusLabel.textColor = connectionPane.validationError == nil ? .secondaryLabelColor : .systemRed
+        }
         updateDirtyState()
     }
 
     private func statusMessage(_ id: UUID, availability: ServerSettingsScope.Availability) -> String {
-        if selectedServerID == id, let problem = connectionPane.portValidationError { return problem }
+        if selectedServerID == id, let problem = connectionPane.validationError { return problem }
         if remote[id]?.changedOnServer == true { return "Speed limits changed on the server. Click Revert to load them (this discards your unsaved changes)." }
         if remote[id]?.session?.needsReload == true { return "Click Revert to load the server’s current values before applying again." }
         if case .ready = availability, let editor = remote[id]?.session?.editor {
@@ -784,7 +787,7 @@ final class SettingsWindowController: NSWindowController {
         window?.title = "Settings — \(stored.name)"
         if !working {
             statusLabel.stringValue = statusMessage(id, availability: availability(id))
-            statusLabel.textColor = connectionPane.portValidationError == nil ? .secondaryLabelColor : .systemRed
+            statusLabel.textColor = connectionPane.validationError == nil ? .secondaryLabelColor : .systemRed
         }
         updateDirtyState()
     }
@@ -798,10 +801,10 @@ final class SettingsWindowController: NSWindowController {
     func applySelected(completion: ((Bool) -> Void)?) {
         guard let id = selectedServerID, !working else { completion?(false); return }
         window?.makeFirstResponder(nil)   // commit the focused field (end-of-edit normalize)
-        // An unusable port is never saved (the editor holds the last valid one).
-        if let problem = connectionPane.validatePort() {
+        // An unusable port or header is never saved (the editor holds the last valid port).
+        if let problem = connectionPane.validate() {
             selectTab(.connection)
-            window?.makeFirstResponder(connectionPane.portField)
+            window?.makeFirstResponder(connectionPane.firstInvalidControl)
             statusLabel.stringValue = problem
             statusLabel.textColor = .systemRed
             completion?(false)
@@ -895,7 +898,7 @@ final class SettingsWindowController: NSWindowController {
     /// Test Connection probes the Connection form as typed (unsaved edits
     /// included), so it works for a new server or one whose tabs are blocked.
     private func runTestConnection(_ server: ServerConfig) {
-        if let problem = connectionPane.validatePort() {   // e.g. from the offline notice
+        if let problem = connectionPane.validate() {   // e.g. from the offline notice
             statusLabel.stringValue = problem
             statusLabel.textColor = .systemRed
             return

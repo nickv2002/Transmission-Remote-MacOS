@@ -142,6 +142,7 @@ targets:
       - path: Sources/SettingsWindowController.swift
       - path: Sources/SettingsGeneralPane.swift
       - path: Sources/SettingsConnectionPane.swift
+      - path: Sources/CustomHeadersTable.swift
       - path: Sources/DefaultHandlers.swift
     settings:
       base:
