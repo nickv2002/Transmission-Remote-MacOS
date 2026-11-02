@@ -51,6 +51,14 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         }
         let response = HTTPURLResponse(url: request.url!, statusCode: reply.status,
                                        httpVersion: "HTTP/1.1", headerFields: reply.headers)!
+        // A 3xx with a Location goes through URLSession's redirect handling (and
+        // so the task delegate), as a real server's would.
+        if (300..<400).contains(reply.status), let location = reply.headers["Location"],
+           let target = URL(string: location, relativeTo: request.url)?.absoluteURL {
+            var next = request
+            next.url = target
+            client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: response)
+        }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(reply.body.utf8))
         client?.urlProtocolDidFinishLoading(self)

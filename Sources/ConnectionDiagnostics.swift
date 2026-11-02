@@ -30,8 +30,53 @@ enum ConnectionDiagnostics {
         case .decodingFailed:
             return "Reached the server, but its response wasn’t valid Transmission RPC. "
                 + "Check the RPC Path and HTTPS setting."
-        case .redirected:
-            return te.localizedDescription
+        case .redirected(let status, let location):
+            switch redirectKind(location, server: server) {
+            case .toHTTPS:
+                return "The server redirects plain HTTP to HTTPS (HTTP \(status)). Turn on Use HTTPS."
+            case .otherHost(let host):
+                return "The server redirected the request to \(host) instead of answering it (HTTP \(status)). "
+                    + "This is usually a sign-in page from an access proxy in front of the daemon: "
+                    + "add the headers the proxy expects under Custom Headers, or check that they’re still valid."
+            case .sameHost(let path):
+                return "The server redirected the request to “\(path)” instead of answering it (HTTP \(status)). "
+                    + "Check the RPC Path and the Use HTTPS setting."
+            case .unknown:
+                return "The server answered with a redirect (HTTP \(status)) instead of answering the request. "
+                    + "Check the host, RPC Path and Use HTTPS setting."
+            }
+        }
+    }
+
+    /// Where a refused redirect pointed, relative to the server it came from.
+    enum RedirectKind: Equatable {
+        /// Same host, now over HTTPS, while the server is set to plain HTTP.
+        case toHTTPS
+        /// Another host: typically an access proxy's sign-in page.
+        case otherHost(String)
+        /// Same host, another path (or scheme the server already uses).
+        case sameHost(path: String)
+        /// No usable Location header.
+        case unknown
+    }
+
+    static func redirectKind(_ location: URL?, server: ServerConfig) -> RedirectKind {
+        guard let location, let host = location.host else { return .unknown }
+        guard host.caseInsensitiveCompare(server.host) == .orderedSame else { return .otherHost(host) }
+        if location.scheme?.lowercased() == "https", !server.useHTTPS { return .toHTTPS }
+        let path = location.path(percentEncoded: false)   // keeps a trailing slash, unlike `.path`
+        return .sameHost(path: path.isEmpty ? "/" : path)
+    }
+
+    /// A terse reason for a refused redirect, for a one-line-per-host list.
+    static func shortRedirect(status: Int, location: URL?, server: ServerConfig?) -> String {
+        let kind = server.map { redirectKind(location, server: $0) }
+            ?? location?.host.map(RedirectKind.otherHost) ?? .unknown
+        switch kind {
+        case .toHTTPS: return "redirects to HTTPS (turn on Use HTTPS)"
+        case .otherHost(let host): return "redirected to \(host) (sign-in page? check Custom Headers)"
+        case .sameHost(let path): return "redirected to \(path) (check the RPC Path)"
+        case .unknown: return "redirected (HTTP \(status))"
         }
     }
 }

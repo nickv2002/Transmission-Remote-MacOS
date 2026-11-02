@@ -366,7 +366,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
                 if let version = r.version {
                     return "✓  \(endpointLabel(r.server)) — Transmission \(version)"
                 } else {
-                    return "✗  \(endpointLabel(r.server)) — \(shortError(r.error))"
+                    return "✗  \(endpointLabel(r.server)) — \(shortError(r.error, server: r.server))"
                 }
             }.joined(separator: "\n")
         }
@@ -374,7 +374,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
     }
 
     /// A terse failure reason for the per-host list.
-    static func shortError(_ error: Error?) -> String {
+    static func shortError(_ error: Error?, server: ServerConfig? = nil) -> String {
         guard let error else { return "no response" }
         switch error as? TransmissionError {
         case .authenticationFailed: return "auth failed (check username/password)"
@@ -384,7 +384,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         case .invalidURL: return "invalid URL"
         case .rpcError(let m): return m
         case .decodingFailed: return "not a Transmission RPC endpoint"
-        case .redirected: return error.localizedDescription
+        case .redirected(let status, let location):
+            return ConnectionDiagnostics.shortRedirect(status: status, location: location, server: server)
         case .none: return error.localizedDescription
         }
     }

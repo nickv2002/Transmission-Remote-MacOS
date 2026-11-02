@@ -65,6 +65,20 @@ struct StaticHeaderSource: RequestHeaderSource {
     func headers() async throws -> [CustomHeader] { list }
 }
 
+/// Refuses every HTTP redirect on the task it is attached to, so the 3xx
+/// response itself comes back. RPC is a POST to a fixed endpoint, and an access
+/// proxy redirecting to a sign-in page would otherwise be followed silently and
+/// fail later as an undecodable HTML response.
+private final class RedirectRefuser: NSObject, URLSessionTaskDelegate, Sendable {
+    static let shared = RedirectRefuser()
+
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        nil
+    }
+}
+
 /// Talks to a single Transmission daemon over JSON-RPC. Handles HTTP Basic auth
 /// and the CSRF `X-Transmission-Session-Id` 409 dance (see `rpc.pas`).
 actor TransmissionClient: ServerOptionsService {
@@ -455,13 +469,19 @@ actor TransmissionClient: ServerOptionsService {
             let data: Data
             let response: URLResponse
             do {
-                (data, response) = try await session.data(for: request)
+                (data, response) = try await session.data(for: request, delegate: RedirectRefuser.shared)
             } catch {
                 throw TransmissionError.connectionFailed(error.localizedDescription)
             }
 
             guard let http = response as? HTTPURLResponse else {
                 throw TransmissionError.connectionFailed("non-HTTP response")
+            }
+
+            if (300..<400).contains(http.statusCode) {
+                let location = http.value(forHTTPHeaderField: "Location")
+                    .flatMap { URL(string: $0, relativeTo: request.url)?.absoluteURL }
+                throw TransmissionError.redirected(status: http.statusCode, location: location)
             }
 
             // CSRF: capture the session id from the 409 and replay, using whatever
