@@ -17,6 +17,15 @@ enum TransmissionError: LocalizedError {
     case httpError(Int)
     case rpcError(String)
     case decodingFailed(String)
+    /// The server answered an RPC request with a redirect (3xx), typically an
+    /// access proxy sending an unauthenticated request to its sign-in page.
+    case redirected(status: Int, location: URL?)
+
+    /// The host a redirect pointed to, when it named one.
+    var redirectHost: String? {
+        if case .redirected(_, let location) = self { return location?.host }
+        return nil
+    }
 
     var errorDescription: String? {
         switch self {
@@ -32,6 +41,11 @@ enum TransmissionError: LocalizedError {
             return "The server reported an error: \(message)"
         case .decodingFailed(let detail):
             return "Could not read the server response: \(detail)"
+        case .redirected(let status, let location):
+            if let host = location?.host {
+                return "The server redirected the request to \(host) (HTTP \(status)) instead of answering it."
+            }
+            return "The server answered with a redirect (HTTP \(status)) instead of answering the request."
         }
     }
 }

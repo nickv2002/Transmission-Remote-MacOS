@@ -30,6 +30,8 @@ enum ConnectionDiagnostics {
         case .decodingFailed:
             return "Reached the server, but its response wasn’t valid Transmission RPC. "
                 + "Check the RPC Path and HTTPS setting."
+        case .redirected:
+            return te.localizedDescription
         }
     }
 }

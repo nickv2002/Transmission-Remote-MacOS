@@ -44,6 +44,18 @@ done
 
 echo "Fixture Transmission daemon is up on http://localhost:19091 (took ${elapsed}s)."
 
+echo "Waiting for the fixture proxy on http://localhost:19092 ..."
+elapsed=0
+until curl -s -o /dev/null -w '%{http_code}' http://localhost:19092/gated/transmission/rpc | grep -qE '^403$'; do
+    if [ "$elapsed" -ge "$timeout" ]; then
+        echo "Timed out after ${timeout}s waiting for the fixture proxy to respond." >&2
+        exit 1
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+done
+echo "Fixture proxy is up on http://localhost:19092 (took ${elapsed}s)."
+
 # Deterministic fixture for the delete-local-data removal test: a small file
 # we create ourselves (not a real peer download, since DHT/PEX/LPD are
 # disabled and no peer port is published), plus a matching .torrent the

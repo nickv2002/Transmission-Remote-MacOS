@@ -384,6 +384,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         case .invalidURL: return "invalid URL"
         case .rpcError(let m): return m
         case .decodingFailed: return "not a Transmission RPC endpoint"
+        case .redirected: return error.localizedDescription
         case .none: return error.localizedDescription
         }
     }
