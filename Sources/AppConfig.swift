@@ -26,10 +26,13 @@ struct ServerConfig: Codable, Sendable, Equatable {
     /// are stored in `preferences.json`; the values are kept in the Keychain
     /// (`HeaderSecretStore`) and filled in by `PreferencesStore` on load.
     var headers: [CustomHeader]
+    /// Sign in through Cloudflare Access in the browser and send the app token
+    /// (kept in the Keychain by `AccessSessions`) with requests to this server.
+    var useCloudflareAccess: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name, host, port, useHTTPS, rpcPath, username, password, pathMappings
-        case downSpeedPresets, upSpeedPresets, headers
+        case downSpeedPresets, upSpeedPresets, headers, useCloudflareAccess
     }
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, useHTTPS: Bool, rpcPath: String,
@@ -37,7 +40,8 @@ struct ServerConfig: Codable, Sendable, Equatable {
          pathMappings: [PathMapping] = [],
          downSpeedPresets: [Int] = SpeedPresets.defaults,
          upSpeedPresets: [Int] = SpeedPresets.defaults,
-         headers: [CustomHeader] = []) {
+         headers: [CustomHeader] = [],
+         useCloudflareAccess: Bool = false) {
         self.id = id
         self.name = name
         self.host = host
@@ -50,6 +54,7 @@ struct ServerConfig: Codable, Sendable, Equatable {
         self.downSpeedPresets = downSpeedPresets
         self.upSpeedPresets = upSpeedPresets
         self.headers = headers
+        self.useCloudflareAccess = useCloudflareAccess
     }
 
     init(from decoder: Decoder) throws {
@@ -71,6 +76,7 @@ struct ServerConfig: Codable, Sendable, Equatable {
         upSpeedPresets = try c.decodeIfPresent([Int].self, forKey: .upSpeedPresets) ?? SpeedPresets.defaults
         // Backward-compatible: preferences written before custom headers have no key.
         headers = try c.decodeIfPresent([CustomHeader].self, forKey: .headers) ?? []
+        useCloudflareAccess = try c.decodeIfPresent(Bool.self, forKey: .useCloudflareAccess) ?? false
     }
 
     /// The built-in default used when the config has no servers.
@@ -415,6 +421,8 @@ enum PreferencesStore {
             do { try headerSecrets.persist(config) } catch { secretsError = error }
         }
         try save(config, to: overrideStoreURL ?? storeURL)
+        // A removed server's Access session goes with it.
+        try? AccessSessions.shared.prune(keeping: Set(config.servers.map(\.id)))
         if let secretsError { throw secretsError }
     }
 

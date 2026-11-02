@@ -535,6 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 item.state = (name == active) ? .on : .off
             }
             refreshSpeedSubmenu(controller)
+            updateAccessItem(controller)
             return
         }
 
@@ -558,6 +559,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let manageItem = serverMenu.addItem(withTitle: "Manage Servers…",
                                             action: #selector(manageServers(_:)), keyEquivalent: "")
         manageItem.target = self
+        let accessItem = serverMenu.addItem(withTitle: "Sign In to Cloudflare Access…",
+                                            action: #selector(signInToCloudflareAccess(_:)), keyEquivalent: "")
+        accessItem.target = self
+        accessItem.tag = Self.accessMenuItemTag
+        updateAccessItem(controller)
         let refreshItem = serverMenu.addItem(withTitle: "Refresh Now",
                                               action: #selector(refreshNow(_:)), keyEquivalent: "r")
         refreshItem.target = self
@@ -569,6 +575,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static let speedMenuItemTag = 7001
+    private static let accessMenuItemTag = 7002
+
+    /// Server ▸ Sign In to Cloudflare Access…: enabled when the active server uses it.
+    private func updateAccessItem(_ controller: MainWindowController) {
+        serverMenu.items.first { $0.tag == Self.accessMenuItemTag }?.isEnabled = controller.canSignInToCloudflareAccess
+    }
+
+    @objc private func signInToCloudflareAccess(_ sender: Any?) {
+        windowController?.signInToCloudflareAccess(sender)
+    }
 
     /// Rebuild the Server ▸ Speed Limits submenu so it reflects the live session.
     private func refreshSpeedSubmenu(_ controller: MainWindowController) {

@@ -6,8 +6,8 @@ import Foundation
 
 extension ServerConfig {
     /// True when changing from `previous` to `self` alters what the client connects
-    /// to or sends: identity, endpoint, credentials, or custom headers (names,
-    /// values or order). Renames, speed presets and path mappings don't — the
+    /// to or sends: identity, endpoint, credentials, custom headers (names,
+    /// values or order), or whether Cloudflare Access sign-in is used. Renames, speed presets and path mappings don't — the
     /// client ignores them, and the stored config is read live.
     func requiresReconnect(from previous: ServerConfig) -> Bool {
         id != previous.id
@@ -18,6 +18,7 @@ extension ServerConfig {
             || username != previous.username
             || password != previous.password
             || headers != previous.headers
+            || useCloudflareAccess != previous.useCloudflareAccess
     }
 }
 

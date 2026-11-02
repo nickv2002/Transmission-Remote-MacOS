@@ -59,4 +59,41 @@ final class FixtureProxyTests: XCTestCase {
             XCTAssertEqual(code, 403)
         }
     }
+
+    // MARK: - Cloudflare Access stand-in
+
+    /// Without the token, the Access stand-in's Bearer challenge (Managed OAuth)
+    /// is reported as "sign-in needed", not as Transmission's own login failing.
+    func testAccessBearerChallengeMeansSignInNeeded() async throws {
+        let client = try TransmissionClient(server: server(path: "/access/transmission/rpc"), timeout: 10)
+        do {
+            _ = try await client.fetchSession()
+            XCTFail("Expected Access to turn the request away")
+        } catch {
+            XCTAssertEqual(error.accessSignInReason, .signedOut)
+        }
+    }
+
+    /// An Access app with Managed OAuth off redirects to its login page.
+    func testAccessLoginRedirectMeansManagedOAuthIsOff() async throws {
+        let client = try TransmissionClient(server: server(path: "/access-legacy/transmission/rpc"), timeout: 10)
+        do {
+            _ = try await client.fetchSession()
+            XCTFail("Expected Access to turn the request away")
+        } catch {
+            XCTAssertEqual(error.accessSignInReason, .managedOAuthOff)
+        }
+    }
+
+    /// The token as a `cf-access-token` header on the RPC POST gets through.
+    /// (The Access token source only sends to HTTPS hosts, so this adds the same
+    /// header through the request-header hook directly.)
+    func testAccessTokenHeaderOnThePOSTGetsThrough() async throws {
+        let client = try TransmissionClient(
+            server: server(path: "/access/transmission/rpc"), timeout: 10,
+            headerSources: [StaticHeaderSource([CustomHeader(name: CloudflareAccess.tokenHeader,
+                                                             value: "fixture-access-token")])])
+        let session = try await client.fetchSession()
+        XCTAssertFalse(session.version.isEmpty)
+    }
 }

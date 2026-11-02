@@ -20,6 +20,8 @@ enum TransmissionError: LocalizedError {
     /// The server answered an RPC request with a redirect (3xx), typically an
     /// access proxy sending an unauthenticated request to its sign-in page.
     case redirected(status: Int, location: URL?)
+    /// Cloudflare Access needs the user to sign in again (see `AccessSignInReason`).
+    case accessSignInRequired(AccessSignInReason)
 
     /// The host a redirect pointed to, when it named one.
     var redirectHost: String? {
@@ -46,6 +48,12 @@ enum TransmissionError: LocalizedError {
                 return "The server redirected the request to \(host) (HTTP \(status)) instead of answering it."
             }
             return "The server answered with a redirect (HTTP \(status)) instead of answering the request."
+        case .accessSignInRequired(.expired):
+            return "Your Cloudflare Access session has expired. Sign in again."
+        case .accessSignInRequired(.signedOut):
+            return "Cloudflare Access needs you to sign in."
+        case .accessSignInRequired(.managedOAuthOff):
+            return "This Cloudflare Access application doesn’t have Managed OAuth turned on, which signing in needs."
         }
     }
 }
@@ -56,6 +64,14 @@ enum TransmissionError: LocalizedError {
 /// client. Asked once per request, before any 409 retries.
 protocol RequestHeaderSource: Sendable {
     func headers() async throws -> [CustomHeader]
+    /// The server refused this source's credential (an access proxy's Bearer
+    /// challenge). Return true after renewing it, and the request is retried
+    /// once with fresh headers.
+    func requestRejected() async -> Bool
+}
+
+extension RequestHeaderSource {
+    func requestRejected() async -> Bool { false }
 }
 
 /// A fixed list of headers, e.g. a server's configured custom headers.
@@ -69,7 +85,7 @@ struct StaticHeaderSource: RequestHeaderSource {
 /// response itself comes back. RPC is a POST to a fixed endpoint, and an access
 /// proxy redirecting to a sign-in page would otherwise be followed silently and
 /// fail later as an undecodable HTML response.
-private final class RedirectRefuser: NSObject, URLSessionTaskDelegate, Sendable {
+final class RedirectRefuser: NSObject, URLSessionTaskDelegate, Sendable {
     static let shared = RedirectRefuser()
 
     func urlSession(_ session: URLSession, task: URLSessionTask,
@@ -91,10 +107,12 @@ actor TransmissionClient: ServerOptionsService {
 
     private static let sessionIdHeader = "X-Transmission-Session-Id"
 
-    /// `headerSources` are added after the server's configured custom headers.
+    /// `headerSources` are added after the server's configured custom headers and,
+    /// for a server using Cloudflare Access, its app token from `accessSessions`.
     init(server: ServerConfig, timeout: TimeInterval = 15,
          configuration: URLSessionConfiguration = .ephemeral,
-         headerSources: [any RequestHeaderSource] = []) throws {
+         headerSources: [any RequestHeaderSource] = [],
+         accessSessions: AccessSessions = .shared) throws {
         var components = URLComponents()
         components.scheme = server.useHTTPS ? "https" : "http"
         components.host = server.host
@@ -113,9 +131,16 @@ actor TransmissionClient: ServerOptionsService {
             self.authHeader = nil
         }
 
-        self.headerSources = (server.headers.isEmpty ? [] : [StaticHeaderSource(server.headers)]) + headerSources
+        var sources: [any RequestHeaderSource] = server.headers.isEmpty ? [] : [StaticHeaderSource(server.headers)]
+        if let access = AccessTokenHeaderSource.source(for: server, sessions: accessSessions) { sources.append(access) }
+        self.headerSources = sources + headerSources
 
         configuration.timeoutIntervalForRequest = timeout
+        // Transmission doesn't use cookies, and an access proxy's own session
+        // cookie (Cloudflare Access's CF_AppSession) would outlive its session
+        // and get requests refused despite a valid token header.
+        configuration.httpShouldSetCookies = false
+        configuration.httpCookieAcceptPolicy = .never
         self.session = URLSession(configuration: configuration)
     }
 
@@ -409,7 +434,13 @@ actor TransmissionClient: ServerOptionsService {
 
         guard http.statusCode == 200 else {
             switch http.statusCode {
-            case 401: throw TransmissionError.authenticationFailed
+            case 401:
+                // Transmission challenges with Basic; a Bearer challenge comes from
+                // Cloudflare Access (Managed OAuth): no usable token for it.
+                if AccessOAuth.resourceMetadataURL(fromWWWAuthenticate: http.value(forHTTPHeaderField: "WWW-Authenticate")) != nil {
+                    throw TransmissionError.accessSignInRequired(.signedOut)
+                }
+                throw TransmissionError.authenticationFailed
             default: throw TransmissionError.httpError(http.statusCode)
             }
         }
@@ -447,10 +478,12 @@ actor TransmissionClient: ServerOptionsService {
     }
 
     private func perform(body: Data, allowRetry: Bool, timeout: TimeInterval?) async throws -> (Data, HTTPURLResponse) {
-        let extra = try await extraHeaders()
+        var extra = try await extraHeaders()
         var attempt = 0
+        var renewedCredentials = false
         while true {
             var request = URLRequest(url: endpoint)
+            request.httpShouldHandleCookies = false
             if let timeout { request.timeoutInterval = timeout }
             request.httpMethod = "POST"
             request.httpBody = body
@@ -482,6 +515,20 @@ actor TransmissionClient: ServerOptionsService {
                 let location = http.value(forHTTPHeaderField: "Location")
                     .flatMap { URL(string: $0, relativeTo: request.url)?.absoluteURL }
                 throw TransmissionError.redirected(status: http.statusCode, location: location)
+            }
+
+            // An access proxy refused a credential a header source sent (Cloudflare
+            // Access answers with a Bearer challenge): let the sources renew it and
+            // retry once. Transmission's own refusal is a Basic challenge.
+            if http.statusCode == 401, !renewedCredentials,
+               AccessOAuth.resourceMetadataURL(fromWWWAuthenticate: http.value(forHTTPHeaderField: "WWW-Authenticate")) != nil {
+                renewedCredentials = true
+                var renewed = false
+                for source in headerSources where await source.requestRejected() { renewed = true }
+                if renewed {
+                    extra = try await extraHeaders()
+                    continue
+                }
             }
 
             // CSRF: capture the session id from the 409 and replay, using whatever

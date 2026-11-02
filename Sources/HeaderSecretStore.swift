@@ -57,21 +57,17 @@ enum HeaderSecretError: LocalizedError {
             let detail = SecCopyErrorMessageString(status, nil) as String? ?? "error \(status)"
             return "Couldn’t access the Keychain: \(detail)"
         case .corrupt:
-            return "The custom header values stored in the Keychain couldn’t be read."
+            return "A value stored in the Keychain couldn’t be read."
         }
     }
 }
 
-/// Header values in the login Keychain: one generic-password item per server,
-/// account = the server's UUID, data = a JSON name→value object.
-struct KeychainHeaderStore: HeaderSecretStore {
-    static let defaultService = "com.nickvance.transmission-remote-mac.custom-headers"
-
+/// Generic-password items in the login Keychain, one per server: account =
+/// the server's UUID, data = whatever the caller stores. Shared by the custom
+/// header values and the Cloudflare Access session.
+struct KeychainItems: Sendable {
     let service: String
-
-    init(service: String = KeychainHeaderStore.defaultService) {
-        self.service = service
-    }
+    let label: String
 
     private func query(for server: UUID) -> [String: Any] {
         [
@@ -81,42 +77,41 @@ struct KeychainHeaderStore: HeaderSecretStore {
         ]
     }
 
-    func values(for server: UUID) throws -> [String: String] {
+    /// The item's data, or nil when there is none.
+    func data(for server: UUID) throws -> Data? {
         var q = query(for: server)
         q[kSecReturnData as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(q as CFDictionary, &result)
-        if status == errSecItemNotFound { return [:] }
+        if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw HeaderSecretError.keychain(status) }
-        guard let data = result as? Data,
-              let values = try? JSONDecoder().decode([String: String].self, from: data) else {
-            throw HeaderSecretError.corrupt
-        }
-        return values
+        guard let data = result as? Data else { throw HeaderSecretError.corrupt }
+        return data
     }
 
-    func setValues(_ values: [String: String], for server: UUID) throws {
-        if values.isEmpty {
+    /// Stores `data`, or deletes the item when it is nil.
+    func setData(_ data: Data?, for server: UUID) throws {
+        guard let data else {
             let status = SecItemDelete(query(for: server) as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 throw HeaderSecretError.keychain(status)
             }
             return
         }
-        let data = try JSONEncoder().encode(values)
         let update = [kSecValueData as String: data]
         var status = SecItemUpdate(query(for: server) as CFDictionary, update as CFDictionary)
         if status == errSecItemNotFound {
             var add = query(for: server)
             add[kSecValueData as String] = data
-            add[kSecAttrLabel as String] = "Transmission Remote custom headers"
+            add[kSecAttrLabel as String] = label
             status = SecItemAdd(add as CFDictionary, nil)
         }
         guard status == errSecSuccess else { throw HeaderSecretError.keychain(status) }
     }
 
-    func storedServerIDs() throws -> Set<UUID> {
+    /// Every server id with an item under this service.
+    func serverIDs() throws -> Set<UUID> {
         let q: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -130,6 +125,32 @@ struct KeychainHeaderStore: HeaderSecretStore {
         let items = result as? [[String: Any]] ?? []
         return Set(items.compactMap { ($0[kSecAttrAccount as String] as? String).flatMap(UUID.init(uuidString:)) })
     }
+}
+
+/// Header values in the login Keychain: one item per server, data = a JSON
+/// name→value object.
+struct KeychainHeaderStore: HeaderSecretStore {
+    static let defaultService = "com.nickvance.transmission-remote-mac.custom-headers"
+
+    let items: KeychainItems
+
+    init(service: String = KeychainHeaderStore.defaultService) {
+        items = KeychainItems(service: service, label: "Transmission Remote custom headers")
+    }
+
+    func values(for server: UUID) throws -> [String: String] {
+        guard let data = try items.data(for: server) else { return [:] }
+        guard let values = try? JSONDecoder().decode([String: String].self, from: data) else {
+            throw HeaderSecretError.corrupt
+        }
+        return values
+    }
+
+    func setValues(_ values: [String: String], for server: UUID) throws {
+        try items.setData(values.isEmpty ? nil : JSONEncoder().encode(values), for: server)
+    }
+
+    func storedServerIDs() throws -> Set<UUID> { try items.serverIDs() }
 }
 
 /// An in-memory store for tests and `TestIsolation` runs, so neither reads nor

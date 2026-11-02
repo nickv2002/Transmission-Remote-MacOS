@@ -29,6 +29,21 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
     let upPresetsField = NSTextField()
     let pathMappingsView = PlaceholderTextView()   // multi-line: one `remote=local` per line
     let headersTable = CustomHeadersTable()
+    /// The shown server's Cloudflare Access setting, edited by `accessCheckbox`.
+    private(set) var useCloudflareAccess = false
+    let accessCheckbox = NSButton(checkboxWithTitle: "Sign in with Cloudflare Access", target: nil, action: nil)
+    let accessStatus = NSTextField(wrappingLabelWithString: "")
+    private let accessSpinner = NSProgressIndicator()
+    let accessSignInButton = NSButton(title: "Sign In…", target: nil, action: nil)
+    let accessSignOutButton = NSButton(title: "Sign Out", target: nil, action: nil)
+    let accessCopyLinkButton = NSButton(title: "Copy Link", target: nil, action: nil)
+    let accessCancelButton = NSButton(title: "Cancel", target: nil, action: nil)
+    /// Sign-in actions; the window controller supplies the server.
+    var onAccessSignIn: (() -> Void)?
+    var onAccessSignOut: (() -> Void)?
+    var onAccessCancel: (() -> Void)?
+    /// The sign-in URL while waiting for the browser (Copy Link).
+    private var accessSignInURL: URL?
     private var detailFields: [NSControl] = []
     private var isLoading = false
     /// The last port that parsed, used in place of unusable input so the editor is
@@ -112,6 +127,10 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             [NSView(), testRow],
             [label("Custom Headers:"), headersTable.view],
             [NSView(), caption("Sent with every request, e.g. the service-token headers an access proxy requires. Values are stored in the Keychain.")],
+            [label("Cloudflare Access:"), accessCheckbox],
+            [NSView(), buildAccessStatusRow()],
+            [NSView(), buildAccessButtonsRow()],
+            [NSView(), caption("Signs in through your browser with any login method the Access application offers. Needs Managed OAuth on for the application. The session is kept in the Keychain, renews itself, and is sent only to the HTTPS host it was issued for.")],
             [label("Path Mappings:"), buildPathMappingsEditor()],
             [NSView(), caption("Remote→local, one per line.\ne.g.  /video=/Volumes/Video\nLocal side also accepts smb://host/share/path, resolved to wherever that share is currently mounted.")],
         ])
@@ -120,19 +139,107 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         grid.rowAlignment = .firstBaseline
         grid.column(at: 1).width = 300
         // The headers table and the mappings editor are multi-line; top-align their rows.
-        for row in [9, 11] {
+        for row in [9, 15] {
             grid.row(at: row).yPlacement = .top
             grid.row(at: row).rowAlignment = .none
         }
-        let pane = NSView()
-        pane.addSubview(grid)
+        // Scrolls like the server tabs, so the form never forces the window taller
+        // than its minimum size.
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.drawsBackground = false
+        let document = SettingsFlippedView()
+        document.translatesAutoresizingMaskIntoConstraints = false
+        scroll.documentView = document
+        document.addSubview(grid)
         NSLayoutConstraint.activate([
-            grid.topAnchor.constraint(equalTo: pane.topAnchor, constant: 4),
-            grid.leadingAnchor.constraint(equalTo: pane.leadingAnchor),
-            grid.trailingAnchor.constraint(lessThanOrEqualTo: pane.trailingAnchor),
-            grid.bottomAnchor.constraint(lessThanOrEqualTo: pane.bottomAnchor),
+            document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
+            grid.topAnchor.constraint(equalTo: document.topAnchor, constant: 4),
+            grid.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+            grid.trailingAnchor.constraint(lessThanOrEqualTo: document.trailingAnchor),
+            grid.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -16),
         ])
-        return pane
+        return scroll
+    }
+
+    private func buildAccessStatusRow() -> NSView {
+        accessStatus.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        accessStatus.textColor = .secondaryLabelColor
+        accessStatus.setAccessibilityIdentifier("server-access-status")
+        accessStatus.preferredMaxLayoutWidth = 280
+        accessSpinner.style = .spinning
+        accessSpinner.controlSize = .small
+        accessSpinner.isDisplayedWhenStopped = false
+        let row = NSStackView(views: [accessSpinner, accessStatus])
+        row.spacing = 6
+        row.alignment = .firstBaseline
+        return row
+    }
+
+    private func buildAccessButtonsRow() -> NSView {
+        accessCheckbox.target = self
+        accessCheckbox.action = #selector(accessCheckboxChanged)
+        accessCheckbox.setAccessibilityIdentifier("server-access-enabled")
+        for (button, action, id) in [
+            (accessSignInButton, #selector(accessSignIn), "server-access-sign-in"),
+            (accessSignOutButton, #selector(accessSignOut), "server-access-sign-out"),
+            (accessCopyLinkButton, #selector(accessCopyLink), "server-access-copy-link"),
+            (accessCancelButton, #selector(accessCancel), "server-access-cancel"),
+        ] {
+            button.bezelStyle = .rounded
+            button.target = self
+            button.action = action
+            button.setAccessibilityIdentifier(id)
+        }
+        accessCopyLinkButton.toolTip = "Copy the sign-in link, to open it in another browser."
+        let buttons = NSStackView(views: [accessSignInButton, accessSignOutButton, accessCopyLinkButton, accessCancelButton])
+        buttons.spacing = 8
+        return buttons
+    }
+
+    @objc private func accessCheckboxChanged() {
+        useCloudflareAccess = accessCheckbox.state == .on
+        fieldEnded()
+    }
+
+    @objc private func accessSignIn() { onAccessSignIn?() }
+    @objc private func accessSignOut() { onAccessSignOut?() }
+    @objc private func accessCancel() { onAccessCancel?() }
+
+    @objc private func accessCopyLink() {
+        guard let url = accessSignInURL else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    }
+
+    /// Shows the server's Access state. `saved` is whether sign-in is turned on in
+    /// the server's saved settings: until it is applied, signing in has nothing
+    /// to attach the session to, so the buttons wait for Apply.
+    func renderAccess(session: AccessSession?, phase: AccessSignInController.Phase, saved: Bool, now: Date = Date()) {
+        let on = useCloudflareAccess && accessCheckbox.isEnabled
+        let waiting: Bool
+        if case .waiting(let url) = phase { waiting = true; accessSignInURL = url } else { waiting = false; accessSignInURL = nil }
+        let signedIn = session?.isSignedIn == true
+        if on && !saved {
+            accessStatus.stringValue = "Click Apply to turn on Cloudflare Access sign-in for this server."
+        } else if on {
+            accessStatus.stringValue = AccessSignInController.statusText(session: session, phase: phase, now: now)
+        } else {
+            accessStatus.stringValue = signedIn ? "Off. The saved session is kept until you sign out." : "Off."
+        }
+        if case .failed = phase, on, saved {
+            accessStatus.textColor = .systemRed
+        } else {
+            accessStatus.textColor = .secondaryLabelColor
+        }
+        if waiting { accessSpinner.startAnimation(nil) } else { accessSpinner.stopAnimation(nil) }
+        accessSignInButton.isEnabled = on && saved && !waiting
+        accessSignInButton.title = signedIn ? "Sign In Again…" : "Sign In…"
+        accessSignOutButton.isEnabled = signedIn || waiting
+        accessCopyLinkButton.isHidden = !waiting
+        accessCopyLinkButton.isEnabled = accessSignInURL != nil
+        accessCancelButton.isHidden = !waiting
     }
 
     private func buildPresets() -> NSView {
@@ -257,6 +364,9 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         pathMappingsView.isEditable = server != nil
         headersTable.isEnabled = server != nil
         headersTable.load(server?.headers ?? [])
+        useCloudflareAccess = server?.useCloudflareAccess ?? false
+        accessCheckbox.state = useCloudflareAccess ? .on : .off
+        accessCheckbox.isEnabled = server != nil
         nameField.stringValue = server?.name ?? ""
         hostField.stringValue = server?.host ?? ""
         portField.stringValue = server.map { String($0.port) } ?? ""
@@ -300,7 +410,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             pathMappings: PathMapping.parse(pathMappingsView.string),
             downSpeedPresets: SpeedPresets.parse(downPresetsField.stringValue),
             upSpeedPresets: SpeedPresets.parse(upPresetsField.stringValue),
-            headers: headersTable.headers)
+            headers: headersTable.headers,
+            useCloudflareAccess: useCloudflareAccess)
     }
 
     @objc private func fieldEnded() {
@@ -406,6 +517,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
     /// A terse failure reason for the per-host list.
     static func shortError(_ error: Error?, server: ServerConfig? = nil) -> String {
         guard let error else { return "no response" }
+        if let reason = error.accessSignInReason { return ConnectionDiagnostics.shortAccess(reason) }
         switch error as? TransmissionError {
         case .authenticationFailed: return "auth failed (check username/password)"
         case .httpError(404): return "no RPC at that path (404)"
@@ -416,6 +528,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         case .decodingFailed: return "not a Transmission RPC endpoint"
         case .redirected(let status, let location):
             return ConnectionDiagnostics.shortRedirect(status: status, location: location, server: server)
+        case .accessSignInRequired(let reason): return ConnectionDiagnostics.shortAccess(reason)
         case .none: return error.localizedDescription
         }
     }

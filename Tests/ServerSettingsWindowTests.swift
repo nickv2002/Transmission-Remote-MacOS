@@ -487,6 +487,137 @@ struct ServerSettingsWindowTests {
         #expect(!c.applyButton.isEnabled)
     }
 
+    /// The form rebuilds the server from its fields; the Access flag (no control
+    /// of its own yet) must ride along with an edit to another field.
+    @Test func editingAnotherFieldKeepsTheCloudflareAccessFlag() async throws {
+        var server = Self.server
+        server.useCloudflareAccess = true
+        let c = try await controller(servers: [server])
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        let host = c.connectionPane.hostField
+        host.stringValue = "127.0.0.7"
+        c.connectionPane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: host))
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.useCloudflareAccess == true)
+        #expect(saved.last?.servers.first?.host == "127.0.0.7")
+    }
+
+    // MARK: - Cloudflare Access
+
+    /// A controller whose stub browser never finishes, over in-memory sessions.
+    private func accessController() -> AccessSignInController {
+        AccessSignInController(sessions: AccessSessions(store: InMemoryAccessSessionStore()), environment: {
+            AccessSignIn.Environment(session: URLSession(configuration: StubURLProtocol.configuration()),
+                                     openBrowser: { _ in true })
+        })
+    }
+
+    @Test func turningOnAccessWaitsForApplyBeforeSignIn() async throws {
+        let c = try await controller()
+        c.accessSignIn = accessController()
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        #expect(pane.accessCheckbox.state == .off)
+        #expect(!pane.accessSignInButton.isEnabled)
+
+        pane.accessCheckbox.performClick(nil)
+        #expect(c.applyButton.isEnabled)
+        #expect(pane.accessStatus.stringValue.hasPrefix("Click Apply"))
+        #expect(!pane.accessSignInButton.isEnabled)
+
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.useCloudflareAccess == true)
+        #expect(pane.accessSignInButton.isEnabled)
+        #expect(pane.accessStatus.stringValue == "Not signed in.")
+        #expect(!pane.accessSignOutButton.isEnabled)
+        #expect(pane.accessCancelButton.isHidden)
+    }
+
+    @Test func aSignedInServerShowsItAndCanSignOut() async throws {
+        var server = Self.server
+        server.useCloudflareAccess = true
+        let c = try await controller(servers: [server])
+        let access = accessController()
+        try access.sessions.setSession(AccessStub.Deployment().session(expiresAt: Date().addingTimeInterval(600),
+                                                                      signedInAt: Date()), for: server.id)
+        c.accessSignIn = access
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        #expect(pane.accessStatus.stringValue.hasPrefix("Signed in · "))
+        #expect(pane.accessSignInButton.title == "Sign In Again…")
+        #expect(pane.accessSignOutButton.isEnabled)
+        pane.accessSignOutButton.performClick(nil)
+        #expect(access.sessions.session(for: server.id)?.isSignedIn == false)
+        #expect(pane.accessStatus.stringValue == "Not signed in.")
+        #expect(pane.accessSignInButton.title == "Sign In…")
+    }
+
+    @Test func signingInShowsWaitingWithCancel() async throws {
+        var server = Self.server
+        server.useCloudflareAccess = true
+        let c = try await controller(servers: [server])
+        c.accessSignIn = accessController()
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        pane.accessSignInButton.performClick(nil)
+        // The server is plain HTTP: the sign-in explains that it needs HTTPS.
+        #expect(pane.accessStatus.stringValue.contains("HTTPS"))
+        #expect(pane.accessStatus.textColor == .systemRed)
+
+        var https = server
+        https.host = StubURLProtocol.uniqueHost()
+        https.useHTTPS = true
+        c.accessSignIn.signIn(server: https)
+        c.selectTab(.connection)
+        // Not the selected server's id, so render the waiting phase directly.
+        pane.renderAccess(session: nil, phase: .waiting(URL(string: "https://x.cloudflareaccess.com/cdn-cgi/access/oauth/authorization")), saved: true)
+        #expect(!pane.accessCancelButton.isHidden)
+        #expect(!pane.accessCopyLinkButton.isHidden && pane.accessCopyLinkButton.isEnabled)
+        #expect(!pane.accessSignInButton.isEnabled)
+        c.accessSignIn.cancel(server: https.id)
+
+        pane.renderAccess(session: nil, phase: .failed("Other."), saved: true)
+        #expect(pane.accessStatus.stringValue == "Other.")
+        #expect(pane.accessCancelButton.isHidden && pane.accessCopyLinkButton.isHidden)
+    }
+
+    /// Test Connection must probe as the selected server, or the Access token
+    /// (looked up by server id) isn't sent and Access turns the probe away.
+    @Test func testConnectionProbesUnderTheSelectedServersID() async throws {
+        var server = Self.server
+        server.useCloudflareAccess = true
+        let c = try await controller(servers: [server])
+        c.selectTab(.connection)
+        let host = c.connectionPane.hostField
+        host.stringValue = "edited.example.com"
+        c.connectionPane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: host))
+        let probed = c.formServer()
+        #expect(probed.id == server.id)
+        #expect(probed.host == "edited.example.com")
+        #expect(probed.useCloudflareAccess)
+    }
+
+    /// The Connection form is taller than the minimum window, so it scrolls
+    /// rather than forcing the window taller.
+    @Test func connectionTabScrollsAtMinimumSize() async throws {
+        let c = try await controller()
+        let window = try #require(c.window)
+        window.setContentSize(NSSize(width: 760, height: 560))
+        c.selectTab(.connection)
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(window.contentView?.frame.height == 560)
+        let scroll = try #require(c.connectionPane.view as? NSScrollView)
+        let document = try #require(scroll.documentView)
+        #expect(document.frame.height > scroll.contentView.bounds.height)
+        #expect(c.connectionPane.accessCheckbox.isDescendant(of: document))
+    }
+
     @Test func headersTableFitsAtMinimumSize() async throws {
         let c = try await controller()
         let window = try #require(c.window)
