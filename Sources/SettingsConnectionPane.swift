@@ -29,6 +29,13 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
     let upPresetsField = NSTextField()
     let pathMappingsView = PlaceholderTextView()   // multi-line: one `remote=local` per line
     let headersTable = CustomHeadersTable()
+    /// The shown server's "send custom headers" setting, edited by `headersCheckbox`.
+    private(set) var useCustomHeaders = false
+    let headersCheckbox = NSButton(checkboxWithTitle: "Send custom headers", target: nil, action: nil)
+    /// The form grid, and which of its rows belong to each switchable section.
+    private var grid: NSGridView?
+    private var accessDetailRows: [Int] = []
+    private var headerDetailRows: [Int] = []
     /// The shown server's Cloudflare Access setting, edited by `accessCheckbox`.
     private(set) var useCloudflareAccess = false
     let accessCheckbox = NSButton(checkboxWithTitle: "Sign in with Cloudflare Access", target: nil, action: nil)
@@ -125,12 +132,13 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             [label("Username:"), usernameField],
             [label("Password:"), passwordField],
             [NSView(), testRow],
-            [label("Custom Headers:"), headersTable.view],
-            [NSView(), caption("Sent with every request, e.g. the service-token headers an access proxy requires. Values are stored in the Keychain.")],
             [label("Cloudflare Access:"), accessCheckbox],
             [NSView(), buildAccessStatusRow()],
             [NSView(), buildAccessButtonsRow()],
             [NSView(), caption("Signs in through your browser with any login method the Access application offers. Needs Managed OAuth on for the application. The session is kept in the Keychain, renews itself, and is sent only to the HTTPS host it was issued for.")],
+            [label("Custom Headers:"), headersCheckbox],
+            [NSView(), headersTable.view],
+            [NSView(), caption("Sent with every request, e.g. the service-token headers an access proxy requires. Values are stored in the Keychain.")],
             [label("Path Mappings:"), buildPathMappingsEditor()],
             [NSView(), caption("Remote→local, one per line.\ne.g.  /video=/Volumes/Video\nLocal side also accepts smb://host/share/path, resolved to wherever that share is currently mounted.")],
         ])
@@ -139,10 +147,18 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         grid.rowAlignment = .firstBaseline
         grid.column(at: 1).width = 300
         // The headers table and the mappings editor are multi-line; top-align their rows.
-        for row in [9, 15] {
+        for row in [14, 16] {
             grid.row(at: row).yPlacement = .top
             grid.row(at: row).rowAlignment = .none
         }
+        // Each section's details show only while its checkbox is on.
+        self.grid = grid
+        accessDetailRows = [10, 11, 12]
+        headerDetailRows = [14, 15]
+        headersCheckbox.target = self
+        headersCheckbox.action = #selector(headersCheckboxChanged)
+        headersCheckbox.setAccessibilityIdentifier("server-headers-enabled")
+        updateSectionVisibility()
         // Scrolls like the server tabs, so the form never forces the window taller
         // than its minimum size.
         let scroll = NSScrollView()
@@ -200,8 +216,26 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
 
     @objc private func accessCheckboxChanged() {
         useCloudflareAccess = accessCheckbox.state == .on
+        updateSectionVisibility()
         fieldEnded()
     }
+
+    @objc private func headersCheckboxChanged() {
+        useCustomHeaders = headersCheckbox.state == .on
+        updateSectionVisibility()
+        fieldEnded()
+    }
+
+    /// Shows a section's rows only while its checkbox is on.
+    private func updateSectionVisibility() {
+        guard let grid else { return }
+        for row in accessDetailRows { grid.row(at: row).isHidden = !useCloudflareAccess }
+        for row in headerDetailRows { grid.row(at: row).isHidden = !useCustomHeaders }
+    }
+
+    /// Whether a section's details are showing (for tests).
+    var showsAccessDetails: Bool { accessDetailRows.allSatisfy { grid?.row(at: $0).isHidden == false } }
+    var showsHeaderDetails: Bool { headerDetailRows.allSatisfy { grid?.row(at: $0).isHidden == false } }
 
     @objc private func accessSignIn() { onAccessSignIn?() }
     @objc private func accessSignOut() { onAccessSignOut?() }
@@ -315,7 +349,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
 
     /// The header problem to show, or nil when every header is valid or no server is loaded.
     var headersValidationError: String? {
-        guard headersTable.isEnabled else { return nil }
+        // Headers that won't be sent don't block Apply.
+        guard headersTable.isEnabled, useCustomHeaders else { return nil }
         return headersTable.validationError
     }
 
@@ -367,6 +402,10 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         useCloudflareAccess = server?.useCloudflareAccess ?? false
         accessCheckbox.state = useCloudflareAccess ? .on : .off
         accessCheckbox.isEnabled = server != nil
+        useCustomHeaders = server?.useCustomHeaders ?? false
+        headersCheckbox.state = useCustomHeaders ? .on : .off
+        headersCheckbox.isEnabled = server != nil
+        updateSectionVisibility()
         nameField.stringValue = server?.name ?? ""
         hostField.stringValue = server?.host ?? ""
         portField.stringValue = server.map { String($0.port) } ?? ""
@@ -411,6 +450,7 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             downSpeedPresets: SpeedPresets.parse(downPresetsField.stringValue),
             upSpeedPresets: SpeedPresets.parse(upPresetsField.stringValue),
             headers: headersTable.headers,
+            useCustomHeaders: useCustomHeaders,
             useCloudflareAccess: useCloudflareAccess)
     }
 

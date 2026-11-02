@@ -393,6 +393,7 @@ struct ServerSettingsWindowTests {
         var saved: [AppConfig] = []
         c.onChange = { saved.append($0) }
         c.selectTab(.connection)
+        c.connectionPane.headersCheckbox.performClick(nil)   // headers are off until turned on
         c.window?.contentView?.layoutSubtreeIfNeeded()
         let table = c.connectionPane.headersTable
 
@@ -417,6 +418,7 @@ struct ServerSettingsWindowTests {
         var saved: [AppConfig] = []
         c.onChange = { saved.append($0) }
         c.selectTab(.connection)
+        c.connectionPane.headersCheckbox.performClick(nil)   // headers are off until turned on
         c.window?.contentView?.layoutSubtreeIfNeeded()
         c.connectionPane.headersTable.addHeader()
         try typeHeader("Host", row: 0, column: 0, c)
@@ -503,6 +505,52 @@ struct ServerSettingsWindowTests {
         try await waitUntil { !saved.isEmpty }
         #expect(saved.last?.servers.first?.useCloudflareAccess == true)
         #expect(saved.last?.servers.first?.host == "127.0.0.7")
+    }
+
+    /// Each switchable section shows its details only while its checkbox is on,
+    /// and the Access section comes before the custom headers.
+    @Test func sectionsShowTheirDetailsOnlyWhenTurnedOn() async throws {
+        let c = try await controller()
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let pane = c.connectionPane
+        #expect(!pane.showsAccessDetails && !pane.showsHeaderDetails)
+        pane.accessCheckbox.performClick(nil)
+        #expect(pane.showsAccessDetails && !pane.showsHeaderDetails)
+        pane.headersCheckbox.performClick(nil)
+        #expect(pane.showsHeaderDetails)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let access = pane.accessCheckbox.convert(pane.accessCheckbox.bounds, to: nil)
+        let headers = pane.headersCheckbox.convert(pane.headersCheckbox.bounds, to: nil)
+        #expect(access.minY > headers.minY, "Cloudflare Access sits above Custom Headers")
+        pane.accessCheckbox.performClick(nil)
+        #expect(!pane.showsAccessDetails)
+    }
+
+    /// Headers that won't be sent are kept but don't block Apply, and the
+    /// checkbox is saved with the server.
+    @Test func turnedOffHeadersAreKeptButNotValidated() async throws {
+        var server = Self.server
+        server.headers = [CustomHeader(name: "Host", value: "bad")]
+        server.useCustomHeaders = false
+        let c = try await controller(servers: [server])
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        #expect(pane.headersCheckbox.state == .off && !pane.showsHeaderDetails)
+        pane.headersCheckbox.performClick(nil)
+        #expect(!c.applyButton.isEnabled, "turned on, the reserved name blocks Apply")
+        pane.headersCheckbox.performClick(nil)
+        #expect(!c.applyButton.isEnabled, "back to the saved state")
+        let host = pane.hostField
+        host.stringValue = "127.0.0.8"
+        pane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: host))
+        #expect(c.applyButton.isEnabled)
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.headers == server.headers)
+        #expect(saved.last?.servers.first?.useCustomHeaders == false)
     }
 
     // MARK: - Cloudflare Access
@@ -623,6 +671,7 @@ struct ServerSettingsWindowTests {
         let window = try #require(c.window)
         window.setContentSize(NSSize(width: 760, height: 560))
         c.selectTab(.connection)
+        c.connectionPane.headersCheckbox.performClick(nil)   // headers are off until turned on
         window.contentView?.layoutSubtreeIfNeeded()
         let table = c.connectionPane.headersTable
         #expect(table.view.bounds.width >= 300)

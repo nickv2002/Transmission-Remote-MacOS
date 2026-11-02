@@ -54,6 +54,7 @@ struct ServerIdentityTests {
             ("header name", { $0.headers[0].name = "X-Renamed" }),
             ("header order", { $0.headers.reverse() }),
             ("Cloudflare Access", { $0.useCloudflareAccess.toggle() }),
+            ("custom headers switch", { $0.useCustomHeaders.toggle() }),
         ]
         for (label, change) in changes {
             var b = a

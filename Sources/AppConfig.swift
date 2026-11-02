@@ -26,13 +26,15 @@ struct ServerConfig: Codable, Sendable, Equatable {
     /// are stored in `preferences.json`; the values are kept in the Keychain
     /// (`HeaderSecretStore`) and filled in by `PreferencesStore` on load.
     var headers: [CustomHeader]
+    /// Whether `headers` are sent. Off keeps them configured but unused.
+    var useCustomHeaders: Bool
     /// Sign in through Cloudflare Access in the browser and send the app token
     /// (kept in the Keychain by `AccessSessions`) with requests to this server.
     var useCloudflareAccess: Bool
 
     enum CodingKeys: String, CodingKey {
         case id, name, host, port, useHTTPS, rpcPath, username, password, pathMappings
-        case downSpeedPresets, upSpeedPresets, headers, useCloudflareAccess
+        case downSpeedPresets, upSpeedPresets, headers, useCustomHeaders, useCloudflareAccess
     }
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, useHTTPS: Bool, rpcPath: String,
@@ -41,6 +43,7 @@ struct ServerConfig: Codable, Sendable, Equatable {
          downSpeedPresets: [Int] = SpeedPresets.defaults,
          upSpeedPresets: [Int] = SpeedPresets.defaults,
          headers: [CustomHeader] = [],
+         useCustomHeaders: Bool? = nil,
          useCloudflareAccess: Bool = false) {
         self.id = id
         self.name = name
@@ -54,6 +57,8 @@ struct ServerConfig: Codable, Sendable, Equatable {
         self.downSpeedPresets = downSpeedPresets
         self.upSpeedPresets = upSpeedPresets
         self.headers = headers
+        // Unspecified: on exactly when there are headers, as before the switch existed.
+        self.useCustomHeaders = useCustomHeaders ?? !headers.isEmpty
         self.useCloudflareAccess = useCloudflareAccess
     }
 
@@ -76,6 +81,8 @@ struct ServerConfig: Codable, Sendable, Equatable {
         upSpeedPresets = try c.decodeIfPresent([Int].self, forKey: .upSpeedPresets) ?? SpeedPresets.defaults
         // Backward-compatible: preferences written before custom headers have no key.
         headers = try c.decodeIfPresent([CustomHeader].self, forKey: .headers) ?? []
+        // Preferences from before the switch: headers that exist were being sent.
+        useCustomHeaders = try c.decodeIfPresent(Bool.self, forKey: .useCustomHeaders) ?? !headers.isEmpty
         useCloudflareAccess = try c.decodeIfPresent(Bool.self, forKey: .useCloudflareAccess) ?? false
     }
 

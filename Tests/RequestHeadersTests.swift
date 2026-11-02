@@ -80,6 +80,15 @@ struct RequestHeadersTests {
         #expect(StubURLProtocol.requests(for: host).first?.value(forHTTPHeaderField: "Authorization") == nil)
     }
 
+    @Test func turnedOffHeadersAreNotSent() async throws {
+        let host = StubURLProtocol.uniqueHost()
+        StubURLProtocol.set([Self.ok], for: host)
+        var s = server(host, headers: [CustomHeader(name: "X-Token", value: "t")])
+        s.useCustomHeaders = false
+        _ = try await client(s).fetchTorrents()
+        #expect(StubURLProtocol.requests(for: host).first?.value(forHTTPHeaderField: "X-Token") == nil)
+    }
+
     @Test func noConfiguredHeadersAddsNothing() async throws {
         let host = StubURLProtocol.uniqueHost()
         StubURLProtocol.set([Self.ok], for: host)

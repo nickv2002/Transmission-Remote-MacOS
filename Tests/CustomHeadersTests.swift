@@ -29,6 +29,18 @@ final class CustomHeadersTests: XCTestCase {
         XCTAssertEqual(s.headers.map(\.value), ["", ""])
     }
 
+    func testSendingDefaultsToOnExactlyWhenHeadersExist() throws {
+        XCTAssertFalse(try decodeServer(#"{"host":"h"}"#).useCustomHeaders)
+        XCTAssertTrue(try decodeServer(#"{"host":"h","headers":[{"name":"X-A"}]}"#).useCustomHeaders)
+        XCTAssertFalse(try decodeServer(#"{"host":"h","headers":[{"name":"X-A"}],"useCustomHeaders":false}"#).useCustomHeaders)
+        var off = server([CustomHeader(name: "X-A", value: "1")])
+        off.useCustomHeaders = false
+        let json = try PreferencesStore.encode(AppConfig(servers: [off], refreshSeconds: 4))
+        XCTAssertEqual(try PreferencesStore.decode(json).servers.first?.useCustomHeaders, false)
+        XCTAssertTrue(server([CustomHeader(name: "X-A", value: "1")]).useCustomHeaders)
+        XCTAssertFalse(server([]).useCustomHeaders)
+    }
+
     func testValueInFileIsIgnored() throws {
         let s = try decodeServer(#"{"host":"h","headers":[{"name":"X-A","value":"leaked"}]}"#)
         XCTAssertEqual(s.headers, [CustomHeader(name: "X-A", value: "")])
