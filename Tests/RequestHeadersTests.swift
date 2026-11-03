@@ -10,7 +10,7 @@ struct RequestHeadersTests {
     private static let ok = StubURLProtocol.Reply(body: #"{"result":"success","arguments":{"torrents":[]}}"#)
 
     private func server(_ host: String, headers: [CustomHeader], username: String? = "user") -> ServerConfig {
-        ServerConfig(name: "Stub", host: host, port: 9091, useHTTPS: false, rpcPath: "/transmission/rpc",
+        ServerConfig(name: "Stub", host: host, port: 9091, useHTTPS: true, rpcPath: "/transmission/rpc",
                      username: username, password: username == nil ? nil : "pass", headers: headers)
     }
 

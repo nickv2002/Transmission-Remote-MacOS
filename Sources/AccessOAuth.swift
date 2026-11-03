@@ -161,7 +161,10 @@ enum AccessOAuth {
 
     static func randomBytes(_ count: Int) -> Data {
         var bytes = [UInt8](repeating: 0, count: count)
-        _ = SecRandomCopyBytes(kSecRandomDefault, count, &bytes)
+        // Zeros would make the verifier and state predictable; never carry on without randomness.
+        guard SecRandomCopyBytes(kSecRandomDefault, count, &bytes) == errSecSuccess else {
+            fatalError("SecRandomCopyBytes failed")
+        }
         return Data(bytes)
     }
 

@@ -44,6 +44,7 @@ enum HeaderValidation {
         case useCredentials
         case duplicate
         case valueHasLineBreak
+        case valueHasControlCharacter
     }
 
     /// Headers Apple documents as reserved for the URL loading system.
@@ -81,6 +82,9 @@ enum HeaderValidation {
         }
         // Scalars, not Characters: "\r\n" is one Character equal to neither.
         if header.value.unicodeScalars.contains(where: { $0 == "\r" || $0 == "\n" }) { return .valueHasLineBreak }
+        if header.value.unicodeScalars.contains(where: { $0.value == 0 || ($0.value < 0x20 && $0 != "\t") || $0.value == 0x7F }) {
+            return .valueHasControlCharacter
+        }
         return nil
     }
 
@@ -102,6 +106,8 @@ enum HeaderValidation {
             return "“\(shown)” is listed more than once."
         case .valueHasLineBreak:
             return "The value of “\(shown)” can’t contain line breaks."
+        case .valueHasControlCharacter:
+            return "The value of “\(shown)” can’t contain control characters."
         }
     }
 
@@ -113,5 +119,21 @@ enum HeaderValidation {
             }
         }
         return nil
+    }
+}
+
+extension ServerConfig {
+    /// Whether custom headers go out with this server's requests: they're on, there
+    /// are some, and the connection can't be read in transit (HTTPS, or the same
+    /// machine). Header values are secrets such as service tokens, so a plain-HTTP
+    /// fallback host never gets them.
+    var sendsCustomHeaders: Bool {
+        guard useCustomHeaders, !headers.isEmpty else { return false }
+        return useHTTPS || Self.isLoopbackHost(host)
+    }
+
+    static func isLoopbackHost(_ host: String) -> Bool {
+        let h = host.lowercased()
+        return h == "localhost" || h == "::1" || h == "[::1]" || h.hasPrefix("127.")
     }
 }

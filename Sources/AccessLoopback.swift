@@ -7,9 +7,17 @@ import Synchronization
 protocol AuthorizationCallbackReceiver: Sendable {
     /// The local port the redirect URI points at.
     var port: UInt16 { get }
+    /// Only a callback carrying this `state` (or an `error` with it) ends the wait;
+    /// anything else that reaches the port, from another local process or a web
+    /// page, is answered and ignored. Call before opening the browser.
+    func expect(state: String)
     /// The query of the first `GET /callback?…` the browser sends.
     func waitForCallback() async throws -> [String: String]
     func close()
+}
+
+extension AuthorizationCallbackReceiver {
+    func expect(state: String) {}
 }
 
 /// A one-shot HTTP listener on 127.0.0.1 for the OAuth redirect (RFC 8252 §7.3).
@@ -19,6 +27,7 @@ final class LoopbackCallbackServer: AuthorizationCallbackReceiver {
     private struct State {
         var result: Result<[String: String], Error>?
         var waiter: CheckedContinuation<[String: String], Error>?
+        var expectedState: String?
     }
 
     let port: UInt16
@@ -70,6 +79,10 @@ final class LoopbackCallbackServer: AuthorizationCallbackReceiver {
         return server
     }
 
+    func expect(state: String) {
+        self.state.withLock { $0.expectedState = state }
+    }
+
     func waitForCallback() async throws -> [String: String] {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -102,10 +115,14 @@ final class LoopbackCallbackServer: AuthorizationCallbackReceiver {
 
     private func handle(_ connection: NWConnection) {
         connection.start(queue: queue)
+        // A client that connects and says nothing mustn't hold the connection open.
+        queue.asyncAfter(deadline: .now() + 10) { connection.cancel() }
         connection.receive(minimumIncompleteLength: 1, maximumLength: 16_384) { [weak self] data, _, _, _ in
             guard let self else { connection.cancel(); return }
             let request = data.map { String(decoding: $0, as: UTF8.self) } ?? ""
-            let query = Self.callbackQuery(fromRequest: request)
+            var query = Self.callbackQuery(fromRequest: request)
+            // Only the browser that was sent to sign in carries our state.
+            if let q = query, q["state"] != self.state.withLock({ $0.expectedState }) { query = nil }
             let status = query == nil ? "404 Not Found" : "200 OK"
             let html = Self.page(for: query)
             let response = "HTTP/1.1 \(status)\r\nContent-Type: text/html; charset=utf-8\r\n"
