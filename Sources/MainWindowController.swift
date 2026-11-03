@@ -665,6 +665,9 @@ final class MainWindowController: NSWindowController {
             self?.updateStatusBar(state: state)
             self?.drainPendingAdds()
         }
+        refresh.onAccessSignInRequired = { [weak self] reason in
+            self?.accessSignInRequiredChanged(reason)
+        }
         refresh.onFetchingChanged = { [weak self] fetching in
             guard let self else { return }
             if fetching {
