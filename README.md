@@ -17,6 +17,8 @@ This is a fork of [transgui](https://github.com/transmission-remote-gui/transgui
 - Add torrents via the toolbar, `File > Open`/`Open Location`, drag-and-drop, or Finder's Open With.
 - Sidebar filtering by status, tracker, or download folder.
 - Multiple saved servers, switchable from a menu.
+- Sign in with Cloudflare Access (Managed OAuth) in your browser, with any login method your Access app offers, for a daemon behind Access; the session renews itself. See [docs/CLOUDFLARE_ACCESS.md](docs/CLOUDFLARE_ACCESS.md).
+- Custom HTTP headers per server (values kept in the Keychain), for a daemon behind an access proxy that wants service-token headers.
 - Remote → local path mappings, so you can Reveal in Finder / Open files straight from the torrent list when the download volume is mounted locally.
 - A native Settings window for everything above — no config file editing.
 
@@ -36,6 +38,8 @@ make test    # run unit tests
 make clean   # remove DerivedData
 make         # list all available targets
 ```
+
+To sign Debug builds with your own Apple Development certificate (so the Keychain doesn't ask again after every rebuild), put the overrides in an untracked `Local.xcconfig`; `make` picks it up. See *Build & run* in [`CLAUDE.md`](CLAUDE.md).
 
 The release pipeline (`make release`) handles signing, notarization, changelog, tagging, and publishing a GitHub release in one shot.
 

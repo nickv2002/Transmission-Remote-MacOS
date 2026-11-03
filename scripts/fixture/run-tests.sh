@@ -22,7 +22,8 @@ RUN_FIXTURE_TRANSMISSION_TESTS=1 TEST_RUNNER_RUN_FIXTURE_TRANSMISSION_TESTS=1 \
     -scheme TransmissionRemote -configuration Debug test \
     -only-testing:TransmissionRemoteTests/FixtureTransmissionTests \
     -only-testing:TransmissionRemoteTests/FixtureConcurrencyTests \
-    -only-testing:TransmissionRemoteTests/FixtureFailoverTests 2>&1 | tee "$LOG"
+    -only-testing:TransmissionRemoteTests/FixtureFailoverTests \
+    -only-testing:TransmissionRemoteTests/FixtureProxyTests 2>&1 | tee "$LOG"
 status=${PIPESTATUS[0]}
 
 if grep -q "Test skipped" "$LOG"; then

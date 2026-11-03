@@ -1,4 +1,5 @@
 import AppKit
+import Synchronization
 
 /// Owns the `TransmissionClient` and polls `torrent-get` on an interval, publishing
 /// results to its delegate on the main actor. Pauses while the window is hidden.
@@ -22,6 +23,16 @@ final class RefreshController {
     var onFreeSpaceChanged: (() -> Void)?
     /// Fired whenever the cached `session` changes (poll, limit edit, server switch).
     var onSessionChanged: (() -> Void)?
+    /// Called when the active server starts or stops needing a Cloudflare Access
+    /// sign-in (nil once it connects again).
+    var onAccessSignInRequired: ((AccessSignInReason?) -> Void)?
+
+    /// Set when the active server couldn't be reached because Cloudflare Access
+    /// wants a sign-in; cleared when it connects.
+    private(set) var accessSignInRequired: AccessSignInReason? {
+        didSet { if oldValue != accessSignInRequired { onAccessSignInRequired?(accessSignInRequired) } }
+    }
+    nonisolated(unsafe) private var accessObserver: NSObjectProtocol?
 
     /// Which optional field groups the regular poll requests. The UI sets this from
     /// what is on screen; `.all` until it does, so nothing goes missing at launch.
@@ -94,6 +105,22 @@ final class RefreshController {
     init(config: AppConfig) {
         self.config = config
         self.selectedServerID = Self.resolveSelectedID(config: config)
+        accessObserver = NotificationCenter.default.addObserver(
+            forName: AccessSessions.changedNotification, object: nil, queue: .main) { [weak self] note in
+            guard let id = note.userInfo?[AccessSessions.serverIDKey] as? UUID else { return }
+            MainActor.assumeIsolated { self?.accessSessionChanged(for: id) }
+        }
+    }
+
+    deinit {
+        if let accessObserver { NotificationCenter.default.removeObserver(accessObserver) }
+    }
+
+    /// A sign-in (or sign-out) for the active server: reconnect so the new token
+    /// is used right away. Ignored while the loop isn't running.
+    private func accessSessionChanged(for id: UUID) {
+        guard id == activeServer.id, activeServer.useCloudflareAccess, loopTask != nil else { return }
+        restart()
     }
 
     /// Resolve which server to connect to: persisted UserDefaults selection (if it
@@ -293,11 +320,12 @@ final class RefreshController {
         // timeout. The common case (still reachable) connects in one round-trip
         // without spinning up a client per candidate.
         // The last-good host is keyed by server id (see `LastGoodHostStore`).
+        let accessFailures = AccessFailures()
         if !TestIsolation.isActive,
            let saved = LastGoodHostStore.read(for: activeServer, defaults: .standard),
            let lastGood = candidates.first(where: { $0.connectionKey == saved }),
            !Task.isCancelled,
-           let resolved = await Self.probe(lastGood, timeout: fastPathTimeout) {
+           let resolved = await Self.probe(lastGood, timeout: fastPathTimeout, accessFailures: accessFailures) {
             adopt(resolved)
             perfLog("resolved in \(ms(since: started)) via \(endpoint(resolved.server)) (fast-path)")
             return
@@ -308,11 +336,19 @@ final class RefreshController {
         // Race every candidate concurrently; the fastest responder wins, so a
         // dead/hanging host never blocks a reachable one behind it.
         let raced = await ConnectionResolver.firstToRespond(candidates) { [probeTimeout] candidate in
-            await Self.probe(candidate, timeout: probeTimeout)
+            await Self.probe(candidate, timeout: probeTimeout, accessFailures: accessFailures)
         }
         if let raced {
             adopt(raced)
             perfLog("resolved in \(ms(since: started)) via \(endpoint(raced.server)) (raced \(candidates.count))")
+            return
+        }
+
+        // Cloudflare Access turned a host away: say so now, even before the first
+        // success, since retrying won't help until the user signs in.
+        if let reason = accessFailures.first {
+            accessSignInRequired = reason
+            state = .failed(ConnectionDiagnostics.accessMessage(reason, server: activeServer))
             return
         }
 
@@ -341,6 +377,7 @@ final class RefreshController {
         session = resolved.info
         onSessionChanged?()
         hasConnectedOnce = true
+        accessSignInRequired = nil
         if !TestIsolation.isActive {
             LastGoodHostStore.write(resolved.server.connectionKey, for: resolved.server, defaults: .standard)
         }
@@ -350,12 +387,14 @@ final class RefreshController {
     /// Build a client for `candidate`, run `session-get`, and return the connected
     /// client on success or nil on any failure. `nonisolated static` so it is
     /// `Sendable`-safe to call from concurrent probe tasks.
-    nonisolated private static func probe(_ candidate: ServerConfig, timeout: TimeInterval) async -> ResolvedConnection? {
+    nonisolated private static func probe(_ candidate: ServerConfig, timeout: TimeInterval,
+                                          accessFailures: AccessFailures? = nil) async -> ResolvedConnection? {
         do {
             let client = try TransmissionClient(server: candidate, timeout: timeout)
             let info = try await client.fetchSession()
             return ResolvedConnection(client: client, server: candidate, info: info)
         } catch {
+            if let reason = error.accessSignInReason { accessFailures?.append(reason) }
             return nil
         }
     }
@@ -424,3 +463,17 @@ final class RefreshController {
         }
     }
 }
+
+/// Access sign-in failures seen by concurrent host probes during one resolve.
+final class AccessFailures: Sendable {
+    private let reasons = Mutex<[AccessSignInReason]>([])
+    func append(_ reason: AccessSignInReason) { reasons.withLock { $0.append(reason) } }
+    /// The most actionable failure: Managed OAuth off, then an ended session,
+    /// then a plain sign-in request.
+    var first: AccessSignInReason? {
+        reasons.withLock { all in
+            [.managedOAuthOff, .expired, .signedOut].first { all.contains($0) }
+        }
+    }
+}
+

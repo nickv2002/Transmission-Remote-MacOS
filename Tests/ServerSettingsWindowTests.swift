@@ -352,6 +352,334 @@ struct ServerSettingsWindowTests {
         }
     }
 
+    // MARK: - Custom headers
+
+    /// The text field inside the header table's cell at (`row`, `column`).
+    private func headerField(_ c: SettingsWindowController, row: Int, column: Int, make: Bool = false) -> NSTextField? {
+        (c.connectionPane.headersTable.tableView.view(atColumn: column, row: row, makeIfNecessary: make)
+            as? NSTableCellView)?.textField
+    }
+
+    /// Types `text` into the header table's cell at (`row`, `column`) as a keystroke would.
+    private func typeHeader(_ text: String, row: Int, column: Int, _ c: SettingsWindowController) throws {
+        let table = c.connectionPane.headersTable
+        table.tableView.layoutSubtreeIfNeeded()
+        let field = try #require(headerField(c, row: row, column: column, make: true))
+        field.stringValue = text
+        table.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
+    }
+
+    @Test func headersTableShowsTheServersHeadersWithSecureValues() async throws {
+        var server = Self.server
+        server.headers = [CustomHeader(name: "X-Client-Id", value: "id.access"),
+                          CustomHeader(name: "X-Client-Secret", value: "s3cr3t")]
+        let c = try await controller(servers: [server])
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let table = c.connectionPane.headersTable
+        #expect(table.view.isDescendant(of: c.connectionPane.view))
+        #expect(table.tableView.numberOfRows == 2)
+        #expect(headerField(c, row: 1, column: 0, make: true)?.stringValue == "X-Client-Secret")
+        let value = headerField(c, row: 1, column: 1, make: true)
+        #expect(value is NSSecureTextField)
+        #expect(value?.stringValue == "s3cr3t")
+        #expect(table.addButton.isEnabled)
+        #expect(!table.removeButton.isEnabled, "nothing selected")
+        #expect(!c.applyButton.isEnabled)
+    }
+
+    @Test func addingAHeaderBlocksApplyUntilNamedThenSavesNameAndValue() async throws {
+        let c = try await controller()
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        c.connectionPane.headersCheckbox.performClick(nil)   // headers are off until turned on
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let table = c.connectionPane.headersTable
+
+        table.addHeader()
+        #expect(table.tableView.numberOfRows == 1)
+        #expect(!c.applyButton.isEnabled)
+        #expect(c.statusLabel.stringValue == "Enter a name for each custom header.")
+        c.applySettings(nil)
+        #expect(saved.isEmpty)
+
+        try typeHeader("X-Client-Id", row: 0, column: 0, c)
+        try typeHeader("id.access", row: 0, column: 1, c)
+        #expect(c.applyButton.isEnabled)
+        #expect(c.statusLabel.textColor != .systemRed)
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.headers == [CustomHeader(name: "X-Client-Id", value: "id.access")])
+    }
+
+    @Test func aReservedHeaderNameBlocksApplyWithItsMessage() async throws {
+        let c = try await controller()
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        c.connectionPane.headersCheckbox.performClick(nil)   // headers are off until turned on
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        c.connectionPane.headersTable.addHeader()
+        try typeHeader("Host", row: 0, column: 0, c)
+        try typeHeader("elsewhere", row: 0, column: 1, c)
+
+        #expect(!c.applyButton.isEnabled)
+        #expect(c.statusLabel.stringValue == "“Host” is set by macOS and can’t be overridden.")
+        #expect(c.statusLabel.textColor == .systemRed)
+        let name = try #require(headerField(c, row: 0, column: 0))
+        #expect(name.textColor == .systemRed)
+        #expect(name.toolTip == "“Host” is set by macOS and can’t be overridden.")
+        c.applySettings(nil)
+        #expect(saved.isEmpty)
+
+        try typeHeader("X-Host-Hint", row: 0, column: 0, c)
+        #expect(name.textColor == .controlTextColor)
+        #expect(c.applyButton.isEnabled)
+    }
+
+    /// Red is unreadable on the accent-colored selection, so a flagged name
+    /// follows the selected-text color there and turns red again elsewhere.
+    @Test func aFlaggedNameStaysReadableOnTheEmphasizedSelection() async throws {
+        let c = try await controller()
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        c.connectionPane.headersTable.addHeader()
+        try typeHeader("Host", row: 0, column: 0, c)
+        let cell = try #require(c.connectionPane.headersTable.tableView.view(atColumn: 0, row: 0, makeIfNecessary: false)
+            as? NSTableCellView)
+        cell.backgroundStyle = .emphasized
+        #expect(cell.textField?.textColor == .controlTextColor)
+        cell.backgroundStyle = .normal
+        #expect(cell.textField?.textColor == .systemRed)
+        try typeHeader("X-Fine", row: 0, column: 0, c)
+        #expect(cell.textField?.textColor == .controlTextColor)
+    }
+
+    @Test func removingAHeaderMarksTheServerDirtyAndSavesWithoutIt() async throws {
+        var server = Self.server
+        server.headers = [CustomHeader(name: "X-A", value: "1"), CustomHeader(name: "X-B", value: "2")]
+        let c = try await controller(servers: [server])
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let table = c.connectionPane.headersTable
+        table.tableView.selectRowIndexes([0], byExtendingSelection: false)
+        #expect(table.removeButton.isEnabled)
+        table.removeHeaders()
+        #expect(table.tableView.numberOfRows == 1)
+        #expect(c.applyButton.isEnabled)
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.headers == [CustomHeader(name: "X-B", value: "2")])
+    }
+
+    @Test func revertRestoresTheSavedHeaders() async throws {
+        var server = Self.server
+        server.headers = [CustomHeader(name: "X-A", value: "1")]
+        let c = try await controller(servers: [server])
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        try typeHeader("rotated", row: 0, column: 1, c)
+        #expect(c.applyButton.isEnabled)
+        c.revertSettings(nil)
+        try await waitUntil { !c.revertButton.isEnabled }
+        #expect(c.connectionPane.headersTable.headers == server.headers)
+        #expect(!c.applyButton.isEnabled)
+    }
+
+    /// The form rebuilds the server from its fields; the Access flag (no control
+    /// of its own yet) must ride along with an edit to another field.
+    @Test func editingAnotherFieldKeepsTheCloudflareAccessFlag() async throws {
+        var server = Self.server
+        server.useCloudflareAccess = true
+        let c = try await controller(servers: [server])
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        let host = c.connectionPane.hostField
+        host.stringValue = "127.0.0.7"
+        c.connectionPane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: host))
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.useCloudflareAccess == true)
+        #expect(saved.last?.servers.first?.host == "127.0.0.7")
+    }
+
+    /// Each switchable section shows its details only while its checkbox is on,
+    /// and the Access section comes before the custom headers.
+    @Test func sectionsShowTheirDetailsOnlyWhenTurnedOn() async throws {
+        let c = try await controller()
+        c.selectTab(.connection)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let pane = c.connectionPane
+        #expect(!pane.showsAccessDetails && !pane.showsHeaderDetails)
+        pane.accessCheckbox.performClick(nil)
+        #expect(pane.showsAccessDetails && !pane.showsHeaderDetails)
+        pane.headersCheckbox.performClick(nil)
+        #expect(pane.showsHeaderDetails)
+        c.window?.contentView?.layoutSubtreeIfNeeded()
+        let access = pane.accessCheckbox.convert(pane.accessCheckbox.bounds, to: nil)
+        let headers = pane.headersCheckbox.convert(pane.headersCheckbox.bounds, to: nil)
+        #expect(access.minY > headers.minY, "Cloudflare Access sits above Custom Headers")
+        pane.accessCheckbox.performClick(nil)
+        #expect(!pane.showsAccessDetails)
+    }
+
+    /// Headers that won't be sent are kept but don't block Apply, and the
+    /// checkbox is saved with the server.
+    @Test func turnedOffHeadersAreKeptButNotValidated() async throws {
+        var server = Self.server
+        server.headers = [CustomHeader(name: "Host", value: "bad")]
+        server.useCustomHeaders = false
+        let c = try await controller(servers: [server])
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        #expect(pane.headersCheckbox.state == .off && !pane.showsHeaderDetails)
+        pane.headersCheckbox.performClick(nil)
+        #expect(!c.applyButton.isEnabled, "turned on, the reserved name blocks Apply")
+        pane.headersCheckbox.performClick(nil)
+        #expect(!c.applyButton.isEnabled, "back to the saved state")
+        let host = pane.hostField
+        host.stringValue = "127.0.0.8"
+        pane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: host))
+        #expect(c.applyButton.isEnabled)
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.headers == server.headers)
+        #expect(saved.last?.servers.first?.useCustomHeaders == false)
+    }
+
+    // MARK: - Cloudflare Access
+
+    /// A controller whose stub browser never finishes, over in-memory sessions.
+    private func accessController() -> AccessSignInController {
+        AccessSignInController(sessions: AccessSessions(store: InMemoryAccessSessionStore()), environment: {
+            AccessSignIn.Environment(session: URLSession(configuration: StubURLProtocol.configuration()),
+                                     openBrowser: { _ in true })
+        })
+    }
+
+    @Test func turningOnAccessWaitsForApplyBeforeSignIn() async throws {
+        let c = try await controller()
+        c.accessSignIn = accessController()
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        #expect(pane.accessCheckbox.state == .off)
+        #expect(!pane.accessSignInButton.isEnabled)
+
+        pane.accessCheckbox.performClick(nil)
+        #expect(c.applyButton.isEnabled)
+        #expect(pane.accessStatus.stringValue.hasPrefix("Click Apply"))
+        #expect(!pane.accessSignInButton.isEnabled)
+
+        c.applySettings(nil)
+        try await waitUntil { !saved.isEmpty }
+        #expect(saved.last?.servers.first?.useCloudflareAccess == true)
+        #expect(pane.accessSignInButton.isEnabled)
+        #expect(pane.accessStatus.stringValue == "Not signed in.")
+        #expect(!pane.accessSignOutButton.isEnabled)
+        #expect(pane.accessCancelButton.isHidden)
+    }
+
+    @Test func aSignedInServerShowsItAndCanSignOut() async throws {
+        var server = Self.server
+        server.useCloudflareAccess = true
+        let c = try await controller(servers: [server])
+        let access = accessController()
+        try access.sessions.setSession(AccessStub.Deployment().session(expiresAt: Date().addingTimeInterval(600),
+                                                                      signedInAt: Date()), for: server.id)
+        c.accessSignIn = access
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        #expect(pane.accessStatus.stringValue.hasPrefix("Signed in · "))
+        #expect(pane.accessSignInButton.title == "Sign In Again…")
+        #expect(pane.accessSignOutButton.isEnabled)
+        pane.accessSignOutButton.performClick(nil)
+        #expect(access.sessions.session(for: server.id)?.isSignedIn == false)
+        #expect(pane.accessStatus.stringValue == "Not signed in.")
+        #expect(pane.accessSignInButton.title == "Sign In…")
+    }
+
+    @Test func signingInShowsWaitingWithCancel() async throws {
+        var server = Self.server
+        server.useCloudflareAccess = true
+        let c = try await controller(servers: [server])
+        c.accessSignIn = accessController()
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        pane.accessSignInButton.performClick(nil)
+        // The server is plain HTTP: the sign-in explains that it needs HTTPS.
+        #expect(pane.accessStatus.stringValue.contains("HTTPS"))
+        #expect(pane.accessStatus.textColor == .systemRed)
+
+        var https = server
+        https.host = StubURLProtocol.uniqueHost()
+        https.useHTTPS = true
+        c.accessSignIn.signIn(server: https)
+        c.selectTab(.connection)
+        // Not the selected server's id, so render the waiting phase directly.
+        pane.renderAccess(session: nil, phase: .waiting(URL(string: "https://x.cloudflareaccess.com/cdn-cgi/access/oauth/authorization")), saved: true)
+        #expect(!pane.accessCancelButton.isHidden)
+        #expect(!pane.accessCopyLinkButton.isHidden && pane.accessCopyLinkButton.isEnabled)
+        #expect(!pane.accessSignInButton.isEnabled)
+        c.accessSignIn.cancel(server: https.id)
+
+        pane.renderAccess(session: nil, phase: .failed("Other."), saved: true)
+        #expect(pane.accessStatus.stringValue == "Other.")
+        #expect(pane.accessCancelButton.isHidden && pane.accessCopyLinkButton.isHidden)
+    }
+
+    /// Test Connection must probe as the selected server, or the Access token
+    /// (looked up by server id) isn't sent and Access turns the probe away.
+    @Test func testConnectionProbesUnderTheSelectedServersID() async throws {
+        var server = Self.server
+        server.useCloudflareAccess = true
+        let c = try await controller(servers: [server])
+        c.selectTab(.connection)
+        let host = c.connectionPane.hostField
+        host.stringValue = "edited.example.com"
+        c.connectionPane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: host))
+        let probed = c.formServer()
+        #expect(probed.id == server.id)
+        #expect(probed.host == "edited.example.com")
+        #expect(probed.useCloudflareAccess)
+    }
+
+    /// The Connection form is taller than the minimum window, so it scrolls
+    /// rather than forcing the window taller.
+    @Test func connectionTabScrollsAtMinimumSize() async throws {
+        let c = try await controller()
+        let window = try #require(c.window)
+        window.setContentSize(NSSize(width: 760, height: 560))
+        c.selectTab(.connection)
+        window.contentView?.layoutSubtreeIfNeeded()
+        #expect(window.contentView?.frame.height == 560)
+        let scroll = try #require(c.connectionPane.view as? NSScrollView)
+        let document = try #require(scroll.documentView)
+        #expect(document.frame.height > scroll.contentView.bounds.height)
+        #expect(c.connectionPane.accessCheckbox.isDescendant(of: document))
+    }
+
+    @Test func headersTableFitsAtMinimumSize() async throws {
+        let c = try await controller()
+        let window = try #require(c.window)
+        window.setContentSize(NSSize(width: 760, height: 560))
+        c.selectTab(.connection)
+        c.connectionPane.headersCheckbox.performClick(nil)   // headers are off until turned on
+        window.contentView?.layoutSubtreeIfNeeded()
+        let table = c.connectionPane.headersTable
+        #expect(table.view.bounds.width >= 300)
+        #expect(table.view.bounds.height > 100)
+        #expect(!table.view.hasAmbiguousLayout)
+        #expect(!table.addButton.hasAmbiguousLayout)
+    }
+
     @Test func trackerEditorExposesNativeTextAccessibilityAndKeepsMultilineDraft() async throws {
         let c = try await controller()
         let area = try #require(c.form.controls[.defaultTrackers]?.first as? ServerOptionsTextArea)

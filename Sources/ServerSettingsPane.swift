@@ -553,7 +553,7 @@ final class SettingsBlockerView: NSView {
     }
 }
 
-private final class SettingsFlippedView: NSView {
+final class SettingsFlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 

@@ -144,6 +144,10 @@ rates show the active limit, e.g. `↓ 1.2 MB/s (500 KB/s)`. Verified against a 
 
 Round-6 (unified Settings, no plan file): the separate Server Options window is gone. **One Settings window** with a sidebar (**App ▸ General** + one row per server) shows, for a server, a header and five tabs: **Connection** (this Mac) and **Transfers / Speed / Network / Advanced** (the daemon's session settings; Queue merged into Transfers, speed presets and bandwidth groups on Speed). **Server ▸ Server Settings…** (⌥⌘,) and the toolbar button (label "Server Settings", identifier still `serverOptions`) open the active server's last tab; any server can be edited. `ServerConfig` gained a stable **`id: UUID`** (minted for old preferences and written back by adding only the `id` keys). See `docs/SERVER_SETTINGS.md` and *Config ▸ Settings window* below. Verified by unit tests and window captures with `-OpenSettings`; no Apply was sent to the owner's server.
 
+Round-7 (custom headers + redirects, branch `cf-access-headers`): each server can carry **custom HTTP headers** sent with every RPC request (first use: an access proxy's service-token headers), edited in a **Custom Headers** table on the Connection tab. Names live in `preferences.json`, values in the **Keychain**. RPC requests **refuse redirects**: a 3xx becomes `TransmissionError.redirected`, which Test Connection explains (HTTPS upgrade / sign-in page on another host / other path). The code stays generic: no proxy-vendor names. See *Config ▸ Custom headers & redirects*. Verified by unit tests, the Docker fixture gate (`make fixture-test`: 28 tests incl. the three `FixtureProxyTests` against the nginx sidecar, no skips), and the live Debug app driven through the AX API (add a row, reserved name blocks Apply, fix, Apply, saved file has names only).
+
+Round-8 (Cloudflare Access sign-in, same branch): **"Sign in with Cloudflare Access"** on the Connection tab signs in with Cloudflare's **Managed OAuth** (the documented flow for apps) in the **default browser**, any login method the Access app offers. Tokens live in the **Keychain**, the access token goes out as `cf-access-token` (so `Authorization` stays Transmission's Basic login), and it **renews itself** with the refresh token; the browser is needed again only when the grant ends, and never opens without a click. Needs **Managed OAuth on** for the Access application (with loopback clients allowed) and the app's **Binding Cookie off** (with it on, Access refuses its own OAuth tokens). See *Config ▸ Cloudflare Access sign-in* and `docs/CLOUDFLARE_ACCESS.md`. Verified by unit tests (the whole flow against stubs), the fixture gate (31 tests), and live: browser sign-in, Test Connection through Access with Transmission's own login, Keychain contents, and an automatic renewal after the access token expired.
+
 Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 
 - **Remove**'s data-deleting path and the per-file wanted/priority **writes** were
@@ -174,7 +178,18 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `ServerOptions.swift` — Foundation-only session-settings schema (pane/tier/group per field), editor, `ServerOptionsSession`, and `ServerSettingsScope` (availability, apply plan) (tested).
 - `BandwidthGroupsWindowController.swift` — the bandwidth groups editor, shown as a sheet from the Speed tab.
 - `SettingsEditor.swift` — Foundation-only editing model behind Settings: per-server dirty/apply/revert (tested).
-- `ConnectionDiagnostics.swift` — Test Connection error→message mapping (tested).
+- `ConnectionDiagnostics.swift` — Test Connection error→message mapping, incl. refused redirects (`redirectKind`, `shortRedirect`) (tested).
+- `CloudflareAccess.swift` — Access constants (`cf-access-token`, the login-redirect path, team-domain check) and `AccessError` (tested).
+- `AccessOAuth.swift` — Managed OAuth pieces: Bearer-challenge parsing, resource/authorization-server metadata and their checks, PKCE S256, registration/authorization/token/refresh/revocation requests (tested).
+- `AccessLoopback.swift` — the one-shot 127.0.0.1 listener for the OAuth redirect (`AuthorizationCallbackReceiver`) and its result page (`page(for:)`: the app's icon and name over a card styled like Access's pages; no script, nothing from the query echoed) (tested).
+- `AccessSignIn.swift` — the sign-in flow (discover → register or reuse → browser → code exchange), refresh and revoke; cookie-less; injectable network/browser/clock/receiver (tested).
+- `AccessSessionStore.swift` — `AccessSession` (discovery, registration, tokens, expiry) in the Keychain; `AccessSessions` app-wide cache, change notification (or a quiet save), prune (tested).
+- `AccessHeaderSource.swift` — `AccessTokenHeaderSource` (`cf-access-token` to the token's host only, renewal before expiry and on refusal), `AccessTokenRefresher` (one refresh per server), `AccessSignInReason` (tested).
+- `AccessSignInController.swift` — app-wide sign-in runner and phases shared by Settings and the main window; sign-out revokes and keeps the registration; `appURL(for:)`, `statusText` (tested).
+- `MainWindowController+Access.swift` — the once-per-episode sign-in prompt and Server ▸ Sign In to Cloudflare Access….
+- `CustomHeaders.swift` — `CustomHeader` (encodes its name only) + `HeaderValidation` (reserved/malformed/duplicate names, line breaks) (tested).
+- `HeaderSecretStore.swift` — header values: `KeychainHeaderStore` (login Keychain, one item per server id) and `InMemoryHeaderStore` (tests, `-PreferencesPath` runs); `hydrate`/`persist` (tested).
+- `CustomHeadersTable.swift` — the Connection tab's headers table (Name / secure Value, +/−) and `HeaderCellView` (tested via `ServerSettingsWindowTests`).
 - `HostCandidates.swift` — comma-separated host parsing + `ConnectionResolver` (tested).
 - `TorrentLink.swift` — magnet / `.torrent` URL / bare info-hash recognition (tested).
 - `DefaultHandlers.swift` — Launch Services default-app status + Make Default for
@@ -205,7 +220,7 @@ Intentionally dropped: **label filtering and the Labels column/sidebar group.**
 - `SidebarController.swift` — the source-list filter sidebar (`NSOutlineView`).
 - `Filtering.swift` — `StatusFilter` / `SidebarFilter` (filter predicates).
 - `TransmissionClient.swift` — `actor` over `URLSession`; HTTP Basic auth + the
-  **409 / `X-Transmission-Session-Id` CSRF retry**; typed RPC wrappers.
+  **409 / `X-Transmission-Session-Id` CSRF retry**; typed RPC wrappers; custom headers via `RequestHeaderSource`; redirects refused (`RedirectRefuser`).
 - `RefreshController.swift` — `@MainActor` poll loop (~4s), connection state,
   pause-on-minimize, default download-dir + free-space.
 - `Models.swift`, `AppConfig.swift`, `Formatters.swift`, `ProgressCellView.swift`,
@@ -251,6 +266,16 @@ open ~/Library/Developer/Xcode/DerivedData/TransmissionRemote-*/Build/Products/D
 ```
 
 Keep the build **clean with zero warnings** (Swift 6 strict concurrency `complete`).
+
+**Local Debug signing (optional).** `project.yml` ad-hoc signs Debug, so every rebuild is a new code identity and the Keychain asks again for the header values. To sign Debug with your own Apple Development certificate, create an **untracked** `Local.xcconfig` at the repo root (keep it out of git, e.g. via `.git/info/exclude`):
+
+```
+CODE_SIGN_STYLE[config=Debug] = Manual
+CODE_SIGN_IDENTITY[config=Debug] = Apple Development
+DEVELOPMENT_TEAM[config=Debug] = <your team ID>
+```
+
+`make test` / `make dev` pass `-xcconfig Local.xcconfig` when the file exists; it overrides `project.yml`'s target settings without touching it, and XcodeGen never sees it. Builds started from Xcode, raw `xcodebuild` calls and `scripts/fixture/run-tests.sh` don't use it.
 
 ## Config
 
@@ -327,6 +352,28 @@ first that responds, so leaving/joining the tailnet fails over transparently.
   Verified live against the owner's N5 server: all three hosts (IP, `.local`,
   Tailscale-HTTPS) respond, and failover resolves to a reachable host
   (`LiveConnectionTests`).
+
+### Cloudflare Access sign-in
+
+Browser sign-in for a daemon behind Cloudflare Access with **Managed OAuth** ([docs](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/)). Details, the required Access settings and the manual checklist are in `docs/CLOUDFLARE_ACCESS.md`.
+
+- **Discovery** (`AccessSignIn.discover`): a token-less `session-get` POST gets Access's `401` with `WWW-Authenticate: Bearer … resource_metadata="…"`; the resource metadata (same host) names the authorization server, which must be HTTPS on `*.cloudflareaccess.com`; its RFC 8414 metadata must offer S256, public clients and registration, with endpoints on its own host. A `302` to `/cdn-cgi/access/login` instead means Managed OAuth is off (`AccessError.managedOAuthOff`).
+- **Sign-in:** register once per server (RFC 7591, `token_endpoint_auth_method: none`, redirect `http://127.0.0.1:<port>/callback`), reusing the client and its port (a busy port → new port + new registration); open the authorization URL (PKCE S256, `state`, `resource`) in the default browser; `LoopbackCallbackServer` takes the code; exchange it for access + refresh tokens.
+- **Storage:** `ServerConfig.useCloudflareAccess` (in `preferences.json`, part of `requiresReconnect`) turns it on; the `AccessSession` is a Keychain item per server (`…cloudflare-access` service), so signing in/out never dirties Settings. Items in an older format read as signed out. Sign Out revokes the tokens and keeps the registration. `AccessSessions.shared` is in-memory under `TestIsolation` and in the test bundle.
+- **Sending:** `TransmissionClient.init` adds `AccessTokenHeaderSource` for a server using Access over HTTPS: `cf-access-token: <oauth token>` only to the token's resource host (LAN fallbacks never get it), leaving `Authorization` for Basic auth.
+- **Renewal:** the token is renewed 30 s before `expiresAt`, and when Access answers a sent token with its Bearer challenge (the hook's `requestRejected()`; the client retries once). `AccessTokenRefresher` runs one refresh per server (Access rotates refresh tokens) and saves quietly, without restarting the connection. A failed refresh (`invalid_grant`, the grant ended) signs the session out and announces it; the request fails with `.expired`, and the main window asks once.
+- **Lifetimes:** Cloudflare's [recommendation for CLI and agent clients](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/#managed-oauth-settings) is a 5–15 minute access token and a 1–2 week grant session (summarized in `docs/CLOUDFLARE_ACCESS.md`, which also has the steps to put Transmission's `/transmission/rpc` behind an Access application and a tunnel).
+- **No cookies:** sign-in and RPC requests set `httpShouldHandleCookies = false`.
+
+### Custom headers & redirects
+
+For a daemon behind an access proxy (one that wants service-token headers on every request, and redirects anything else to its sign-in page).
+
+- `ServerConfig.headers: [CustomHeader]`, ordered, sent only while `useCustomHeaders` is on (the "Send custom headers" checkbox; decodes to on exactly when headers exist; part of `requiresReconnect`; off = kept, not sent, not validated). `preferences.json` stores only `{"name": …}` (decodes to `[]` when absent; a `value` key in the file is ignored). Values live in the **login Keychain**: one generic-password item per server, service `com.nickvance.transmission-remote-mac.custom-headers`, account = server UUID, data = JSON name→value. `PreferencesStore.load` fills them in (`hydrate`); `save` writes them (`persist`, skipping unchanged ones) and deletes items for servers that are gone, so removing a header or server removes its value and Undo of Remove Server writes it back. If the Keychain can't be read at launch, values are **never written back that session** (a denied prompt must not erase them). Under `TestIsolation` an in-memory store is used.
+- **Validation** (`HeaderValidation`): rejects empty/malformed names, duplicates (case-insensitive), values with CR/LF, URLSession's reserved names (Authorization, Connection, Content-Length, Host, Proxy-Authenticate, Proxy-Authorization, WWW-Authenticate) and the app's own (Content-Type, X-Transmission-Session-Id). Settings blocks Apply and Test Connection on a problem; the client also drops anything invalid, so a hand-edited file can't clobber the built-in headers.
+- **Sending:** `TransmissionClient` takes `[RequestHeaderSource]`: the configured headers first (`StaticHeaderSource`), then any extra sources passed to `init` (a later source wins on a repeated name). Sources are asked once per request, before the 409 retries, so a runtime source (a token fetched on demand) can be added without touching `perform()`. Custom headers are set before the built-in ones. Host candidates copy the whole config, so failover probes and Test Connection send them too.
+- **Reconnect:** headers (names, values, order) are part of `requiresReconnect`; `SettingsWindowController.sameConnection` defers to it.
+- **Redirects** are refused on every RPC request (a per-task delegate), so a 3xx comes back as `TransmissionError.redirected(status:location:)` instead of the login page failing to decode. `ConnectionDiagnostics` distinguishes same host over HTTPS ("Turn on Use HTTPS"), another host (likely a sign-in page; check Custom Headers) and another path (check the RPC Path).
 
 ### Remote→local path mappings (Reveal in Finder / Open)
 
@@ -466,6 +513,7 @@ round-trip), and **`TorrentFileRemover`** (Trash / permanent delete of an added
 recognition, strict vs. loose) plus the `showAddOptions`/`addLinksFromClipboard`
 settings' decode defaults, round-trip, and editor plumbing.
 Unified Settings adds **`ServerSettingsScopeTests`** (tier mapping and dependency rule, availability, apply plan/order incl. a failed server write keeping every edit, speed absorb, per-server apply/revert/remove-undo in `SettingsEditor`, active-server rename follow) and **`ServerSettingsWindowTests`** (the embedded form against a stub service: controls, Return/Esc, apply order with presets, blocked states + Retry, per-server tab memory, validation focus expanding collapsed groups, layout at minimum size); **`ServerReorderDropTests`** now drive the sidebar.
+Cloudflare Access adds **`AccessOAuthTests`** (challenge parsing, metadata checks against real Access documents, the RFC 7636 PKCE vector, request shapes), **`AccessSignInTests`** (the whole flow against stubs via `AccessStub`: stub browser and loopback receiver, no real ports; registration reuse and busy port, Managed OAuth off, untrusted metadata, denied/forged callbacks, timeout, cancel, refresh/rotation, revocation, the loopback request parsing and result page), **`AccessSessionStoreTests`**, **`AccessHeaderSourceTests`** (host scoping, quiet renewal, one shared refresh, ended grant, refused token renewed and retried, refusal classification, messages, reconnect on sign-in), **`AccessSignInControllerTests`** and **`CloudflareAccessTests`**, plus Access cases in `ServerSettingsWindowTests`. The fixture's `/access/…` answers like Managed OAuth (401 Bearer challenge unless `cf-access-token: fixture-access-token`); `/access-legacy/…` like an app with it off (302 to the login page). Custom headers add **`CustomHeadersTests`** (old/new config shapes, values never encoded, validation, `hydrate`/`persist` incl. removed headers and servers; an opt-in real-Keychain round trip behind `TEST_RUNNER_RUN_KEYCHAIN_TESTS=1`), **`RequestHeadersTests`** (headers on the wire incl. the 409 retry, reserved names never clobbering built-ins, runtime sources, host candidates), **`RedirectTests`** (301/302/303/307/308 refused, relative Locations, diagnostics) and header cases in `ServerIdentityTests` and `ServerSettingsWindowTests`. Wire tests use **`StubURLProtocol`** (`Tests/`), which keeps state per host (`uniqueHost()`) so parallel suites don't collide, and sends 3xx replies through URLSession's real redirect handling. **`FixtureProxyTests`** run against an nginx sidecar in the fixture (`scripts/fixture/nginx.conf`, host port **19092**): `/redirect/…` answers 302 to a login page on another host; `/gated/…` forwards to the daemon only with `X-Fixture-Token: fixture-token`; `/access/…` and `/access-legacy/…` mimic Cloudflare Access with and without Managed OAuth (see above).
 A `TorrentFactory` helper builds `Torrent` values from a default JSON dict.
 
 ```sh
@@ -477,7 +525,7 @@ xcodebuild -project TransmissionRemote.xcodeproj -scheme TransmissionRemote \
 daemon and never probes a port, so the same tree gives the same answer on any
 machine. Daemon-backed tests are opt-in through their env vars. The one-command
 gate for the fixture is `scripts/fixture/run-tests.sh`: it runs the fixture classes
-(`FixtureTransmissionTests`, `FixtureConcurrencyTests`, `FixtureFailoverTests`) and
+(`FixtureTransmissionTests`, `FixtureConcurrencyTests`, `FixtureFailoverTests`, `FixtureProxyTests`) and
 exits non-zero on any skip, so a passing fixture run means every test ran. Skips in
 the default run are fine (they are the opt-in gates); a skip in opt-in mode is a
 failure. Tests needing local files must generate them, not read `~/Downloads`.
@@ -556,7 +604,9 @@ end tell
 ```
 
 Notes: `entire contents of window 1` **chokes** on the 1041-row tree — drill explicit
-paths. To drive the search filter in a test, **`set value of <searchField>`** fires
+paths.
+
+**On macOS 27** the permission is **Privacy & Security ▸ Device Control and Data Access** (formerly Accessibility; deep link `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`). It must be granted to the process macOS holds responsible, which for Claude Code is its bundled helper `~/Library/Application Support/Claude/claude-code/<version>/…/claude.app`, not `/Applications/Claude.app`. There, **System Events can count UI elements but can't fetch them** ("Can't get object"; `entire contents` returns nothing), in both AppleScript and JXA. Use the AX API directly instead (`AXUIElementCreateApplication` with the app's pid, find elements by `AXIdentifier`, `AXPress` buttons, set `AXFocused`, and post key events with `CGEvent.postToPid`). The Settings controls carry identifiers for this (`server-headers-add`, `server-headers-table`, `server-options-apply`, …). Isolated runs (`-PreferencesPath`) don't activate the app, so bring it forward with `NSRunningApplication.activate()` before typing. To drive the search filter in a test, **`set value of <searchField>`** fires
 the filter action reliably; `keystroke` into the field is flaky.
 
 **Prefer the AppleScript scripting dictionary** (`Resources/TransmissionRemote.sdef`,
