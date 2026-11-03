@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.11.02.1 — 2026-11-02
+
+- Reach a daemon behind Cloudflare Access: browser sign-in and custom headers (#26)
+- Harden Cloudflare Access sign-in and custom header handling
+- Rework the Settings window layout and tuck Access Proxy away
+
 ## 2026.10.30.1 — 2026-10-30
 
 - Add sortable Error column to the transfer list (#25)
