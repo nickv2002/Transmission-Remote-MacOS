@@ -8,3 +8,6 @@ DerivedData/
 
 .context/
 scripts/fixture/.data/
+
+# Per-developer signing settings (see Makefile)
+Local.xcconfig

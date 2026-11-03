@@ -2,7 +2,7 @@
 
 A server behind [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/access-controls/) can be reached by signing in through the browser, with any login method the Access application offers (Google, an emailed one-time PIN, other identity providers, passkeys). Turn it on in **Settings ▸ <server> ▸ Connection ▸ Cloudflare Access**, click **Apply**, then **Sign In…**.
 
-The app uses Cloudflare's [Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/), the sign-in Cloudflare documents for apps and agents. For machine access without a person, use a service token instead: add its `CF-Access-Client-Id` and `CF-Access-Client-Secret` under **Custom Headers**.
+The app uses Cloudflare's [Managed OAuth](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/managed-oauth/), the sign-in Cloudflare documents for apps and agents. For machine access without a person, use a service token instead: add its `CF-Access-Client-Id` and `CF-Access-Client-Secret` under **Custom Headers** (Settings ▸ server ▸ Connection ▸ **Access Proxy**, a collapsed group). Custom headers are sent only over HTTPS (or to this Mac), never to a plain-HTTP fallback host.
 
 ## Put Transmission behind Access
 

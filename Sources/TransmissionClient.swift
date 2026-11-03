@@ -132,7 +132,7 @@ actor TransmissionClient: ServerOptionsService {
         }
 
         var sources: [any RequestHeaderSource] =
-            server.useCustomHeaders && !server.headers.isEmpty ? [StaticHeaderSource(server.headers)] : []
+            server.sendsCustomHeaders ? [StaticHeaderSource(server.headers)] : []
         if let access = AccessTokenHeaderSource.source(for: server, sessions: accessSessions) { sources.append(access) }
         self.headerSources = sources + headerSources
 
