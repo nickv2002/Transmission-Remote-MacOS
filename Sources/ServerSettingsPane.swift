@@ -69,7 +69,7 @@ final class ServerSettingsFormController: NSObject, NSTextFieldDelegate {
         document.addSubview(stack)
         NSLayoutConstraint.activate([
             document.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
-            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 4),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 0),
             stack.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -16),
             stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 8),
             stack.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -16),
@@ -166,6 +166,17 @@ final class ServerSettingsFormController: NSObject, NSTextFieldDelegate {
         }
     }
 
+    /// Label column for a tab: just wide enough for its longest field label, so
+    /// fields sit close to their labels.
+    private static func labelColumnWidth(for pane: ServerOption.Pane) -> CGFloat {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let widest = ServerOption.definitions.filter { def in
+            if case .boolean = def.kind { return false }
+            return def.pane == pane && def.key != .scheduleDays
+        }.map { ($0.title + ":").size(withAttributes: [.font: font]).width }.max() ?? 120
+        return ceil(widest) + 2
+    }
+
     private func buildField(_ field: ServerOption.Definition) -> NSView {
         let key = field.key
         if case .boolean = field.kind {
@@ -230,7 +241,7 @@ final class ServerSettingsFormController: NSObject, NSTextFieldDelegate {
         }
         input.translatesAutoresizingMaskIntoConstraints = false
         row.addSubview(input)
-        let labelWidth: CGFloat = key == .scheduleDays ? 60 : 220
+        let labelWidth: CGFloat = key == .scheduleDays ? 60 : Self.labelColumnWidth(for: field.pane)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: row.leadingAnchor),
             label.widthAnchor.constraint(equalToConstant: labelWidth),
@@ -547,6 +558,9 @@ final class SettingsBlockerView: NSView {
             message.stringValue = "Can’t reach \(serverName). \(detail)"
             offline = true
         }
+        // Hidden (and so detached from the stack) unless connecting, so the message
+        // lines up with the buttons beneath it instead of leaving a spinner-sized gap.
+        spinner.isHidden = availability != .connecting
         if availability == .connecting { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
         retryButton.isHidden = !offline
         testButton.isHidden = !offline

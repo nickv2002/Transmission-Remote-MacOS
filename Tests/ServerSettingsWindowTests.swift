@@ -514,6 +514,7 @@ struct ServerSettingsWindowTests {
         c.selectTab(.connection)
         c.window?.contentView?.layoutSubtreeIfNeeded()
         let pane = c.connectionPane
+        pane.setProxyExpanded(true, remember: false)
         #expect(!pane.showsAccessDetails && !pane.showsHeaderDetails)
         pane.accessCheckbox.performClick(nil)
         #expect(pane.showsAccessDetails && !pane.showsHeaderDetails)
@@ -525,6 +526,30 @@ struct ServerSettingsWindowTests {
         #expect(access.minY > headers.minY, "Cloudflare Access sits above Custom Headers")
         pane.accessCheckbox.performClick(nil)
         #expect(!pane.showsAccessDetails)
+    }
+
+    /// The Access Proxy group is closed by default, with both features off, and
+    /// opens by itself when one is on or a header needs fixing.
+    @Test func accessProxyGroupIsCollapsedByDefault() async throws {
+        let c = try await controller()
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        #expect(!pane.proxyExpanded)
+        #expect(!pane.useCloudflareAccess && !pane.useCustomHeaders)
+        #expect(!pane.showsAccessDetails && !pane.showsHeaderDetails)
+        #expect(pane.accessCheckbox.isHidden || pane.accessCheckbox.superview != nil)
+        var server = pane.currentServer()
+        server.useCustomHeaders = true
+        server.headers = [CustomHeader(name: "X-Token", value: "t")]
+        pane.load(server)
+        #expect(pane.proxyExpanded && pane.showsHeaderDetails, "an enabled feature is never hidden")
+        pane.load(ServerConfig(name: "Plain", host: "h", port: 9091, useHTTPS: false, rpcPath: "/transmission/rpc"))
+        #expect(!pane.proxyExpanded, "a server that doesn't use it starts closed again")
+        pane.headersTable.addHeader()
+        pane.headersTable.load([CustomHeader(name: "Bad Name", value: "x")])
+        pane.useCustomHeadersForTesting(true)
+        _ = pane.firstInvalidControl
+        #expect(pane.proxyExpanded, "an invalid header opens the group")
     }
 
     /// Headers that won't be sent are kept but don't block Apply, and the
@@ -671,6 +696,7 @@ struct ServerSettingsWindowTests {
         let window = try #require(c.window)
         window.setContentSize(NSSize(width: 760, height: 560))
         c.selectTab(.connection)
+        c.connectionPane.setProxyExpanded(true, remember: false)   // the group is collapsed until opened
         c.connectionPane.headersCheckbox.performClick(nil)   // headers are off until turned on
         window.contentView?.layoutSubtreeIfNeeded()
         let table = c.connectionPane.headersTable

@@ -34,8 +34,17 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
     let headersCheckbox = NSButton(checkboxWithTitle: "Send custom headers", target: nil, action: nil)
     /// The form grid, and which of its rows belong to each switchable section.
     private var grid: NSGridView?
-    private var accessDetailRows: [Int] = []
-    private var headerDetailRows: [Int] = []
+    /// Rows that appear only while the "Access Proxy" group is open.
+    private var proxyGroupRows: [NSGridRow] = []
+    /// Rows that appear only while the group is open and the section's checkbox is on.
+    private var accessDetailRows: [NSGridRow] = []
+    private var headerDetailRows: [NSGridRow] = []
+    /// The "Access Proxy" disclosure: collapsed unless the server uses one of its
+    /// features or the user opened it. Opening is remembered per server.
+    let proxyDisclosure = NSButton()
+    private(set) var proxyExpanded = false
+    private var shownServerID: UUID?
+    private static let proxyExpandedKey = "ConnectionProxyExpandedServers"
     /// The shown server's Cloudflare Access setting, edited by `accessCheckbox`.
     private(set) var useCloudflareAccess = false
     let accessCheckbox = NSButton(checkboxWithTitle: "Sign in with Cloudflare Access", target: nil, action: nil)
@@ -89,7 +98,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         httpsCheckbox.action = #selector(fieldEnded)
         nameField.setAccessibilityIdentifier("server-name")
         hostField.setAccessibilityIdentifier("server-host")
-        hostField.placeholderString = "host, or comma/line-separated list of fallbacks"
+        hostField.placeholderString = "e.g. 192.168.1.10, nas.local, https://example.ts.net"
+        nameField.placeholderString = "e.g. Home NAS"
         hostField.toolTip = "One host, or a comma- or line-separated list of fallbacks tried in "
             + "order — e.g. 10.0.1.2, n5.local, https://transmission.example.ts.net. "
             + "Each may include a scheme/port; the app connects to the first that responds."
@@ -102,7 +112,8 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         hostField.heightAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
         portField.placeholderString = "9091"
         rpcPathField.placeholderString = "/transmission/rpc"
-        usernameField.placeholderString = "(none)"
+        usernameField.placeholderString = "Optional"
+        passwordField.placeholderString = "Optional"
         detailFields = [nameField, hostField, portField, httpsCheckbox, rpcPathField, usernameField, passwordField]
 
         let scope = label(ServerSettingsScope.Storage.mac.rawValue)
@@ -131,33 +142,29 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             [label("RPC Path:"), rpcPathField],
             [label("Username:"), usernameField],
             [label("Password:"), passwordField],
-            [NSView(), testRow],
-            [label("Cloudflare Access:"), accessCheckbox],
-            [NSView(), buildAccessStatusRow()],
-            [NSView(), buildAccessButtonsRow()],
-            [NSView(), caption("Signs in through your browser with any login method the Access application offers. Needs Managed OAuth on for the application. The session is kept in the Keychain, renews itself, and is sent only to the HTTPS host it was issued for.")],
-            [label("Custom Headers:"), headersCheckbox],
-            [NSView(), headersTable.view],
-            [NSView(), caption("Sent with every request, e.g. the service-token headers an access proxy requires. Values are stored in the Keychain.")],
-            [label("Path Mappings:"), buildPathMappingsEditor()],
-            [NSView(), caption("Remote→local, one per line.\ne.g.  /video=/Volumes/Video\nLocal side also accepts smb://host/share/path, resolved to wherever that share is currently mounted.")],
         ])
         grid.translatesAutoresizingMaskIntoConstraints = false
-        grid.column(at: 0).xPlacement = .trailing
+        // Labels flush left, sized to the longest, so fields sit close to them.
+        grid.column(at: 0).xPlacement = .leading
+        grid.columnSpacing = 10
         grid.rowAlignment = .firstBaseline
         grid.column(at: 1).width = 300
-        // The headers table and the mappings editor are multi-line; top-align their rows.
-        for row in [14, 16] {
-            grid.row(at: row).yPlacement = .top
-            grid.row(at: row).rowAlignment = .none
-        }
-        // Each section's details show only while its checkbox is on.
         self.grid = grid
-        accessDetailRows = [10, 11, 12]
-        headerDetailRows = [14, 15]
-        headersCheckbox.target = self
-        headersCheckbox.action = #selector(headersCheckboxChanged)
-        headersCheckbox.setAccessibilityIdentifier("server-headers-enabled")
+        addProxyGroup(to: grid)
+        // Test Connection probes everything above it (host, credentials, proxy
+        // headers), so it follows the group; a divider then sets the unrelated
+        // path mappings apart.
+        grid.addRow(with: [NSView(), testRow])
+        let rule = NSBox()
+        rule.boxType = .separator
+        let divider = grid.addRow(with: [rule, NSView()])
+        divider.mergeCells(in: NSRange(location: 0, length: 2))
+        divider.topPadding = 14
+        divider.bottomPadding = 10
+        let mappings = grid.addRow(with: [label("Path Mappings:"), buildPathMappingsEditor()])
+        mappings.yPlacement = .top
+        mappings.rowAlignment = .none
+        grid.addRow(with: [NSView(), caption("Remote→local, one per line.\ne.g.  /video=/Volumes/Video\nLocal side also accepts smb://host/share/path, resolved to wherever that share is currently mounted.")])
         updateSectionVisibility()
         // Scrolls like the server tabs, so the form never forces the window taller
         // than its minimum size.
@@ -177,6 +184,69 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
             grid.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -16),
         ])
         return scroll
+    }
+
+    /// Appends the collapsed "Access Proxy" group: Cloudflare Access sign-in and
+    /// custom headers, both off by default. Rows are kept by reference, so moving
+    /// them never breaks the visibility rules.
+    private func addProxyGroup(to grid: NSGridView) {
+        proxyDisclosure.bezelStyle = .disclosure
+        proxyDisclosure.setButtonType(.pushOnPushOff)
+        proxyDisclosure.title = ""
+        proxyDisclosure.target = self
+        proxyDisclosure.action = #selector(proxyDisclosureToggled)
+        proxyDisclosure.setAccessibilityLabel("Access Proxy")
+        proxyDisclosure.setAccessibilityIdentifier("server-proxy-disclosure")
+        let title = label("Access Proxy")
+        title.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        let click = NSClickGestureRecognizer(target: self, action: #selector(proxyDisclosureToggled))
+        title.addGestureRecognizer(click)
+        let header = NSStackView(views: [proxyDisclosure, title])
+        header.spacing = 4
+        header.alignment = .centerY
+        let hint = caption("For a server behind an access proxy such as Cloudflare Access. Most servers don’t need this.")
+        grid.addRow(with: [NSView(), header])
+        proxyGroupRows.append(grid.addRow(with: [NSView(), hint]))
+
+        func add(_ views: [NSView]) -> NSGridRow { grid.addRow(with: views) }
+        proxyGroupRows.append(add([label("Cloudflare Access:"), accessCheckbox]))
+        accessDetailRows = [
+            add([NSView(), buildAccessStatusRow()]),
+            add([NSView(), buildAccessButtonsRow()]),
+            add([NSView(), caption("Signs in through your browser with any login method the Access application offers. Needs Managed OAuth on for the application. The session is kept in the Keychain, renews itself, and is sent only to the HTTPS host it was issued for.")]),
+        ]
+        proxyGroupRows.append(add([label("Custom Headers:"), headersCheckbox]))
+        let table = add([NSView(), headersTable.view])
+        table.yPlacement = .top
+        table.rowAlignment = .none
+        headerDetailRows = [
+            table,
+            add([NSView(), caption("Sent with every request, e.g. the service-token headers an access proxy requires. Values are stored in the Keychain. They go only to HTTPS hosts; a plain-HTTP host never receives them.")]),
+        ]
+        headersCheckbox.target = self
+        headersCheckbox.action = #selector(headersCheckboxChanged)
+        headersCheckbox.setAccessibilityIdentifier("server-headers-enabled")
+    }
+
+    @objc private func proxyDisclosureToggled() {
+        setProxyExpanded(!proxyExpanded, remember: true)
+    }
+
+    func setProxyExpanded(_ expanded: Bool, remember: Bool) {
+        proxyExpanded = expanded
+        proxyDisclosure.state = expanded ? .on : .off
+        updateSectionVisibility()
+        guard remember, let id = shownServerID, Self.remembersExpansion else { return }
+        var ids = Set(UserDefaults.standard.stringArray(forKey: Self.proxyExpandedKey) ?? [])
+        if expanded { ids.insert(id.uuidString) } else { ids.remove(id.uuidString) }
+        UserDefaults.standard.set(Array(ids), forKey: Self.proxyExpandedKey)
+    }
+
+    private static var remembersExpansion: Bool { SettingsWindowController.remembersUIState && !TestIsolation.isActive }
+
+    /// Opens the group when something inside it needs to be seen.
+    func revealProxyGroup() {
+        if !proxyExpanded { setProxyExpanded(true, remember: false) }
     }
 
     private func buildAccessStatusRow() -> NSView {
@@ -228,14 +298,21 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
 
     /// Shows a section's rows only while its checkbox is on.
     private func updateSectionVisibility() {
-        guard let grid else { return }
-        for row in accessDetailRows { grid.row(at: row).isHidden = !useCloudflareAccess }
-        for row in headerDetailRows { grid.row(at: row).isHidden = !useCustomHeaders }
+        guard grid != nil else { return }
+        for row in proxyGroupRows { row.isHidden = !proxyExpanded }
+        for row in accessDetailRows { row.isHidden = !(proxyExpanded && useCloudflareAccess) }
+        for row in headerDetailRows { row.isHidden = !(proxyExpanded && useCustomHeaders) }
+    }
+
+    /// Turns the headers section on without a click (for tests).
+    func useCustomHeadersForTesting(_ on: Bool) {
+        headersCheckbox.state = on ? .on : .off
+        headersCheckboxChanged()
     }
 
     /// Whether a section's details are showing (for tests).
-    var showsAccessDetails: Bool { accessDetailRows.allSatisfy { grid?.row(at: $0).isHidden == false } }
-    var showsHeaderDetails: Bool { headerDetailRows.allSatisfy { grid?.row(at: $0).isHidden == false } }
+    var showsAccessDetails: Bool { accessDetailRows.allSatisfy { !$0.isHidden } }
+    var showsHeaderDetails: Bool { headerDetailRows.allSatisfy { !$0.isHidden } }
 
     @objc private func accessSignIn() { onAccessSignIn?() }
     @objc private func accessSignOut() { onAccessSignOut?() }
@@ -366,7 +443,9 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
 
     /// The control to focus for the current problem.
     var firstInvalidControl: NSView {
-        portValidationError != nil ? portField : headersTable.tableView
+        if portValidationError != nil { return portField }
+        revealProxyGroup()   // the invalid header may be inside the collapsed group
+        return headersTable.tableView
     }
 
     @objc private func testConnection(_ sender: Any?) {
@@ -405,7 +484,13 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         useCustomHeaders = server?.useCustomHeaders ?? false
         headersCheckbox.state = useCustomHeaders ? .on : .off
         headersCheckbox.isEnabled = server != nil
-        updateSectionVisibility()
+        shownServerID = server?.id
+        let remembered = server.map { shown in
+            Self.remembersExpansion
+                && (UserDefaults.standard.stringArray(forKey: Self.proxyExpandedKey) ?? []).contains(shown.id.uuidString)
+        } ?? false
+        // Never hide something that is switched on.
+        setProxyExpanded(remembered || useCloudflareAccess || useCustomHeaders, remember: false)
         nameField.stringValue = server?.name ?? ""
         hostField.stringValue = server?.host ?? ""
         portField.stringValue = server.map { String($0.port) } ?? ""

@@ -13,7 +13,7 @@ final class CustomHeadersTable: NSObject, NSTableViewDataSource, NSTableViewDele
     var onChange: (([CustomHeader]) -> Void)?
 
     private(set) var headers: [CustomHeader] = []
-    let tableView = NSTableView()
+    let tableView = HeadersTableView()
     let addButton = NSButton()
     let removeButton = NSButton()
     private(set) var view = NSView()
@@ -42,6 +42,7 @@ final class CustomHeadersTable: NSObject, NSTableViewDataSource, NSTableViewDele
             column.minWidth = 60
             tableView.addTableColumn(column)
         }
+        tableView.onDelete = { [weak self] in self?.removeHeaders() }
         tableView.dataSource = self
         tableView.delegate = self
         tableView.usesAlternatingRowBackgroundColors = true
@@ -225,5 +226,20 @@ final class HeaderCellView: NSTableCellView {
 
     private func updateColor() {
         textField?.textColor = isFlagged && backgroundStyle != .emphasized ? .systemRed : .controlTextColor
+    }
+}
+
+/// The headers table, where Delete and Forward Delete remove the selected rows
+/// like any Mac list (outside a cell edit, which keeps those keys for text).
+final class HeadersTableView: NSTableView {
+    var onDelete: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.charactersIgnoringModifiers?.unicodeScalars.first.map({ $0.value == 0x7F || $0.value == 0xF728 }) == true,
+           !selectedRowIndexes.isEmpty {
+            onDelete?()
+        } else {
+            super.keyDown(with: event)
+        }
     }
 }

@@ -113,7 +113,7 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
         pane.addSubview(column)
         NSLayoutConstraint.activate([
             column.topAnchor.constraint(equalTo: pane.topAnchor, constant: 4),
-            column.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 4),
+            column.leadingAnchor.constraint(equalTo: pane.leadingAnchor, constant: 0),
             column.trailingAnchor.constraint(lessThanOrEqualTo: pane.trailingAnchor),
             column.bottomAnchor.constraint(lessThanOrEqualTo: pane.bottomAnchor),
         ])
