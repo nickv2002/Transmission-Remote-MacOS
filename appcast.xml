@@ -367,5 +367,17 @@
         length="5329227"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.11.03.1</title>
+      <sparkle:version>2026.11.03.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 03 Nov 2026 20:09:38 +0000</pubDate>
+      <description><![CDATA[<p>Custom headers are now sent over plain HTTP only to loopback addresses, and the app warns you when a server uses plain HTTP.</p><ul><li>Send custom headers over plain HTTP only to real loopback; warn about plain HTTP (#28)</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.11.03.1/Transmission.Remote-2026.11.03.1.zip"
+        sparkle:edSignature="e8m+rqcumD4bjc1LwsAzZiCOki0EVXj5IXNtsp5EqcaigUd85WyrUtwl4xjXnmcu8v8Cl9B64svRVf72DPe5DA=="
+        length="5333338"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>

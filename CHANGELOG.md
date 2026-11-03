@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.11.03.1 — 2026-11-03
+
+- Send custom headers over plain HTTP only to real loopback; warn about plain HTTP (#28)
+
 ## 2026.11.02.1 — 2026-11-02
 
 - Reach a daemon behind Cloudflare Access: browser sign-in and custom headers (#26)
