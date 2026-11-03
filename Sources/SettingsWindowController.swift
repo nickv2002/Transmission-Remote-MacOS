@@ -88,6 +88,7 @@ final class SettingsWindowController: NSWindowController {
     let notActiveLabel = NSTextField(labelWithString: "Not the active server")
     let tabPicker = ServerOptionsSectionPicker(labels: Tab.allCases.map(\.rawValue), trackingMode: .selectOne, target: nil, action: nil)
     let tabView = NSTabView()
+    private let contentPanel = NSBox()
 
     // Bottom bar.
     let statusLabel = NSTextField(wrappingLabelWithString: "")
@@ -328,7 +329,18 @@ final class SettingsWindowController: NSWindowController {
 
         let separator = NSBox()
         separator.boxType = .separator
-        for view in [header, tabPicker, tabView, separator, statusLabel, spinner, revertButton, applyButton] {
+        separator.isHidden = true   // the panel's own bottom edge now divides the tab content from the footer
+        // The tab content sits on its own panel, a shade apart from the window and
+        // running out to the window's right edge, so it's clear the tabs swap this
+        // area and its scroll bar sits at the window's edge.
+        contentPanel.boxType = .custom
+        contentPanel.borderWidth = 1
+        contentPanel.borderColor = .separatorColor
+        contentPanel.fillColor = .controlBackgroundColor
+        contentPanel.cornerRadius = 0
+        contentPanel.contentViewMargins = .zero
+        contentPanel.setAccessibilityIdentifier("server-options-panel")
+        for view in [header, tabPicker, contentPanel, tabView, separator, statusLabel, spinner, revertButton, applyButton] {
             view.translatesAutoresizingMaskIntoConstraints = false
             serverView.addSubview(view)
         }
@@ -339,9 +351,14 @@ final class SettingsWindowController: NSWindowController {
             tabPicker.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 12),
             tabPicker.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
             tabPicker.trailingAnchor.constraint(lessThanOrEqualTo: serverView.trailingAnchor),
-            tabView.topAnchor.constraint(equalTo: tabPicker.bottomAnchor, constant: 12),
+            // The panel bleeds past the detail inset: back to the divider, out to the window edge.
+            contentPanel.topAnchor.constraint(equalTo: tabPicker.bottomAnchor, constant: 12),
+            contentPanel.leadingAnchor.constraint(equalTo: serverView.leadingAnchor, constant: -20),
+            contentPanel.trailingAnchor.constraint(equalTo: serverView.trailingAnchor, constant: 20),
+            contentPanel.bottomAnchor.constraint(equalTo: tabView.bottomAnchor, constant: 0),
+            tabView.topAnchor.constraint(equalTo: contentPanel.topAnchor, constant: 8),
             tabView.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
-            tabView.trailingAnchor.constraint(equalTo: serverView.trailingAnchor),
+            tabView.trailingAnchor.constraint(equalTo: contentPanel.trailingAnchor),
             separator.topAnchor.constraint(equalTo: tabView.bottomAnchor, constant: 8),
             separator.leadingAnchor.constraint(equalTo: serverView.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: serverView.trailingAnchor),
