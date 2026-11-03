@@ -153,4 +153,17 @@ final class HostCandidatesTests: XCTestCase {
         XCTAssertTrue(cands[2].useHTTPS)
         XCTAssertTrue(cands.allSatisfy { $0.port == 9091 && $0.username == "u" })
     }
+
+    // MARK: - Plain HTTP across a network
+
+    func testPlainHTTPNetworkHostsListsEveryPlainHTTPHostButThisMac() {
+        let s = base("127.0.0.1, localhost, 10.0.1.2, n5.local, nas.home.arpa, nas.example.com, "
+                     + "https://transmission.example.ts.net, http://203.0.113.5:9091, [::1], 127.example.com")
+        XCTAssertEqual(s.plainHTTPNetworkHosts,
+                       ["10.0.1.2", "n5.local", "nas.home.arpa", "nas.example.com", "203.0.113.5",
+                        "127.example.com"])
+        XCTAssertEqual(base("10.0.1.2", useHTTPS: true).plainHTTPNetworkHosts, [])
+        XCTAssertEqual(base("http://10.0.1.2", useHTTPS: true).plainHTTPNetworkHosts, ["10.0.1.2"])
+        XCTAssertEqual(base("").plainHTTPNetworkHosts, [])
+    }
 }

@@ -118,3 +118,15 @@ enum ConnectionResolver {
         }
     }
 }
+
+extension ServerConfig {
+    /// Host candidates reached over plain HTTP on a network, in Host-field order:
+    /// every one except this Mac (`isLoopbackHost`). Their traffic, Transmission's
+    /// login included, crosses the network unencrypted, so Settings warns about
+    /// them. A LAN address counts too: anyone on that network can read it.
+    var plainHTTPNetworkHosts: [String] {
+        connectionCandidates
+            .filter { !$0.useHTTPS && !$0.host.isEmpty && !Self.isLoopbackHost($0.host) }
+            .map(\.host)
+    }
+}

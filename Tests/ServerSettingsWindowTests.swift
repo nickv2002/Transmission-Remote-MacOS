@@ -691,6 +691,22 @@ struct ServerSettingsWindowTests {
         #expect(c.connectionPane.accessCheckbox.isDescendant(of: document))
     }
 
+    @Test func plainHTTPToAnyNetworkHostShowsAWarningUnderHost() async throws {
+        let c = try await controller()
+        c.selectTab(.connection)
+        let pane = c.connectionPane
+        #expect(pane.plainHTTPWarning.isHiddenOrHasHiddenAncestor, "plain HTTP to this Mac is fine")
+        pane.hostField.stringValue = "127.0.0.1, 10.0.1.2, nas.example.com"
+        pane.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: pane.hostField))
+        #expect(!pane.plainHTTPWarning.isHiddenOrHasHiddenAncestor)
+        let text = pane.plainHTTPWarning.stringValue
+        #expect(text.contains("10.0.1.2") && text.contains("nas.example.com"), "a LAN address warns too")
+        #expect(!text.contains("127.0.0.1"))
+        #expect(text.contains("crosses a network unencrypted"))
+        pane.httpsCheckbox.performClick(nil)
+        #expect(pane.plainHTTPWarning.isHiddenOrHasHiddenAncestor, "HTTPS clears it")
+    }
+
     @Test func headersTableFitsAtMinimumSize() async throws {
         let c = try await controller()
         let window = try #require(c.window)

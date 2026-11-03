@@ -89,6 +89,26 @@ struct RedirectTests {
         #expect(message(nil).contains("HTTP 302"))
     }
 
+    /// Custom headers that a plain-HTTP host doesn't get can't be the fix, so the
+    /// advice for a sign-in redirect turns to Use HTTPS.
+    @Test @MainActor func heldBackHeadersPointAtUseHTTPS() {
+        var plain = base
+        plain.headers = [CustomHeader(name: "X-Token", value: "t")]
+        plain.useCustomHeaders = true
+        #expect(plain.holdsBackCustomHeaders)
+        let proxy = TransmissionError.redirected(status: 302, location: URL(string: "https://team.example.com/login"))
+        let message = ConnectionDiagnostics.message(for: proxy, server: plain)
+        #expect(message.contains("weren’t sent") && message.contains("Use HTTPS"))
+        #expect(SettingsConnectionPane.shortError(proxy, server: plain).contains("need Use HTTPS"))
+
+        var https = plain
+        https.useHTTPS = true
+        #expect(!https.holdsBackCustomHeaders)
+        #expect(ConnectionDiagnostics.message(for: proxy, server: https).contains("check that they’re still valid"))
+        plain.useCustomHeaders = false
+        #expect(!plain.holdsBackCustomHeaders, "turned-off headers aren't held back")
+    }
+
     @Test @MainActor func shortReasonsForThePerHostList() {
         let proxy = TransmissionError.redirected(status: 302, location: URL(string: "https://team.example.com/login"))
         #expect(SettingsConnectionPane.shortError(proxy, server: base).contains("team.example.com"))
