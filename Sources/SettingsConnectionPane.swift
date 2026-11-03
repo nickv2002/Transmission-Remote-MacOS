@@ -29,6 +29,11 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
     let upPresetsField = NSTextField()
     let pathMappingsView = PlaceholderTextView()   // multi-line: one `remote=local` per line
     let headersTable = CustomHeadersTable()
+    /// Under Host: names any host the form reaches over plain HTTP across a
+    /// network, i.e. anything but this Mac (`ServerConfig.plainHTTPNetworkHosts`).
+    /// Hidden otherwise.
+    let plainHTTPWarning = NSTextField(labelWithString: "")
+    private var plainHTTPRow: NSGridRow?
     /// The shown server's "send custom headers" setting, edited by `headersCheckbox`.
     private(set) var useCustomHeaders = false
     let headersCheckbox = NSButton(checkboxWithTitle: "Send custom headers", target: nil, action: nil)
@@ -150,6 +155,14 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         grid.rowAlignment = .firstBaseline
         grid.column(at: 1).width = 300
         self.grid = grid
+        plainHTTPWarning.font = .systemFont(ofSize: 10)
+        plainHTTPWarning.textColor = .systemOrange
+        plainHTTPWarning.lineBreakMode = .byWordWrapping
+        plainHTTPWarning.maximumNumberOfLines = 0
+        plainHTTPWarning.setAccessibilityIdentifier("server-plain-http-warning")
+        // Right under Host (rows: scope, name, host).
+        plainHTTPRow = grid.insertRow(at: 3, with: [NSView(), plainHTTPWarning])
+        updatePlainHTTPWarning()
         addProxyGroup(to: grid)
         // Test Connection probes everything above it (host, credentials, proxy
         // headers), so it follows the group; a divider then sets the unrelated
@@ -503,6 +516,23 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
         pathMappingsView.string = server.map { PathMapping.format($0.pathMappings) } ?? ""
         downPresetsField.stringValue = server.map { SpeedPresets.format($0.downSpeedPresets) } ?? ""
         upPresetsField.stringValue = server.map { SpeedPresets.format($0.upSpeedPresets) } ?? ""
+        updatePlainHTTPWarning()
+    }
+
+    /// Shows or hides the plain-HTTP warning for the hosts as currently typed.
+    private func updatePlainHTTPWarning() {
+        let hosts = hostField.stringValue.isEmpty ? [] : currentServer().plainHTTPNetworkHosts
+        plainHTTPWarning.stringValue = Self.plainHTTPWarningText(hosts)
+        plainHTTPRow?.isHidden = hosts.isEmpty
+    }
+
+    static func plainHTTPWarningText(_ hosts: [String]) -> String {
+        guard !hosts.isEmpty else { return "" }
+        let one = hosts.count == 1
+        let list = ListFormatter.localizedString(byJoining: hosts)
+        return "⚠︎ Plain HTTP to \(list) crosses a network unencrypted, so anyone on that network could "
+            + "read your Transmission username, password and traffic. Turn on Use HTTPS, or give "
+            + "\(one ? "that host" : "those hosts") an https:// address."
     }
 
     /// The port for the editor: the typed port when valid, otherwise the last valid
@@ -542,12 +572,14 @@ final class SettingsConnectionPane: NSObject, NSTextFieldDelegate, NSTextViewDel
     @objc private func fieldEnded() {
         guard !isLoading else { return }
         validatePort()
+        updatePlainHTTPWarning()
         onEdit?(currentServer(), true)
     }
 
     func controlTextDidChange(_ obj: Notification) {
         guard !isLoading else { return }
         validatePort()
+        updatePlainHTTPWarning()
         onEdit?(currentServer(rawName: true), false)
     }
 

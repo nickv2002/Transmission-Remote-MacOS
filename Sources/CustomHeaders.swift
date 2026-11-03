@@ -132,8 +132,25 @@ extension ServerConfig {
         return useHTTPS || Self.isLoopbackHost(host)
     }
 
+    /// Custom headers are set up and on, but this plain-HTTP host doesn't get them.
+    var holdsBackCustomHeaders: Bool {
+        useCustomHeaders && !headers.isEmpty && !sendsCustomHeaders
+    }
+
+    /// True only for `localhost`, a literal IPv4 address in 127.0.0.0/8, or the
+    /// IPv6 loopback address (any spelling, bracketed or not). Names that only
+    /// look local, such as `127.example.com`, `127.0.0.1.attacker.test` and
+    /// `localhost.example.com`, can resolve anywhere, so they don't count.
     static func isLoopbackHost(_ host: String) -> Bool {
         let h = host.lowercased()
-        return h == "localhost" || h == "::1" || h == "[::1]" || h.hasPrefix("127.")
+        if h == "localhost" || h == "localhost." { return true }
+        var v4 = in_addr()
+        if inet_pton(AF_INET, h, &v4) == 1 {
+            return UInt32(bigEndian: v4.s_addr) >> 24 == 127
+        }
+        let bare = h.hasPrefix("[") && h.hasSuffix("]") ? String(h.dropFirst().dropLast()) : h
+        var v6 = in6_addr()
+        guard inet_pton(AF_INET6, bare, &v6) == 1 else { return false }
+        return withUnsafeBytes(of: &v6) { Array($0) } == Array(repeating: 0, count: 15) + [1]
     }
 }
