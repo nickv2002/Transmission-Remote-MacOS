@@ -39,6 +39,10 @@ enum ConnectionDiagnostics {
             switch redirectKind(location, server: server) {
             case .toHTTPS:
                 return "The server redirects plain HTTP to HTTPS (HTTP \(status)). Turn on Use HTTPS."
+            case .otherHost(let host) where server.holdsBackCustomHeaders:
+                return "The server redirected the request to \(host) instead of answering it (HTTP \(status)). "
+                    + "This is usually a sign-in page from an access proxy in front of the daemon. "
+                    + "Your custom headers weren’t sent, because they only go over HTTPS: turn on Use HTTPS."
             case .otherHost(let host):
                 return "The server redirected the request to \(host) instead of answering it (HTTP \(status)). "
                     + "This is usually a sign-in page from an access proxy in front of the daemon: "
@@ -108,6 +112,8 @@ enum ConnectionDiagnostics {
             ?? location?.host.map(RedirectKind.otherHost) ?? .unknown
         switch kind {
         case .toHTTPS: return "redirects to HTTPS (turn on Use HTTPS)"
+        case .otherHost(let host) where server?.holdsBackCustomHeaders == true:
+            return "redirected to \(host) (sign-in page? custom headers need Use HTTPS)"
         case .otherHost(let host): return "redirected to \(host) (sign-in page? check Custom Headers)"
         case .sameHost(let path): return "redirected to \(path) (check the RPC Path)"
         case .unknown: return "redirected (HTTP \(status))"

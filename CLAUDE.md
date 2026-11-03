@@ -325,6 +325,12 @@ connect over HTTP; the **Tailscale** host
 so it needs **Use HTTPS** checked (plain HTTP there returns "Client sent an HTTP
 request to an HTTPS server").
 
+Settings warns under the Host field about every candidate reached over plain HTTP
+except this Mac (`ServerConfig.plainHTTPNetworkHosts` in `HostCandidates.swift`;
+only loopback is exempt, LAN addresses warn too; tested). Custom headers go over
+plain HTTP only to real loopback addresses (`isLoopbackHost`), and when they're
+held back, Test Connection's sign-in-redirect advice says to turn on Use HTTPS.
+
 ### Multi-host failover
 
 One server can list **several hosts** for the same daemon — type a comma- **or
