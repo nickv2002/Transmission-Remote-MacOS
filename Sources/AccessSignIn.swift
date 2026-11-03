@@ -89,6 +89,7 @@ enum AccessSignIn {
         let url = AccessOAuth.authorizationURL(endpoint: discovery.authorizationEndpoint, clientID: client.clientID,
                                                redirectURI: redirectURI, pkce: pkce, state: state,
                                                resource: discovery.resource)
+        receiver.expect(state: state)
         onSignInURL(url)
         _ = await env.openBrowser(url)   // if it fails, Copy Link still works
 
@@ -206,12 +207,19 @@ enum AccessSignIn {
     private static func tokenCall(_ base: URLRequest, environment env: Environment) async throws -> AccessOAuth.TokenResponse {
         var request = base
         prepare(&request, env)
-        let (data, response) = try await send(request, env, host: request.url?.host ?? "")
-        guard response.statusCode == 200,
-              let tokens = try? JSONDecoder().decode(AccessOAuth.TokenResponse.self, from: data) else {
-            throw AccessError.token(AccessOAuth.errorDescription(from: data) ?? "HTTP \(response.statusCode)")
+        let host = request.url?.host ?? ""
+        let (data, response) = try await send(request, env, host: host)
+        if response.statusCode == 200 {
+            if let tokens = try? JSONDecoder().decode(AccessOAuth.TokenResponse.self, from: data) { return tokens }
+            // A 200 that isn't a token response is a proxy or captive portal, not the grant ending.
+            throw AccessError.unreachable(host, "unexpected response")
         }
-        return tokens
+        // Only a refusal ends the grant. A server error or rate limit is transient:
+        // the caller keeps its tokens and tries again.
+        if response.statusCode >= 500 || [408, 429].contains(response.statusCode) {
+            throw AccessError.unreachable(host, "HTTP \(response.statusCode)")
+        }
+        throw AccessError.token(AccessOAuth.errorDescription(from: data) ?? "HTTP \(response.statusCode)")
     }
 
     private static func json<T: Decodable>(_ url: URL, _ env: Environment, what: String) async throws -> T {

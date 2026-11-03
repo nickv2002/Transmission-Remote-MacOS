@@ -207,6 +207,23 @@ struct AccessSignInTests {
         }
     }
 
+    /// A 503, a rate limit or a captive-portal 200 is not the grant ending: the
+    /// error isn't `.token`, so the refresher keeps the stored tokens.
+    @Test func aTransientTokenFailureIsNotAnEndedGrant() async throws {
+        for reply in [StubURLProtocol.Reply(status: 503, body: "busy"),
+                      .init(status: 429, body: ""),
+                      .init(status: 200, body: "<html>sign in to the hotel wifi</html>")] {
+            let d = AccessStub.Deployment()
+            StubURLProtocol.set([reply], for: d.teamHost)
+            do {
+                _ = try await AccessSignIn.refresh(d.session(expiresAt: now), environment: AccessStub.environment(now: now))
+                Issue.record("expected a failure for \(reply.status)")
+            } catch let error as AccessError {
+                if case .token = error { Issue.record("HTTP \(reply.status) must not end the grant") }
+            }
+        }
+    }
+
     @Test func revokeSendsBothTokens() async throws {
         let d = AccessStub.Deployment()
         StubURLProtocol.set([.init(), .init()], for: d.teamHost)
