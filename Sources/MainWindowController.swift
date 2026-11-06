@@ -75,15 +75,7 @@ final class MainWindowController: NSWindowController {
 
     /// The applied title bar + toolbar layout (see `applyToolbarLayout`).
     var toolbarLayout: ToolbarLayout = .default
-    /// Fired when the user changes the toolbar's display mode directly (Customize
-    /// Toolbar palette or right-click menu), so the app can persist the new layout.
-    var onToolbarLayoutChange: ((ToolbarLayout) -> Void)?
-    var displayModeObservation: NSKeyValueObservation?
     var toolbarVisibilityObservation: NSKeyValueObservation?
-    /// Server-switching dropdown in the toolbar (nil until the toolbar builds it).
-    var serverPopup: NSPopUpButton?
-    /// The live Speed Limits toolbar item (`+Speed.swift`); nil until the toolbar builds.
-    var speedLimitsItem: NSMenuToolbarItem?
     /// Asks the app delegate to open Settings on the active server's Speed tab (Edit Presets…).
     var onEditPresets: (() -> Void)?
     /// Server Settings toolbar button: the active server's last-used Settings tab.

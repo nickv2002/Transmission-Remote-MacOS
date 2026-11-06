@@ -455,23 +455,18 @@ AppKit:
 
 Behavior no config shows:
 
-- **The setting owns the display mode, but the toolbar can change it.** `NSToolbar`
-  autosave persists the mode (`TB Display Mode`) and would override the setting, so
-  it's applied after the toolbar attaches. The palette's *Show:* popup and the
-  right-click menu stay enabled: a KVO observer on `displayMode` maps icon-only →
-  labels off, anything else → labels on and routes it through
-  `AppDelegate.setToolbarLayout` like the View menu does. `applyToolbarLayout` sets
-  `toolbarLayout` first, so its own mode writes never look like user changes.
-- **Never `.unifiedCompact`.** It makes AppKit drop the display-mode controls (palette
-  *Show:* popup, right-click Icon and Text / Icon Only), so icon-only could not be undone.
+- **View ▸ Show Button Labels** and **Settings ▸ General** own the display mode.
+  Customize Toolbar manages items and spacing. Its display-mode picker is disabled
+  because the app offers Icon Only and Icon and Text.
 - **Search item:** only the live toolbar item (`willBeInsertedIntoToolbar == true`) may
   set `searchField`; the palette copy would otherwise steal it (placeholder went stale).
 - **No window tabbing.** `NSWindow.allowsAutomaticWindowTabbing = false` at launch
   keeps Show Tab Bar / Show All Tabs out of the View menu.
-- **Autosave id is `MainToolbar2`**, bumped so saved toolbars gained the dropdown.
-  Bump it again when adding a default item; that resets users' customization once.
-- **The server dropdown is a plain view item** labelled "Server" like the buttons, so
-  AppKit aligns it with them and draws the label when labels are on; no manual offset.
+- **One toolbar on macOS 15 and later.** `MainToolbar5Grouped` migrates complete
+  adjacent sets from `MainToolbar4` once. Start/Stop/Force Start, Rename/Move/Verify,
+  and Server/Speed Limits/Server Settings each move as a unit. Individual items
+  remain in the palette. Sequoia and Tahoe align captions beneath their segments.
+  macOS 27 uses AppKit's captions with a correction to their hit-area measurement.
 - **The proxy icon is AppKit's.** It appears only with `representedURL` (the
   bundle) and is drawn from the bundle icon's **16pt renditions**
   (`icon_16x16*`, `icon_32x32`), ignoring any image set on the button. Keep those
@@ -504,7 +499,7 @@ native-store precedence), `ConnectionDiagnostics` (every `TransmissionError` map
 to a field-targeted message), **`SettingsEditor`** (add/remove/edit/default/
 refresh, move/reorder, name trim+dedupe, default-follows-rename, dirty detection,
 save, reset), **`ServerMenuSync`** (in-place update check, ⌘1–⌘0 key mapping),
-**`ToolbarLayout`** (properties, `apply(toolbarLayout:)` style/mode, display-mode round trip, `PopUpEnum`), **`SidebarController`** (counts clear on `update(with: [])`, as on a server switch), **server drag-reorder** (`SettingsWindowController` pasteboard/drop layer),
+**`ToolbarLayout`** (properties, `apply(toolbarLayout:)` style/mode, grouping, label alignment and customization, `PopUpEnum`), **`SidebarController`** (counts clear on `update(with: [])`, as on a server switch), **server drag-reorder** (`SettingsWindowController` pasteboard/drop layer),
 and **`HostCandidates`/`ConnectionResolver`** (comma- and newline-list parsing
 incl. scheme/port/path/IPv6/inheritance + first-reachable failover selection),
 and **`PathMapping`** (remote→local exact/prefix mapping, separator guard,
