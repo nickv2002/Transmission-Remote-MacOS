@@ -145,6 +145,18 @@ targets:
       - path: Sources/ServerMenuSync.swift
       - path: Sources/PopUpEnum.swift
       - path: Sources/ToolbarLayoutAppKit.swift
+      - path: Sources/ToolbarGroups.swift
+      - path: Sources/MainWindowController.swift
+      - path: Sources/MainWindowController+Actions.swift
+      - path: Sources/MainWindowController+Access.swift
+      - path: Sources/MainWindowController+Speed.swift
+      - path: Sources/MainWindowController+Add.swift
+      - path: Sources/MainWindowController+Files.swift
+      - path: Sources/MainWindowController+Peers.swift
+      - path: Sources/MainWindowController+Pieces.swift
+      - path: Sources/MainWindowController+Trackers.swift
+      - path: Sources/RateSparklineView.swift
+      - path: Sources/ProgressCellView.swift
       - path: Sources/SidebarController.swift
       - path: Sources/SettingsWindowController.swift
       - path: Sources/SettingsGeneralPane.swift

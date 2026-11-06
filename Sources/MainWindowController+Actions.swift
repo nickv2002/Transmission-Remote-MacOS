@@ -1,47 +1,25 @@
 import AppKit
 
 /// Toolbar, context menu, and the start/stop/force-start/rename/move actions.
-extension MainWindowController: NSToolbarDelegate {
-    private enum ToolbarID {
-        static let add = NSToolbarItem.Identifier("add")
-        static let start = NSToolbarItem.Identifier("start")
-        static let stop = NSToolbarItem.Identifier("stop")
-        static let forceStart = NSToolbarItem.Identifier("forceStart")
-        static let rename = NSToolbarItem.Identifier("rename")
-        static let move = NSToolbarItem.Identifier("move")
-        static let verify = NSToolbarItem.Identifier("verify")
-        static let remove = NSToolbarItem.Identifier("remove")
-        static let search = NSToolbarItem.Identifier("search")
-        static let server = NSToolbarItem.Identifier("server")
-        static let serverOptions = NSToolbarItem.Identifier("serverOptions")
-        static let speedLimits = NSToolbarItem.Identifier("speedLimits")
-    }
-
+extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMenuItemValidation {
     func buildToolbar() {
-        let toolbar = NSToolbar(identifier: "MainToolbar4")
+        if !TestIsolation.isActive { ToolbarGroups.migrateConfiguration() }
+        let toolbar = NSToolbar(identifier: ToolbarGroups.autosaveIdentifier)
         toolbar.delegate = self
         toolbar.allowsUserCustomization = true
-        // The palette's Show: popup / right-click menu change the display mode;
-        // that maps onto the button-labels setting, which stays the single source
-        // of truth and drives the rest of the layout.
-        toolbar.allowsDisplayModeCustomization = true
-        displayModeObservation = toolbar.observeLayoutChanges(
-            current: { [weak self] in self?.toolbarLayout ?? .default },
-            onChange: { [weak self] in self?.onToolbarLayoutChange?($0) })
+        // The app offers icons, with or without captions, via View and Settings.
+        toolbar.allowsDisplayModeCustomization = false
         // Hiding the toolbar must bring the title back (and re-hide it on show).
         toolbarVisibilityObservation = toolbar.observeVisibility { [weak self] in
             guard let self else { return }
             self.applyToolbarLayout(self.toolbarLayout)
         }
-        toolbar.autosavesConfiguration = true
-        toolbar.centeredItemIdentifiers = [ToolbarID.server, ToolbarID.speedLimits, ToolbarID.serverOptions]
+        toolbar.autosavesConfiguration = !TestIsolation.isActive
         window?.toolbar = toolbar
     }
 
-    /// Title bar (full or hidden) and button labels (shown or tooltips) are
-    /// independent. The style matters as much as the display mode: labels only
-    /// show in the `.expanded` style. Applied after the toolbar is attached, so
-    /// it wins over any autosaved display mode.
+    /// Apply the saved title and label settings after attaching the toolbar,
+    /// then update the controls that depend on whether captions are visible.
     func applyToolbarLayout(_ layout: ToolbarLayout) {
         guard let window else { return }
         toolbarLayout = layout
@@ -51,10 +29,17 @@ extension MainWindowController: NSToolbarDelegate {
 
     /// Hidden labels show as tooltips instead; visible labels need none.
     private func updateToolTip(_ item: NSToolbarItem) {
+        if let group = item as? NativeToolbarGroup {
+            group.setShowsLabels(toolbarLayout.showsLabels)
+            group.subitems.forEach(updateToolTip)
+            group.refreshContents()
+            return
+        }
         let tips = toolbarLayout.showsToolTips
         switch item.itemIdentifier {
-        case ToolbarID.server: serverPopup?.toolTip = tips ? "Switch Server" : nil
-        case ToolbarID.speedLimits: updateSpeedLimitsItem()
+        case ToolbarID.server:
+            item.toolTip = refresh.currentServerName
+        case ToolbarID.speedLimits: item.toolTip = tips ? speedSummary(refresh.session) : nil
         case ToolbarID.search: break   // its placeholder already explains it
         default: item.toolTip = tips && !item.label.isEmpty ? item.label : nil
         }
@@ -67,21 +52,35 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [ToolbarID.add, .space,
-         ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
-         ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         .flexibleSpace, ToolbarID.server, ToolbarID.speedLimits, ToolbarID.serverOptions, .flexibleSpace, ToolbarID.search]
+        ToolbarID.defaultItems
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [ToolbarID.add, ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
+        [ToolbarID.transferControls, ToolbarID.torrentControls, ToolbarID.serverControls,
+         ToolbarID.add, ToolbarID.start, ToolbarID.stop, ToolbarID.forceStart,
          ToolbarID.rename, ToolbarID.move, ToolbarID.verify, ToolbarID.remove,
-         ToolbarID.search, ToolbarID.server, ToolbarID.speedLimits, ToolbarID.serverOptions, .space, .flexibleSpace]
+         ToolbarID.search, ToolbarID.server, ToolbarID.serverOptions, ToolbarID.speedLimits, .space, .flexibleSpace]
     }
 
     func toolbar(_ toolbar: NSToolbar,
                  itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        if let members = ToolbarID.groups[itemIdentifier] {
+            let items = members.compactMap {
+                self.toolbar(toolbar, itemForItemIdentifier: $0, willBeInsertedIntoToolbar: flag)
+            }
+            return NativeToolbarGroup(id: itemIdentifier, items: items, palette: !flag,
+                                      showsLabels: toolbarLayout.showsLabels)
+        }
+        if itemIdentifier == ToolbarID.server { return makeNativeServerItem() }
+        if itemIdentifier == ToolbarID.speedLimits {
+            let item = NSMenuToolbarItem(itemIdentifier: itemIdentifier)
+            item.label = "Speed Limits"
+            item.isBordered = true
+            item.autovalidates = false
+            configureSpeedLimitsItem(item)
+            return item
+        }
         // The live-filter search box.
         if itemIdentifier == ToolbarID.search {
             let item = NSSearchToolbarItem(itemIdentifier: itemIdentifier)
@@ -91,24 +90,10 @@ extension MainWindowController: NSToolbarDelegate {
             item.searchField.target = self
             item.searchField.action = #selector(searchChanged(_:))
             item.searchField.searchMenuTemplate = searchModeMenu()
-            item.preferredWidthForSearchField = 220
             item.visibilityPriority = .high
             // The palette also asks for an item (flag false); only the live one is ours.
             if flag { searchField = item.searchField }
             return item
-        }
-
-        // Server-switching dropdown, centered in the toolbar row.
-        if itemIdentifier == ToolbarID.server {
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Server"
-            item.view = makeServerSwitcher(live: flag)
-            return item
-        }
-
-        // Speed limits pull-down, next to the server switcher it belongs to.
-        if itemIdentifier == ToolbarID.speedLimits {
-            return makeSpeedLimitsItem(identifier: itemIdentifier, live: flag)
         }
 
         // The Add pull-down: primary click adds a file; the menu offers file/link.
@@ -132,7 +117,7 @@ extension MainWindowController: NSToolbarDelegate {
         case ToolbarID.rename: spec = ("Rename", "square.and.pencil", #selector(renameSelected(_:)))
         case ToolbarID.move: spec = ("Move", "folder", #selector(moveSelected(_:)))
         case ToolbarID.verify: spec = ("Verify", "checkmark.shield", #selector(verifySelected(_:)))
-        case ToolbarID.remove: spec = ("Remove…", "trash", #selector(removeSelected(_:)))
+        case ToolbarID.remove: spec = ("Remove", "trash", #selector(removeSelected(_:)))
         default: spec = nil
         }
         guard let spec else { return nil }
@@ -146,55 +131,48 @@ extension MainWindowController: NSToolbarDelegate {
         return item
     }
 
-    private var serverIconImage: NSImage? {
-        NSImage(systemSymbolName: "externaldrive.connected.to.line.below",
-                accessibilityDescription: "Server")
+    private func makeNativeServerItem() -> NSMenuToolbarItem {
+        let item = NSMenuToolbarItem(itemIdentifier: ToolbarID.server)
+        item.label = "Server"
+        item.image = NSImage(systemSymbolName: "server.rack", accessibilityDescription: "Server")
+        item.isBordered = true
+        item.autovalidates = false
+        configureServerItem(item)
+        return item
     }
 
-    /// `live` is false for the Customize Toolbar palette's copy, which must not
-    /// take over the references the live switcher is updated through.
-    private func makeServerSwitcher(live: Bool) -> NSView {
-        // A borderless button so, in default, clicking the drive icon opens
-        // the dropdown too.
-        let icon = NSButton(image: NSImage(), target: self, action: #selector(serverIconClicked(_:)))
-        icon.isBordered = false
-        icon.imageScaling = .scaleProportionallyUpOrDown
-        icon.image = serverIconImage
-        icon.widthAnchor.constraint(equalToConstant: 20).isActive = true
-        icon.heightAnchor.constraint(equalToConstant: 20).isActive = true
-
-        let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        popup.isBordered = false
-        popup.font = .titleBarFont(ofSize: 0)
-        popup.target = self
-        popup.action = #selector(serverPopupChanged(_:))
-        if live { serverPopup = popup }
-        popup.addItems(withTitles: refresh.availableServerNames)
-        popup.selectItem(withTitle: refresh.currentServerName)
-
-        let stack = NSStackView(views: [icon, popup])
-        stack.orientation = .horizontal
-        stack.spacing = 4
-        return stack
+    private func configureServerItem(_ item: NSMenuToolbarItem) {
+        item.title = refresh.currentServerName
+        item.toolTip = refresh.currentServerName
+        item.menu = makeServerMenu()
     }
 
-    /// Sync the switcher's items and selection with the configured servers.
     func updateServerPopup() {
-        guard let popup = serverPopup else { return }
-        let names = refresh.availableServerNames
-        if popup.itemTitles != names {
-            popup.removeAllItems()
-            popup.addItems(withTitles: names)
+        ToolbarGroups.menuItems(in: window?.toolbar?.items ?? [], identifier: ToolbarID.server)
+            .forEach(configureServerItem)
+        refreshNativeServerControls()
+    }
+
+    func refreshNativeServerControls() {
+        for case let group as NativeToolbarGroup in window?.toolbar?.items ?? []
+            where group.itemIdentifier == ToolbarID.serverControls {
+            group.refreshContents()
         }
-        popup.selectItem(withTitle: refresh.currentServerName)
     }
 
-    @objc private func serverIconClicked(_ sender: NSButton) {
-        serverPopup?.performClick(sender)
+    private func makeServerMenu() -> NSMenu {
+        let menu = NSMenu(title: "Server")
+        for name in refresh.availableServerNames {
+            let item = menu.addItem(withTitle: name, action: #selector(serverMenuChanged(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = name
+            item.state = name == refresh.currentServerName ? .on : .off
+        }
+        return menu
     }
 
-    @objc private func serverPopupChanged(_ sender: NSPopUpButton) {
-        guard let name = sender.titleOfSelectedItem else { return }
+    @objc private func serverMenuChanged(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
         selectServer(name)
     }
 
@@ -324,6 +302,7 @@ extension MainWindowController: NSToolbarDelegate {
     }
 
     private func validate(action: Selector?) -> Bool {
+        if action == #selector(serverMenuChanged(_:)) { return true }
         // Always available: an offline server opens on Settings' "Can't reach" state.
         if action == #selector(openServerSettings(_:)) { return true }
         // The search field is always enabled, regardless of row selection.
