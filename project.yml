@@ -112,6 +112,8 @@ targets:
       - path: Sources/Formatters.swift
       - path: Sources/Filtering.swift
       - path: Sources/Models.swift
+      - path: Sources/GeoIPDatabase.swift
+      - path: Sources/GeoIPStore.swift
       - path: Sources/AppConfig.swift
       - path: Sources/CustomHeaders.swift
       - path: Sources/HeaderSecretStore.swift
