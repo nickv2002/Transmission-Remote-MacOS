@@ -391,5 +391,17 @@
         length="5398564"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.11.08.2</title>
+      <sparkle:version>2026.11.08.2</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 08 Nov 2026 22:02:04 +0000</pubDate>
+      <description><![CDATA[<p>The transfer list can now be sorted by multiple columns, Mac-style, and torrents that reach their seed limit now show as Finished.</p><ul><li>Sort the transfer list on multiple columns, Mac-style</li><li>Show Finished for torrents stopped at their seed limit</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.11.08.2/Transmission.Remote-2026.11.08.2.zip"
+        sparkle:edSignature="gxoPPVjovO93E1g96YeWsG7zYL5IffP+MM4Ac1AxP1JoUsPAUEFzLgz5VCaIrUfClUZh4uZXs4ewcHTzKM8SBA=="
+        length="5401776"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
