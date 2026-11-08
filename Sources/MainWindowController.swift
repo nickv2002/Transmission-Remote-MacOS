@@ -103,6 +103,7 @@ final class MainWindowController: NSWindowController {
     var filesFoldersFirst = true
     /// Settings → General: show the Info tab's piece-map row (`+Pieces.swift`).
     var showPieceMap = true
+    var showPeerCountry = false
     /// Settings: pick up a torrent link copied to the clipboard on activation.
     var addLinksFromClipboard = false
 
@@ -279,6 +280,7 @@ final class MainWindowController: NSWindowController {
         self.showAddOptions = config.showAddOptions
         self.filesFoldersFirst = config.filesFoldersFirst
         self.showPieceMap = config.showPieceMap
+        self.showPeerCountry = config.showPeerCountry
         self.addLinksFromClipboard = config.addLinksFromClipboard
 
         let window = NSWindow(
@@ -333,6 +335,10 @@ final class MainWindowController: NSWindowController {
             showPieceMap = config.showPieceMap
             loadPiecesIfNeeded()
             updatePieceMap()
+        }
+        if showPeerCountry != config.showPeerCountry {
+            showPeerCountry = config.showPeerCountry
+            applyPeerCountrySetting()
         }
         if config.addLinksFromClipboard && !addLinksFromClipboard {
             // Just enabled: only react to copies made from now on.

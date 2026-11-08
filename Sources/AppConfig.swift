@@ -199,13 +199,16 @@ struct AppConfig: Codable, Sendable, Equatable {
     /// Info tab: show the "Pieces" row (classic progress bar + piece map). Off
     /// hides it and skips the per-poll `pieces` fetch.
     var showPieceMap: Bool
+    /// Peers tab: show a Country column from the optional downloaded DB-IP
+    /// database. Off by default; turning it on downloads the file (see `GeoIPStore`).
+    var showPeerCountry: Bool
     /// Title bar shown/hidden and toolbar button labels shown/hidden.
     var toolbarLayout: ToolbarLayout
 
     enum CodingKeys: String, CodingKey {
         case servers, refreshSeconds, currentServer, autoCheckForUpdates
         case removeTorrentFileMethod, showAddOptions, addLinksFromClipboard, filesFoldersFirst
-        case showPieceMap
+        case showPieceMap, showPeerCountry
         case titleBar, toolbarLabels
         case toolbarLayout   // legacy single "default"/"compact" setting, decode-only
     }
@@ -217,6 +220,7 @@ struct AppConfig: Codable, Sendable, Equatable {
          addLinksFromClipboard: Bool = false,
          filesFoldersFirst: Bool = true,
          showPieceMap: Bool = true,
+         showPeerCountry: Bool = false,
          toolbarLayout: ToolbarLayout = .default) {
         self.servers = Self.normalizedServers(servers.isEmpty ? [.localhost] : servers)
         self.refreshSeconds = max(1, refreshSeconds)
@@ -227,6 +231,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         self.addLinksFromClipboard = addLinksFromClipboard
         self.filesFoldersFirst = filesFoldersFirst
         self.showPieceMap = showPieceMap
+        self.showPeerCountry = showPeerCountry
         self.toolbarLayout = toolbarLayout
     }
 
@@ -289,6 +294,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         addLinksFromClipboard = try c.decodeIfPresent(Bool.self, forKey: .addLinksFromClipboard) ?? false
         filesFoldersFirst = try c.decodeIfPresent(Bool.self, forKey: .filesFoldersFirst) ?? true
         showPieceMap = try c.decodeIfPresent(Bool.self, forKey: .showPieceMap) ?? true
+        showPeerCountry = try c.decodeIfPresent(Bool.self, forKey: .showPeerCountry) ?? false
         // Raw string, like `removeTorrentFileMethod`: unknown values fall back.
         // The legacy `toolbarLayout` ("compact") only ever meant icon-only buttons
         // (and, wrongly, a hidden title), so it now maps to labels off.
@@ -313,6 +319,7 @@ struct AppConfig: Codable, Sendable, Equatable {
         try c.encode(addLinksFromClipboard, forKey: .addLinksFromClipboard)
         try c.encode(filesFoldersFirst, forKey: .filesFoldersFirst)
         try c.encode(showPieceMap, forKey: .showPieceMap)
+        try c.encode(showPeerCountry, forKey: .showPeerCountry)
         try c.encode(toolbarLayout.titleBar, forKey: .titleBar)
         try c.encode(toolbarLayout.showsLabels, forKey: .toolbarLabels)
     }
