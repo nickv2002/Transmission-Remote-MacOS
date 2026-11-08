@@ -608,7 +608,11 @@ final class MainWindowController: NSWindowController {
         tableView.headerView?.menu = columnHeaderMenu()
 
         // Restore the saved sort order, if any.
-        if let key = UserDefaults.standard.string(forKey: "TorrentSortKey") {
+        if let saved = UserDefaults.standard.stringArray(forKey: "TorrentSortOrder") {
+            let descriptors = TorrentSortState.decode(saved)
+            if !descriptors.isEmpty { tableView.sortDescriptors = descriptors }
+        } else if let key = UserDefaults.standard.string(forKey: "TorrentSortKey") {
+            // Pre-multi-column builds saved a single key + direction.
             let ascending = UserDefaults.standard.bool(forKey: "TorrentSortAscending")
             tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
         }
@@ -881,33 +885,39 @@ final class MainWindowController: NSWindowController {
     // MARK: - Sorting
 
     private func sortTorrents() {
-        guard let descriptor = tableView.sortDescriptors.first,
-              let key = descriptor.key,
-              let column = Column(rawValue: key) else {
+        // Mac table semantics: `sortDescriptors` is primary-first (the last-clicked
+        // header leads, earlier clicks follow as tie-breakers). Unknown keys are skipped.
+        let levels: [(ascending: Bool, before: (Torrent, Torrent) -> Bool)] =
+            tableView.sortDescriptors.compactMap { descriptor in
+                guard let key = descriptor.key, let column = Column(rawValue: key) else { return nil }
+                return (descriptor.ascending, Self.comparator(for: column))
+            }
+        guard !levels.isEmpty else {
             torrents.sort { $0.addedDate < $1.addedDate }
             return
         }
-        let ascending = descriptor.ascending
-        torrents = Torrent.ordered(torrents, ascending: ascending) { a, b in
-            switch column {
-            case .queue: return a.queuePosition < b.queuePosition
-            case .name: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            case .size: return a.totalSize < b.totalSize
-            case .status: return a.statusRaw < b.statusRaw
-            case .progress: return a.displayProgress < b.displayProgress
-            case .down: return a.rateDownload < b.rateDownload
-            case .up: return a.rateUpload < b.rateUpload
-            case .eta: return a.eta < b.eta
-            case .ratio: return a.uploadRatio < b.uploadRatio
-            case .uploaded: return a.uploadedEver < b.uploadedEver
-            case .ratioLimit: return a.effectiveRatioLimit < b.effectiveRatioLimit
-            case .added: return a.addedDate < b.addedDate
-            case .tracker: return (a.trackerHost ?? "").localizedCaseInsensitiveCompare(b.trackerHost ?? "") == .orderedAscending
-            case .error: return a.sortsBeforeByError(b)
-            case .seeds: return a.seedsConnected < b.seedsConnected
-            case .peers: return a.peersConnectedForUpload < b.peersConnectedForUpload
-            case .priority: return a.bandwidthPriorityRaw < b.bandwidthPriorityRaw
-            }
+        torrents = Torrent.ordered(torrents, levels: levels)
+    }
+
+    private static func comparator(for column: Column) -> (Torrent, Torrent) -> Bool {
+        switch column {
+        case .queue: return { $0.queuePosition < $1.queuePosition }
+        case .name: return { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .size: return { $0.totalSize < $1.totalSize }
+        case .status: return { $0.statusRaw < $1.statusRaw }
+        case .progress: return { $0.displayProgress < $1.displayProgress }
+        case .down: return { $0.rateDownload < $1.rateDownload }
+        case .up: return { $0.rateUpload < $1.rateUpload }
+        case .eta: return { $0.eta < $1.eta }
+        case .ratio: return { $0.uploadRatio < $1.uploadRatio }
+        case .uploaded: return { $0.uploadedEver < $1.uploadedEver }
+        case .ratioLimit: return { $0.effectiveRatioLimit < $1.effectiveRatioLimit }
+        case .added: return { $0.addedDate < $1.addedDate }
+        case .tracker: return { ($0.trackerHost ?? "").localizedCaseInsensitiveCompare($1.trackerHost ?? "") == .orderedAscending }
+        case .error: return { $0.sortsBeforeByError($1) }
+        case .seeds: return { $0.seedsConnected < $1.seedsConnected }
+        case .peers: return { $0.peersConnectedForUpload < $1.peersConnectedForUpload }
+        case .priority: return { $0.bandwidthPriorityRaw < $1.bandwidthPriorityRaw }
         }
     }
 
@@ -922,9 +932,9 @@ final class MainWindowController: NSWindowController {
         let shown = tableView.tableColumns
             .filter { !$0.isHidden }
             .compactMap { Column(rawValue: $0.identifier.rawValue) }
-        let sortColumn = tableView.sortDescriptors.first?.key.flatMap(Column.init(rawValue:))
-        if sortColumn == nil { groups.insert(.added) }
-        for column in shown + [sortColumn].compactMap({ $0 }) {
+        let sortColumns = tableView.sortDescriptors.compactMap { $0.key.flatMap(Column.init(rawValue:)) }
+        if sortColumns.isEmpty { groups.insert(.added) }
+        for column in shown + sortColumns {
             switch column {
             case .seeds, .peers: groups.insert(.seedsAndPeers)
             case .uploaded: groups.insert(.uploaded)
@@ -1144,10 +1154,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             peersSortDescriptorsDidChange(from: oldDescriptors)
             return
         }
-        if let descriptor = tableView.sortDescriptors.first, let key = descriptor.key {
-            UserDefaults.standard.set(key, forKey: "TorrentSortKey")
-            UserDefaults.standard.set(descriptor.ascending, forKey: "TorrentSortAscending")
-        }
+        UserDefaults.standard.set(TorrentSortState.encode(tableView.sortDescriptors), forKey: "TorrentSortOrder")
         applyFieldGroups()
         let ids = selectedTorrentIds()
         sortTorrents()

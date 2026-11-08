@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Transmission torrent status codes (RPC spec). Mirrors the legacy app's `tsXxx`
@@ -221,6 +222,22 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
             let (x, y) = ascending ? (a, b) : (b, a)
             if before(x, y) { return true }
             if before(y, x) { return false }
+            return a.id < b.id
+        }
+    }
+
+    /// Multi-column variant of `ordered` with the Mac `NSTableView` semantics: levels are
+    /// in priority order (the most recently clicked header first), and a later level
+    /// only decides rows that tie on every earlier one. Each level has its own
+    /// direction. Ties on every level break on `id`, so the order stays total and stable.
+    static func ordered(_ torrents: [Torrent],
+                        levels: [(ascending: Bool, before: (Torrent, Torrent) -> Bool)]) -> [Torrent] {
+        torrents.sorted { a, b in
+            for level in levels {
+                let (x, y) = level.ascending ? (a, b) : (b, a)
+                if level.before(x, y) { return true }
+                if level.before(y, x) { return false }
+            }
             return a.id < b.id
         }
     }
@@ -1153,4 +1170,22 @@ struct TorrentPieces: Decodable, Sendable, Equatable {
 /// straight into `TorrentPieces`.
 struct TorrentPiecesArguments: Decodable, Sendable {
     let torrents: [TorrentPieces]
+}
+
+
+/// Persisted form of the transfer list's sort order: every `NSSortDescriptor`, primary
+/// first, so a secondary sort survives relaunch. Encoded as `["name", "-size"]`
+/// (a leading `-` means descending).
+enum TorrentSortState {
+    static func encode(_ descriptors: [NSSortDescriptor]) -> [String] {
+        descriptors.compactMap { d in d.key.map { d.ascending ? $0 : "-" + $0 } }
+    }
+
+    static func decode(_ encoded: [String]) -> [NSSortDescriptor] {
+        encoded.compactMap { item in
+            let descending = item.hasPrefix("-")
+            let key = descending ? String(item.dropFirst()) : item
+            return key.isEmpty ? nil : NSSortDescriptor(key: key, ascending: !descending)
+        }
+    }
 }
