@@ -218,7 +218,7 @@ final class MainWindowController: NSWindowController {
 
     // Column identifiers double as sort keys.
     private enum Column: String, CaseIterable {
-        case queue, name, size, status, progress, down, up, eta, ratio, uploaded, ratioLimit, added, tracker, error, seeds, peers
+        case queue, name, size, status, progress, down, up, eta, ratio, uploaded, ratioLimit, added, tracker, error, seeds, peers, priority
 
         var title: String {
             switch self {
@@ -238,6 +238,7 @@ final class MainWindowController: NSWindowController {
             case .error: return "Error"
             case .seeds: return "Seeds"
             case .peers: return "Peers"
+            case .priority: return "Priority"
             }
         }
 
@@ -257,13 +258,14 @@ final class MainWindowController: NSWindowController {
             case .tracker: return 150
             case .error: return 200
             case .seeds, .peers: return 70
+            case .priority: return 70
             }
         }
 
         /// Columns hidden by default (still toggleable from the header menu).
         var hiddenByDefault: Bool {
             switch self {
-            case .size, .uploaded, .ratioLimit, .added, .tracker, .error, .seeds, .peers: return true
+            case .size, .uploaded, .ratioLimit, .added, .tracker, .error, .seeds, .peers, .priority: return true
             default: return false
             }
         }
@@ -897,6 +899,7 @@ final class MainWindowController: NSWindowController {
             case .error: return a.sortsBeforeByError(b)
             case .seeds: return a.seedsConnected < b.seedsConnected
             case .peers: return a.peersConnectedForUpload < b.peersConnectedForUpload
+            case .priority: return a.bandwidthPriorityRaw < b.bandwidthPriorityRaw
             }
         }
     }
@@ -1060,6 +1063,7 @@ final class MainWindowController: NSWindowController {
         case .error: return t.errorString.components(separatedBy: .newlines).joined(separator: " ")
         case .seeds: return Formatters.peerCount(connected: t.seedsConnected, total: t.seedsTotal)
         case .peers: return Formatters.peerCount(connected: t.peersConnectedForUpload, total: t.leechersTotal)
+        case .priority: return t.bandwidthPriority.displayName
         }
     }
 
