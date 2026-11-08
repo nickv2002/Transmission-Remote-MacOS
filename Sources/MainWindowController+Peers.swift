@@ -254,6 +254,7 @@ extension MainWindowController {
         case .progress: value = ""  // handled above
         }
         cell.textField?.stringValue = value
+        cell.toolTip = column == .flags ? PeerFlagLegend.tooltip(for: peer.flagStr) : nil
         cell.textField?.alignment = column == .down || column == .up ? .right : .left
         return cell
     }
