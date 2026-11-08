@@ -342,7 +342,7 @@ final class InfoGridView: NSView {
         short("Location", t.downloadDir, span: 2)
         if t.hasError { wide("Error", "[\(t.errorCode)] \(t.errorString)") }
 
-        short("Status", t.status.displayName)
+        short("Status", t.statusDisplayName)
         short("Progress", Formatters.percent(t.displayProgress))
         short("Ratio", Formatters.ratio(t.uploadRatio))
         // "want" only differs when some files are unwanted; omit the noise otherwise.

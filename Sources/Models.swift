@@ -88,6 +88,9 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     let id: Int
     let name: String
     let statusRaw: Int
+    /// RPC `isFinished`: the daemon stopped this torrent because it reached its seed
+    /// ratio / idle limit. Only meaningful together with `status == .stopped`.
+    let isFinished: Bool
     let percentDone: Double
     let totalSize: Int64
     let sizeWhenDone: Int64
@@ -121,6 +124,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         case id
         case name
         case statusRaw = "status"
+        case isFinished
         case percentDone
         case totalSize
         case sizeWhenDone
@@ -161,6 +165,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         id = try c.decode(Int.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         statusRaw = try c.decode(Int.self, forKey: .statusRaw)
+        isFinished = try c.decodeIfPresent(Bool.self, forKey: .isFinished) ?? false
         percentDone = try c.decode(Double.self, forKey: .percentDone)
         totalSize = try c.decode(Int64.self, forKey: .totalSize)
         sizeWhenDone = try c.decode(Int64.self, forKey: .sizeWhenDone)
@@ -194,6 +199,17 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     }
 
     var status: TorrentStatus { TorrentStatus(rawValue: statusRaw) ?? .stopped }
+
+    /// Stopped by the daemon because a seed limit was reached, as opposed to stopped
+    /// by the user. The legacy app showed these as "Finished".
+    var isFinishedStopped: Bool { isFinished && status == .stopped }
+
+    /// Status column text: "Finished" for a limit-stopped torrent, else the status name.
+    var statusDisplayName: String { isFinishedStopped ? "Finished" : status.displayName }
+
+    /// Status column sort key: the raw status, except finished torrents rank after
+    /// every other status so they sink to the bottom of an ascending sort.
+    var statusSortRank: Int { isFinishedStopped ? TorrentStatus.seeding.rawValue + 1 : statusRaw }
 
     /// The fraction to show in the progress bar: verify progress while checking,
     /// download progress otherwise (`percentDone` reflects download completion and
@@ -382,7 +398,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     /// `errorString`, `downloadDir`), the progress/rate columns, and the cheap
     /// scalars the scripting dictionary and context menu read.
     private static let baseFields = [
-        "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
+        "id", "name", "status", "isFinished", "percentDone", "totalSize", "sizeWhenDone",
         "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
         "downloadDir", "errorString", "error", "hashString", "queuePosition",
         "bandwidthPriority", "trackers", "recheckProgress",
@@ -420,7 +436,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     /// grouping and Info-pane comment fill in on the next (full) poll. Decoding
     /// tolerates the omitted fields via `init(from:)`.
     static let firstFetchFields = [
-        "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
+        "id", "name", "status", "isFinished", "percentDone", "totalSize", "sizeWhenDone",
         "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
         "downloadDir", "error", "errorString", "addedDate", "hashString",
         "queuePosition", "bandwidthPriority", "recheckProgress",

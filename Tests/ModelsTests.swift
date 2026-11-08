@@ -258,7 +258,7 @@ final class ModelsTests: XCTestCase {
     }
 
     /// Every group on: the request is exactly the field set the app read before
-    /// groups existed, with no duplicates.
+    /// groups existed (plus `isFinished` for the Finished status), with no duplicates.
     func testAllGroupsRequestEveryPreviouslyRequestedField() {
         let expected: Set<String> = [
             "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
@@ -267,7 +267,7 @@ final class ModelsTests: XCTestCase {
             "peersGettingFromUs", "addedDate", "hashString", "queuePosition",
             "bandwidthPriority", "trackers", "trackerStats", "comment", "error", "doneDate",
             "activityDate", "downloadedEver", "uploadedEver", "seedRatioLimit",
-            "seedRatioMode", "recheckProgress",
+            "seedRatioMode", "recheckProgress", "isFinished",
         ]
         let fields = Torrent.fields(for: .all)
         XCTAssertEqual(Set(fields), expected)
