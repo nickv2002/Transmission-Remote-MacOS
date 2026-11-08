@@ -51,6 +51,10 @@ Pull requests are welcome! See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the deta
 
 By participating in this project you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
+## Credits
+
+Optional peer country lookup uses [IP to Country Lite](https://db-ip.com/db/download/ip-to-country-lite) by [DB-IP.com](https://db-ip.com), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). It is off by default and downloaded on demand (Settings ▸ General ▸ Advanced); it is not bundled with the app.
+
 ## License
 
 GPLv2, inherited from the upstream project. See [`LICENSE`](LICENSE).

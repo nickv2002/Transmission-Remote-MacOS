@@ -11,11 +11,12 @@ extension MainWindowController {
     /// Column identifiers for the peers table. Raw values double as
     /// `PeerSortKey`s (which are the `NSSortDescriptor` keys).
     enum PeerColumn: String, CaseIterable {
-        case address, client, flags, progress, down, up
+        case address, country, client, flags, progress, down, up
 
         var title: String {
             switch self {
             case .address: return "Address"
+            case .country: return "Country"
             case .client: return "Client"
             case .flags: return "Flags"
             case .progress: return "Progress"
@@ -27,6 +28,7 @@ extension MainWindowController {
         var width: CGFloat {
             switch self {
             case .address: return 140
+            case .country: return 70
             case .client: return 150
             case .flags: return 70
             case .progress: return 90
@@ -47,9 +49,12 @@ extension MainWindowController {
             col.title = column.title
             col.width = column.width
             col.sortDescriptorPrototype = NSSortDescriptor(key: column.rawValue, ascending: true)
+            col.isHidden = column == .country && !showPeerCountry
             peersTable.addTableColumn(col)
         }
         restorePeersColumnWidths()
+        NotificationCenter.default.addObserver(self, selector: #selector(geoIPDatabaseChanged),
+                                               name: .geoIPDatabaseDidChange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(peersColumnResized(_:)),
                                                name: NSTableView.columnDidResizeNotification,
                                                object: peersTable)
@@ -64,6 +69,7 @@ extension MainWindowController {
         scroll.documentView = peersTable
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
+        if showPeerCountry { GeoIPStore.shared.loadIfPresent() }
         return scroll
     }
 
@@ -73,6 +79,28 @@ extension MainWindowController {
             if let width = dict[col.identifier.rawValue] as? CGFloat {
                 col.width = width
             }
+        }
+    }
+
+    /// Show or hide the Country column to match the setting, loading the saved
+    /// database when it's on (downloading is Settings' job, never implicit here).
+    func applyPeerCountrySetting() {
+        peersTable.tableColumn(withIdentifier: PeerColumn.country.identifier)?.isHidden = !showPeerCountry
+        if showPeerCountry { GeoIPStore.shared.loadIfPresent() }
+        geoIPDatabaseChanged()
+    }
+
+    @objc private func geoIPDatabaseChanged() {
+        peers = annotated(peers)
+        reloadPeersData()
+    }
+
+    private func annotated(_ list: [TorrentPeer]) -> [TorrentPeer] {
+        let store = GeoIPStore.shared
+        return list.map { peer in
+            var p = peer
+            p.countryCode = showPeerCountry ? (store.country(for: peer.address) ?? "") : ""
+            return p
         }
     }
 
@@ -134,7 +162,7 @@ extension MainWindowController {
         let selectedIds = Set(peersTable.selectedRowIndexes.compactMap { row in
             displayedPeers.indices.contains(row) ? displayedPeers[row].id : nil
         })
-        peers = fetched
+        peers = annotated(fetched)
         reloadPeersData()
         updatePeersTabLabel()
         guard !selectedIds.isEmpty else { return }
@@ -217,6 +245,8 @@ extension MainWindowController {
         let value: String
         switch column {
         case .address: value = "\(peer.address):\(peer.port)"
+        case .country:
+            value = peer.countryCode.isEmpty ? "" : "\(GeoIPDatabase.flag(for: peer.countryCode)) \(peer.countryCode)"
         case .client: value = peer.clientName
         case .flags: value = peer.flagStr
         case .down: value = Formatters.speed(peer.rateToClient)

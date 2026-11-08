@@ -34,6 +34,7 @@ struct SettingsEditor: Equatable {
                                    addLinksFromClipboard: config.addLinksFromClipboard,
                                    filesFoldersFirst: config.filesFoldersFirst,
                                    showPieceMap: config.showPieceMap,
+                                   showPeerCountry: config.showPeerCountry,
                                    toolbarLayout: config.toolbarLayout)
         self.working = normalized
         self.savedBaseline = normalized
@@ -52,6 +53,7 @@ struct SettingsEditor: Equatable {
     var addLinksFromClipboard: Bool { working.addLinksFromClipboard }
     var filesFoldersFirst: Bool { working.filesFoldersFirst }
     var showPieceMap: Bool { working.showPieceMap }
+    var showPeerCountry: Bool { working.showPeerCountry }
     var toolbarLayout: ToolbarLayout { working.toolbarLayout }
 
     func server(at index: Int) -> ServerConfig? {
@@ -69,6 +71,7 @@ struct SettingsEditor: Equatable {
                   addLinksFromClipboard: working.addLinksFromClipboard,
                   filesFoldersFirst: working.filesFoldersFirst,
                   showPieceMap: working.showPieceMap,
+                  showPeerCountry: working.showPeerCountry,
                   toolbarLayout: working.toolbarLayout)
     }
 
@@ -135,7 +138,7 @@ struct SettingsEditor: Equatable {
         AppConfig(servers: c.servers, refreshSeconds: c.refreshSeconds, currentServer: c.currentServer,
                   autoCheckForUpdates: c.autoCheckForUpdates, removeTorrentFileMethod: c.removeTorrentFileMethod,
                   showAddOptions: c.showAddOptions, addLinksFromClipboard: c.addLinksFromClipboard,
-                  filesFoldersFirst: c.filesFoldersFirst, showPieceMap: c.showPieceMap,
+                  filesFoldersFirst: c.filesFoldersFirst, showPieceMap: c.showPieceMap, showPeerCountry: c.showPeerCountry,
                   toolbarLayout: c.toolbarLayout)
     }
 
@@ -323,6 +326,11 @@ struct SettingsEditor: Equatable {
     @discardableResult
     mutating func setShowPieceMap(_ enabled: Bool) -> AppConfig {
         applyImmediately(\.showPieceMap, enabled)
+    }
+
+    @discardableResult
+    mutating func setShowPeerCountry(_ enabled: Bool) -> AppConfig {
+        applyImmediately(\.showPeerCountry, enabled)
     }
 
     @discardableResult

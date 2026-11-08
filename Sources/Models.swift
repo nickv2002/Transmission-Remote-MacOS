@@ -831,6 +831,9 @@ struct TorrentPeer: Decodable, Sendable, Equatable, Identifiable {
     let isUTP: Bool
     let isDownloadingFrom: Bool
     let isUploadingTo: Bool
+    /// ISO 3166 alpha-2 country from the optional GeoIP database; filled in by the
+    /// Peers tab after decoding (never sent by the daemon). "" when unknown.
+    var countryCode: String = ""
 
     /// Address + port — unique per connected peer; the identity that survives
     /// the table reloads each poll.
@@ -896,7 +899,7 @@ struct TorrentPeersArguments: Decodable, Sendable {
 /// identifiers (which are the `NSSortDescriptor` keys); sorting itself is the
 /// Foundation-only `sorted` below so it is unit-testable.
 enum PeerSortKey: String, Sendable {
-    case address, client, flags, progress, down, up
+    case address, country, client, flags, progress, down, up
 
     /// `ComparisonResult` for two `Comparable` values (Swift's `Comparable`
     /// has no `compare`, unlike Foundation's `NSNumber`).
@@ -919,6 +922,14 @@ enum PeerSortKey: String, Sendable {
             // their digit runs ("10.0.0.2" before "10.0.0.10"), not
             // lexicographically.
             case .address: order = a.address.localizedStandardCompare(b.address)
+            case .country:
+                // Unknown countries sort last when ascending.
+                switch (a.countryCode.isEmpty, b.countryCode.isEmpty) {
+                case (true, true): order = .orderedSame
+                case (true, false): order = .orderedDescending
+                case (false, true): order = .orderedAscending
+                default: order = a.countryCode.compare(b.countryCode)
+                }
             case .client: order = a.clientName.localizedCaseInsensitiveCompare(b.clientName)
             case .flags: order = a.flagStr.localizedCaseInsensitiveCompare(b.flagStr)
             case .progress: order = compare(a.progress, b.progress)
