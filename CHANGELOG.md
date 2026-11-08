@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.11.08.2 — 2026-11-08
+
+- Sort the transfer list on multiple columns, Mac-style
+- Show Finished for torrents stopped at their seed limit
+
 ## 2026.11.08.1 — 2026-11-08
 
 - Rename CLAUDE.md to AGENTS.md
