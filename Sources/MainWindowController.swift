@@ -639,6 +639,7 @@ final class MainWindowController: NSWindowController {
 
     /// Refresh the header menu checkmarks to reflect current column visibility.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        updatePriorityMarks(in: menu)
         for item in menu.items {
             guard let key = item.representedObject as? String,
                   let col = tableView.tableColumns.first(where: { $0.identifier.rawValue == key }) else { continue }

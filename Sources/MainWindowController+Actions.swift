@@ -228,6 +228,21 @@ extension MainWindowController: NSToolbarDelegate {
         setSearchMode(mode)
     }
 
+    static let torrentPriorityMenuTitle = "TorrentPriority"
+    static let filePriorityMenuTitle = "FilePriority"
+
+    /// Put a checkmark beside every priority the targeted torrents / files have
+    /// (several when the selection is mixed). Called as a priority submenu opens.
+    func updatePriorityMarks(in menu: NSMenu) {
+        let present: Set<Int>
+        switch menu.title {
+        case Self.torrentPriorityMenuTitle: present = Set(selectionForAction().map(\.bandwidthPriorityRaw))
+        case Self.filePriorityMenuTitle: present = Set(targetedFilePriorities().map(\.rawValue))
+        default: return
+        }
+        for item in menu.items { item.state = present.contains(item.tag) ? .on : .off }
+    }
+
     func rowContextMenu() -> NSMenu {
         let menu = NSMenu()
         menu.addItem(withTitle: "Start", action: #selector(startSelected(_:)), keyEquivalent: "s")
@@ -256,7 +271,8 @@ extension MainWindowController: NSToolbarDelegate {
 
         // Priority submenu.
         let priorityItem = menu.addItem(withTitle: "Priority", action: nil, keyEquivalent: "")
-        let priorityMenu = NSMenu()
+        let priorityMenu = NSMenu(title: Self.torrentPriorityMenuTitle)
+        priorityMenu.delegate = self
         for priority in [BandwidthPriority.high, .normal, .low] {
             let item = priorityMenu.addItem(withTitle: priority.displayName, action: #selector(setPrioritySelected(_:)), keyEquivalent: "")
             item.tag = priority.rawValue
@@ -319,14 +335,6 @@ extension MainWindowController: NSToolbarDelegate {
         if menuItem.action == #selector(searchModeChanged(_:)) {
             menuItem.state = (menuItem.tag == searchMode.rawValue) ? .on : .off
             return true
-        }
-        // Priority submenus: checkmark every priority present in the target(s).
-        if menuItem.action == #selector(setPrioritySelected(_:)) {
-            let present = Set(selectionForAction().map(\.bandwidthPriorityRaw))
-            menuItem.state = present.contains(menuItem.tag) ? .on : .off
-        } else if menuItem.action == #selector(setFilePriorityAction(_:)) {
-            let present = Set(targetedFilePriorities().map(\.rawValue))
-            menuItem.state = present.contains(menuItem.tag) ? .on : .off
         }
         return validate(action: menuItem.action)
     }
