@@ -132,3 +132,16 @@ final class GeoIPStoreTests: XCTestCase {
         XCTAssertNil(store.database)
     }
 }
+
+final class PeerFlagLegendTests: XCTestCase {
+    func testTooltipExplainsEachPresentFlagInOrder() {
+        XCTAssertEqual(PeerFlagLegend.tooltip(for: "DKE"),
+                       "D — Downloading from this peer\nK — Peer has unchoked us, but we aren't interested\nE — Encrypted connection")
+    }
+
+    func testUnknownLettersAndEmpty() {
+        XCTAssertEqual(PeerFlagLegend.tooltip(for: "Z"), "Z — Unknown flag")
+        XCTAssertNil(PeerFlagLegend.tooltip(for: ""))
+        XCTAssertNil(PeerFlagLegend.tooltip(for: " "))
+    }
+}

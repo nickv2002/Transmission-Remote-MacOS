@@ -893,6 +893,37 @@ struct TorrentPeersArguments: Decodable, Sendable {
     let torrents: [TorrentPeersEntry]
 }
 
+// MARK: - Peer flag meanings
+
+/// Explains the letters in a peer's `flagStr` (Transmission's connection flags),
+/// for the Flags column tooltip.
+enum PeerFlagLegend {
+    static let meanings: [Character: String] = [
+        "O": "Optimistic unchoke",
+        "D": "Downloading from this peer",
+        "d": "Would download from this peer, but it is choking us",
+        "U": "Uploading to this peer",
+        "u": "Would upload to this peer, but it isn't interested",
+        "K": "Peer has unchoked us, but we aren't interested",
+        "?": "We unchoked this peer, but it isn't interested",
+        "E": "Encrypted connection",
+        "X": "Peer found via peer exchange (PEX)",
+        "H": "Peer found via DHT",
+        "L": "Peer found via local peer discovery",
+        "I": "Incoming connection",
+        "T": "Connected over µTP",
+    ]
+
+    /// One "X — meaning" line per flag present, in the order given; unknown
+    /// letters are shown as-is. Nil when there are no flags to explain.
+    static func tooltip(for flagStr: String) -> String? {
+        let lines = flagStr.filter { !$0.isWhitespace }.map { flag in
+            "\(flag) — \(meanings[flag] ?? "Unknown flag")"
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+}
+
 // MARK: - Peers sorting
 
 /// Sortable columns of the Peers tab. Raw values match `PeerColumn`
