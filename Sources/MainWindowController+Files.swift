@@ -120,7 +120,8 @@ extension MainWindowController {
         menu.addItem(withTitle: "Skip (Unwanted)", action: #selector(setFilesWantedAction(_:)), keyEquivalent: "").tag = 0
         menu.addItem(.separator())
         let priorityItem = menu.addItem(withTitle: "Priority", action: nil, keyEquivalent: "")
-        let priorityMenu = NSMenu()
+        let priorityMenu = NSMenu(title: Self.filePriorityMenuTitle)
+        priorityMenu.delegate = self
         for priority in [FilePriority.high, .normal, .low] {
             let item = priorityMenu.addItem(withTitle: priority.displayName, action: #selector(setFilePriorityAction(_:)), keyEquivalent: "")
             item.tag = priority.rawValue
