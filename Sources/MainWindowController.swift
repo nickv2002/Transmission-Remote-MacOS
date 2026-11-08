@@ -904,7 +904,7 @@ final class MainWindowController: NSWindowController {
         case .queue: return { $0.queuePosition < $1.queuePosition }
         case .name: return { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         case .size: return { $0.totalSize < $1.totalSize }
-        case .status: return { $0.statusRaw < $1.statusRaw }
+        case .status: return { $0.statusSortRank < $1.statusSortRank }
         case .progress: return { $0.displayProgress < $1.displayProgress }
         case .down: return { $0.rateDownload < $1.rateDownload }
         case .up: return { $0.rateUpload < $1.rateUpload }
@@ -1067,7 +1067,7 @@ final class MainWindowController: NSWindowController {
         case .queue: return "\(t.queuePosition + 1)"
         case .name: return t.name
         case .size: return Formatters.size(t.totalSize)
-        case .status: return t.status.displayName
+        case .status: return t.statusDisplayName
         case .progress: return ""
         case .down: return Formatters.speed(t.rateDownload)
         case .up: return Formatters.speed(t.rateUpload)
