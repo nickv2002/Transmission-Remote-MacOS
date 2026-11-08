@@ -116,7 +116,7 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
             sectionHeader("Advanced"),
             peerCountryBox,
             stack([peerCountryStatus, peerCountryButton]),
-            caption("Country data: IP to Country Lite by DB-IP.com, licensed CC BY 4.0. Nothing is downloaded unless this is on."),
+            attributionCaption(),
         ]
         let separator = NSBox()
         separator.boxType = .separator
@@ -159,6 +159,31 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
         let l = NSTextField(wrappingLabelWithString: text)
         l.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         l.textColor = .secondaryLabelColor
+        l.preferredMaxLayoutWidth = 420
+        return l
+    }
+
+    /// Country-data credit with clickable links (DB-IP's CC BY 4.0 attribution).
+    private func attributionCaption() -> NSTextField {
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        let result = NSMutableAttributedString(string: "Country data: ", attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor])
+        func link(_ text: String, _ url: String) -> NSAttributedString {
+            NSAttributedString(string: text, attributes: [.font: font, .link: URL(string: url)!])
+        }
+        func plain(_ text: String) -> NSAttributedString {
+            NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor])
+        }
+        result.append(link("IP to Country Lite", "https://db-ip.com/db/download/ip-to-country-lite"))
+        result.append(plain(" by "))
+        result.append(link("DB-IP.com", "https://db-ip.com"))
+        result.append(plain(", licensed "))
+        result.append(link("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"))
+        result.append(plain(". Nothing is downloaded unless this is on."))
+        let l = NSTextField(labelWithAttributedString: result)
+        l.allowsEditingTextAttributes = true
+        l.isSelectable = true
+        l.lineBreakMode = .byWordWrapping
+        l.maximumNumberOfLines = 0
         l.preferredMaxLayoutWidth = 420
         return l
     }

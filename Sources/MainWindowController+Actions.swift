@@ -320,6 +320,14 @@ extension MainWindowController: NSToolbarDelegate {
             menuItem.state = (menuItem.tag == searchMode.rawValue) ? .on : .off
             return true
         }
+        // Priority submenus: checkmark every priority present in the target(s).
+        if menuItem.action == #selector(setPrioritySelected(_:)) {
+            let present = Set(selectionForAction().map(\.bandwidthPriorityRaw))
+            menuItem.state = present.contains(menuItem.tag) ? .on : .off
+        } else if menuItem.action == #selector(setFilePriorityAction(_:)) {
+            let present = Set(targetedFilePriorities().map(\.rawValue))
+            menuItem.state = present.contains(menuItem.tag) ? .on : .off
+        }
         return validate(action: menuItem.action)
     }
 

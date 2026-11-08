@@ -251,6 +251,14 @@ extension MainWindowController {
 
     /// Nodes the action targets: the right-clicked row if it is outside the
     /// selection, else the whole selection.
+    /// The distinct priorities of every file beneath the targeted rows, for the
+    /// context menu's checkmarks (a mixed selection marks each one present).
+    func targetedFilePriorities() -> Set<FilePriority> {
+        var found = Set<FilePriority>()
+        for node in targetedNodes() { node.forEachLeaf { found.insert($0.priority) } }
+        return found
+    }
+
     private func targetedNodes() -> [FileNode] {
         let clicked = filesOutline.clickedRow
         let selected = filesOutline.selectedRowIndexes
