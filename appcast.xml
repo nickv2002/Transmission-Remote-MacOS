@@ -379,5 +379,17 @@
         length="5333338"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.11.08.1</title>
+      <sparkle:version>2026.11.08.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 08 Nov 2026 18:04:57 +0000</pubDate>
+      <description><![CDATA[<p>The transfer list gains a sortable Priority column, an optional peer Country column using a downloadable DB-IP database, flag tooltips, and checkmarks for the current priority.</p><ul><li>Rename CLAUDE.md to AGENTS.md</li><li>Add sortable Priority column to the transfer list (#31)</li><li>Add optional peer Country column backed by a downloadable DB-IP Lite database (#31)</li><li>Checkmark current priority in torrent/file context menus; make DB-IP credit links clickable</li><li>Explain peer flag letters in a tooltip on the Flags column</li><li>Mark current priority via submenu delegate instead of menu validation</li><li>Test Priority column text and sort order (#31)</li><li>Test peer-country setting checkbox and DB-IP attribution links (#31)</li><li>Update AGENTS.md</li><li>Update AGENTS.md for Priority column, peer countries, flag tooltip and priority menu marks</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.11.08.1/Transmission.Remote-2026.11.08.1.zip"
+        sparkle:edSignature="FX/a4tnbw0BXmnzuOIoIf8h1jk4hUHFtaXmeOjLjH5jhXn+P1iaI5zXM4McAFplyUuWAEmnsToLOgBrIbL8yAQ=="
+        length="5398564"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
