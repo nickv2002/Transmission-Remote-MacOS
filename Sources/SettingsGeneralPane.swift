@@ -20,6 +20,7 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
     private let removeFileMethodPopup = NSPopUpButton()
     private let showAddOptionsBox = NSButton(checkboxWithTitle: "Show options when adding torrents", target: nil, action: nil)
     private let foldersFirstBox = NSButton(checkboxWithTitle: "List folders before files in the Files tab", target: nil, action: nil)
+    let toolbarLabelsBox = NSButton(checkboxWithTitle: "Show button labels in the toolbar", target: nil, action: nil)
     private let pieceMapBox = NSButton(checkboxWithTitle: "Show piece map in the Info tab", target: nil, action: nil)
     private let peerCountryBox = NSButton(checkboxWithTitle: "Show peer countries in the Peers tab", target: nil, action: nil)
     private let peerCountryStatus = NSTextField(wrappingLabelWithString: "")
@@ -61,6 +62,8 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
         showAddOptionsBox.action = #selector(showAddOptionsChanged)
         showAddOptionsBox.toolTip = "When off, clicked magnet links, opened .torrent files, drops, and "
             + "clipboard links are added straight away to the server's default folder and started."
+        toolbarLabelsBox.target = self
+        toolbarLabelsBox.action = #selector(toolbarLabelsChanged)
         foldersFirstBox.target = self
         foldersFirstBox.action = #selector(foldersFirstChanged)
         foldersFirstBox.toolTip = "When sorting the Files tab by a column, keep folders above files. "
@@ -92,6 +95,7 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
             sectionHeader("General"),
             stack([label("Refresh every:"), refreshField, refreshStepper, label("seconds")]),
             autoCheckBox,
+            toolbarLabelsBox,
             foldersFirstBox,
             pieceMapBox,
         ]
@@ -204,6 +208,7 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
         refreshField.stringValue = String(format: "%g", editor.refreshSeconds)
         refreshStepper.doubleValue = editor.refreshSeconds
         autoCheckBox.state = editor.autoCheckForUpdates ? .on : .off
+        showToolbarLayout(editor.toolbarLayout)
         removeFileMethodPopup.select(editor.removeTorrentFileMethod)
         showAddOptionsBox.state = editor.showAddOptions ? .on : .off
         foldersFirstBox.state = editor.filesFoldersFirst ? .on : .off
@@ -280,6 +285,16 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
             }
             reloadHandlerStatus()
         }
+    }
+
+    func showToolbarLayout(_ layout: ToolbarLayout) {
+        toolbarLabelsBox.state = layout.showsLabels ? .on : .off
+    }
+
+    @objc private func toolbarLabelsChanged() {
+        var layout = read().toolbarLayout
+        layout.showsLabels = toolbarLabelsBox.state == .on
+        apply { $0.setToolbarLayout(layout) }
     }
 
     @objc private func foldersFirstChanged() { let on = foldersFirstBox.state == .on; apply { $0.setFilesFoldersFirst(on) } }

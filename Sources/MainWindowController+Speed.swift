@@ -67,30 +67,21 @@ extension MainWindowController {
         onEditPresets?()
     }
 
-    func makeSpeedLimitsItem(identifier: NSToolbarItem.Identifier, live: Bool) -> NSToolbarItem {
-        let item = NSMenuToolbarItem(itemIdentifier: identifier)
-        item.label = "Speed Limits"
-        item.isBordered = true
-        item.showsIndicator = true
-        item.menu = makeSpeedLimitsMenu()
-        item.image = NSImage(systemSymbolName: "speedometer", accessibilityDescription: "Speed Limits")
-        if live {
-            speedLimitsItem = item
-            updateSpeedLimitsItem()
-        }
-        return item
+    /// The standalone item and the grouped one can both be in a customized toolbar.
+    func updateSpeedLimitsItem() {
+        ToolbarGroups.menuItems(in: window?.toolbar?.items ?? [], identifier: ToolbarID.speedLimits)
+            .forEach(configureSpeedLimitsItem)
+        refreshNativeServerControls()
     }
 
-    /// Refresh the toolbar item's menu, icon, and tooltip from the current session.
-    func updateSpeedLimitsItem() {
-        guard let item = speedLimitsItem else { return }
+    func configureSpeedLimitsItem(_ item: NSMenuToolbarItem) {
         item.menu = makeSpeedLimitsMenu()
         let session = refresh.session
         let symbol: String
         if session?.isTurtleOn == true {
-            symbol = "tortoise.fill"
+            symbol = "tortoise"
         } else if let limits = session?.normalLimits, limits.down != nil || limits.up != nil {
-            symbol = "gauge.with.needle.fill"
+            symbol = "gauge.with.needle"
         } else {
             symbol = "speedometer"
         }

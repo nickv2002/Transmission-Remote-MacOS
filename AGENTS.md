@@ -22,7 +22,7 @@ Main window:
 - `main.swift` — explicit AppKit entry point (gotcha 1). `AppDelegate.swift` — lifecycle, menus, Dock/Finder icon handling. `ServerMenuSync.swift` — Server menu in-place update + ⌘1–⌘0 mapping.
 - `MainWindowController.swift` — window, table, detail pane, status bar, sort/filter (`displayed` is the filtered view of `torrents`). Extensions: `+Actions` (toolbar, context menu, actions, search item), `+Speed` (`SpeedMenuModel`), `+Files`, `+Trackers`, `+Peers`, `+Pieces`, `+Add` (add flows, `pendingAdds`, `DropView`), `+Access` (once-per-episode sign-in prompt).
 - `SidebarController.swift`, `Filtering.swift` (`StatusFilter`/`SidebarFilter`), `PieceMapView.swift`, `ProgressCellView.swift`, `SpeedGraphView.swift`, `Formatters.swift`, `Models.swift`.
-- `ToolbarLayoutAppKit.swift` — `NSWindow.apply(toolbarLayout:)` and the display-mode observer. `PopUpEnum.swift` — use it for every enum-backed `NSPopUpButton`.
+- `ToolbarLayoutAppKit.swift` — `NSWindow.apply(toolbarLayout:)`, the display-mode observer and native menu filter. `ToolbarGroups.swift` — grouped actions, configuration migration and version-specific caption fixes. `PopUpEnum.swift` — use it for every enum-backed `NSPopUpButton`.
 
 Networking:
 - `TransmissionClient.swift` — `actor` over `URLSession`; Basic auth, the 409 / `X-Transmission-Session-Id` retry, typed RPC wrappers, `RequestHeaderSource`s, redirects refused (`RedirectRefuser`).
@@ -134,16 +134,16 @@ Browser sign-in via Cloudflare's **Managed OAuth** for a daemon behind Access. R
 `ToolbarLayout` (`AppConfig.toolbarLayout`) is two choices: **Title bar** (`TitleBarStyle` full / hidden) and **Show button labels**, persisted as `titleBar` / `toolbarLabels`; edited in Settings ▸ General and the View menu. `MainWindowController.applyToolbarLayout` is the single owner of title visibility, toolbar style and display mode; the decisions (`showsTitle`, `showsToolTips`) are Foundation-only and tested.
 
 - Title full → `.expanded`; hidden → `.unified`. Labels off = tooltips. **Hiding the toolbar forces the title visible**; `observeVisibility` re-applies on show/hide.
-- The setting owns the display mode, but the user can change it from the palette/right-click: a KVO observer maps icon-only → labels off, anything else → labels on, routed through `AppDelegate.setToolbarLayout`. `applyToolbarLayout` sets `toolbarLayout` first so its own writes never look like user changes. `NSToolbar` autosave would otherwise override the setting, so it's applied after the toolbar attaches.
+- **Toolbar display choices stay available.** The native right-click menu and Customize Toolbar's Show picker offer Icon Only and Icon and Text, synchronized with View and General settings through `AppDelegate.setToolbarLayout`. A scoped menu-tracking observer hides only Text Only, matching mode tags, a shared action and the owning window without localized titles or private selectors; unrecognized menus are left untouched. Keep overflow representations intact. `applyToolbarLayout` ignores transient AppKit mode resets while applying the saved choice after the toolbar attaches; legacy/programmatic Text Only normalizes to Icon and Text.
 - **Never `.unifiedCompact`** (AppKit drops the display-mode controls, so icon-only couldn't be undone).
 - **Search item:** only the live item (`willBeInsertedIntoToolbar == true`) may set `searchField`, or the palette copy steals it.
 - `NSWindow.allowsAutomaticWindowTabbing = false` keeps tab items out of the View menu.
-- **Toolbar autosave id is `MainToolbar3`.** Bump it when adding a default item (resets users' customization once). The server dropdown and Speed Limits pull-down are in `centeredItemIdentifiers`; the dropdown is a plain view item labelled "Server" so AppKit aligns it.
+- **One toolbar on macOS 15 and later.** `MainToolbar5Grouped` migrates complete adjacent sets from `MainToolbar4` once. Start/Stop/Force Start, Rename/Move/Verify, and Server/Speed Limits/Server Settings each move as a unit; individual items remain in the palette. Sequoia and Tahoe align captions beneath their segments. macOS 27 uses AppKit's captions with a correction to their hit-area measurement.
 - **Proxy icon** is AppKit's: only with `representedURL` (the bundle), drawn from the icon's **16pt renditions** (`icon_16x16*`, `icon_32x32`), which must match the large artwork. A hand-placed image view in the title bar was tried and dropped (stopped drawing after a layout switch).
 
 ## Tests
 
-XCTest in `Tests/` (target `TransmissionRemoteTests`, ~300 hermetic tests). The business-logic sources are **compiled directly into the test bundle** rather than hosting the app (which would launch it and connect to the owner's server). Add new Foundation-only files (e.g. `GeoIPDatabase.swift`, `GeoIPStore.swift`) to the target in `project.yml`. `MainWindowController` itself is not in the test bundle, so menu/column glue is verified by hand. Shared helpers: `TorrentFactory`, `StubURLProtocol` (per-host state via `uniqueHost()`, sends 3xx through real redirect handling), `AccessStub`.
+XCTest and Swift Testing in `Tests/` (target `TransmissionRemoteTests`). Sources are **compiled directly into the test bundle** rather than hosting the app (which would launch it and connect to the owner's server). Add required sources to the target in `project.yml`. `MainWindowController` and the toolbar controls are included for isolated grouping, caption, picker and menu tests; native rendering still needs actual OS checks. Shared helpers: `TorrentFactory`, `StubURLProtocol` (per-host state via `uniqueHost()`, sends 3xx through real redirect handling), `AccessStub`.
 
 ```sh
 xcodebuild -project TransmissionRemote.xcodeproj -scheme TransmissionRemote -configuration Debug test
