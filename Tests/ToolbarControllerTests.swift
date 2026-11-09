@@ -33,12 +33,36 @@ struct ToolbarControllerTests {
         defer { c.window?.close() }
         let toolbar = try #require(c.window?.toolbar)
         #expect(toolbar.allowsUserCustomization)
-        #expect(!toolbar.allowsDisplayModeCustomization)
+        #expect(toolbar.allowsDisplayModeCustomization)
         for title: TitleBarStyle in [.hidden, .full] {
             for labels in [false, true] {
                 c.applyToolbarLayout(ToolbarLayout(titleBar: title, showsLabels: labels))
                 #expect(toolbar.displayMode == (labels ? .iconAndLabel : .iconOnly))
             }
+        }
+    }
+
+    @Test func pickerChangesUpdateGroupsAndReportPreferenceOnce() throws {
+        let c = MainWindowController(config: .default)
+        defer { c.window?.close() }
+        let toolbar = try #require(c.window?.toolbar)
+        var reports: [ToolbarLayout] = []
+        c.onToolbarLayoutChange = { reports.append($0) }
+        for title: TitleBarStyle in [.hidden, .full] {
+            c.applyToolbarLayout(ToolbarLayout(titleBar: title, showsLabels: true))
+            reports.removeAll()
+            for labels in [false, true, false, true] {
+                toolbar.displayMode = labels ? .iconAndLabel : .iconOnly
+                #expect(c.toolbarLayout == ToolbarLayout(titleBar: title, showsLabels: labels))
+                #expect(reports.last == c.toolbarLayout)
+                for case let group as NativeToolbarGroup in toolbar.items {
+                    #expect(group.control.segmentCount == group.subitems.count)
+                    for item in group.subitems where item.itemIdentifier != ToolbarID.server && item.itemIdentifier != ToolbarID.speedLimits {
+                        #expect(item.toolTip == (labels ? nil : item.label))
+                    }
+                }
+            }
+            #expect(reports.count == 4)
         }
     }
 

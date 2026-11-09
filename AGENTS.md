@@ -455,9 +455,13 @@ AppKit:
 
 Behavior no config shows:
 
-- **View ▸ Show Button Labels** and **Settings ▸ General** own the display mode.
-  Customize Toolbar manages items and spacing. Its display-mode picker is disabled
-  because the app offers Icon Only and Icon and Text.
+- **Toolbar display choices stay available.** The native right-click menu and
+  Customize Toolbar's Show picker offer Icon Only and Icon and Text, synchronized
+  with View ▸ Show Button Labels and Settings ▸ General. A scoped menu-tracking
+  observer hides only Text Only, recognizing the three native mode tags, common
+  action and owning window without localized titles or private selectors. An
+  unrecognized menu is left alone. Keep overflow representations intact: removing
+  them to make AppKit omit Text Only can also remove usable overflow actions.
 - **Search item:** only the live toolbar item (`willBeInsertedIntoToolbar == true`) may
   set `searchField`; the palette copy would otherwise steal it (placeholder went stale).
 - **No window tabbing.** `NSWindow.allowsAutomaticWindowTabbing = false` at launch

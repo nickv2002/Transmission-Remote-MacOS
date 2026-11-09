@@ -76,6 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let controller = MainWindowController(config: config)
         windowController = controller
+        controller.onToolbarLayoutChange = { [weak self] in self?.setToolbarLayout($0) }
         controller.onServerSettings = { [weak self] in self?.showServerSettings(nil) }
         controller.onEditPresets = { [weak self] in self?.openSettings(.activeServer(.speed), focusPresets: true) }
         controller.onSessionObserved = { [weak self] info in
@@ -610,7 +611,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setToolbarLayout(layout)
     }
 
-    /// Mirror View menu changes in an open Settings window.
+    /// Persist toolbar-picker and View menu changes, and mirror them in Settings.
     private func setToolbarLayout(_ layout: ToolbarLayout) {
         config.toolbarLayout = layout
         persistConfigChange()

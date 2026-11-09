@@ -75,6 +75,9 @@ final class MainWindowController: NSWindowController {
 
     /// The applied title bar + toolbar layout (see `applyToolbarLayout`).
     var toolbarLayout: ToolbarLayout = .default
+    var onToolbarLayoutChange: ((ToolbarLayout) -> Void)?
+    var displayModeObservation: NSKeyValueObservation?
+    var displayModeMenuFilter: ToolbarDisplayModeMenuFilter?
     var toolbarVisibilityObservation: NSKeyValueObservation?
     /// Asks the app delegate to open Settings on the active server's Speed tab (Edit Presets…).
     var onEditPresets: (() -> Void)?

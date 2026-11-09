@@ -7,8 +7,14 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         let toolbar = NSToolbar(identifier: ToolbarGroups.autosaveIdentifier)
         toolbar.delegate = self
         toolbar.allowsUserCustomization = true
-        // The app offers icons, with or without captions, via View and Settings.
-        toolbar.allowsDisplayModeCustomization = false
+        toolbar.allowsDisplayModeCustomization = true
+        displayModeObservation = toolbar.observeLayoutChanges(
+            current: { [weak self] in self?.toolbarLayout ?? .default },
+            onChange: { [weak self] layout in
+                guard let self else { return }
+                self.applyToolbarLayout(layout)
+                self.onToolbarLayoutChange?(layout)
+            })
         // Hiding the toolbar must bring the title back (and re-hide it on show).
         toolbarVisibilityObservation = toolbar.observeVisibility { [weak self] in
             guard let self else { return }
@@ -16,6 +22,7 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         }
         toolbar.autosavesConfiguration = !TestIsolation.isActive
         window?.toolbar = toolbar
+        if let window { displayModeMenuFilter = ToolbarDisplayModeMenuFilter(window: window) }
     }
 
     /// Apply the saved title and label settings after attaching the toolbar,
