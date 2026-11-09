@@ -98,6 +98,7 @@ final class MainWindowController: NSWindowController {
     var filesFoldersFirst = true
     /// Settings → General: show the Info tab's piece-map row (`+Pieces.swift`).
     var showPieceMap = true
+    var showPeerCountry = false
     /// Settings: pick up a torrent link copied to the clipboard on activation.
     var addLinksFromClipboard = false
 
@@ -213,7 +214,7 @@ final class MainWindowController: NSWindowController {
 
     // Column identifiers double as sort keys.
     private enum Column: String, CaseIterable {
-        case queue, name, size, status, progress, down, up, eta, ratio, uploaded, ratioLimit, added, tracker, error, seeds, peers
+        case queue, name, size, status, progress, down, up, eta, ratio, uploaded, ratioLimit, added, tracker, error, seeds, peers, priority
 
         var title: String {
             switch self {
@@ -233,6 +234,7 @@ final class MainWindowController: NSWindowController {
             case .error: return "Error"
             case .seeds: return "Seeds"
             case .peers: return "Peers"
+            case .priority: return "Priority"
             }
         }
 
@@ -252,13 +254,14 @@ final class MainWindowController: NSWindowController {
             case .tracker: return 150
             case .error: return 200
             case .seeds, .peers: return 70
+            case .priority: return 70
             }
         }
 
         /// Columns hidden by default (still toggleable from the header menu).
         var hiddenByDefault: Bool {
             switch self {
-            case .size, .uploaded, .ratioLimit, .added, .tracker, .error, .seeds, .peers: return true
+            case .size, .uploaded, .ratioLimit, .added, .tracker, .error, .seeds, .peers, .priority: return true
             default: return false
             }
         }
@@ -274,6 +277,7 @@ final class MainWindowController: NSWindowController {
         self.showAddOptions = config.showAddOptions
         self.filesFoldersFirst = config.filesFoldersFirst
         self.showPieceMap = config.showPieceMap
+        self.showPeerCountry = config.showPeerCountry
         self.addLinksFromClipboard = config.addLinksFromClipboard
 
         let window = NSWindow(
@@ -328,6 +332,10 @@ final class MainWindowController: NSWindowController {
             showPieceMap = config.showPieceMap
             loadPiecesIfNeeded()
             updatePieceMap()
+        }
+        if showPeerCountry != config.showPeerCountry {
+            showPeerCountry = config.showPeerCountry
+            applyPeerCountrySetting()
         }
         if config.addLinksFromClipboard && !addLinksFromClipboard {
             // Just enabled: only react to copies made from now on.
@@ -595,7 +603,11 @@ final class MainWindowController: NSWindowController {
         tableView.headerView?.menu = columnHeaderMenu()
 
         // Restore the saved sort order, if any.
-        if let key = UserDefaults.standard.string(forKey: "TorrentSortKey") {
+        if let saved = UserDefaults.standard.stringArray(forKey: "TorrentSortOrder") {
+            let descriptors = TorrentSortState.decode(saved)
+            if !descriptors.isEmpty { tableView.sortDescriptors = descriptors }
+        } else if let key = UserDefaults.standard.string(forKey: "TorrentSortKey") {
+            // Pre-multi-column builds saved a single key + direction.
             let ascending = UserDefaults.standard.bool(forKey: "TorrentSortAscending")
             tableView.sortDescriptors = [NSSortDescriptor(key: key, ascending: ascending)]
         }
@@ -626,6 +638,7 @@ final class MainWindowController: NSWindowController {
 
     /// Refresh the header menu checkmarks to reflect current column visibility.
     func menuNeedsUpdate(_ menu: NSMenu) {
+        updatePriorityMarks(in: menu)
         for item in menu.items {
             guard let key = item.representedObject as? String,
                   let col = tableView.tableColumns.first(where: { $0.identifier.rawValue == key }) else { continue }
@@ -867,32 +880,39 @@ final class MainWindowController: NSWindowController {
     // MARK: - Sorting
 
     private func sortTorrents() {
-        guard let descriptor = tableView.sortDescriptors.first,
-              let key = descriptor.key,
-              let column = Column(rawValue: key) else {
+        // Mac table semantics: `sortDescriptors` is primary-first (the last-clicked
+        // header leads, earlier clicks follow as tie-breakers). Unknown keys are skipped.
+        let levels: [(ascending: Bool, before: (Torrent, Torrent) -> Bool)] =
+            tableView.sortDescriptors.compactMap { descriptor in
+                guard let key = descriptor.key, let column = Column(rawValue: key) else { return nil }
+                return (descriptor.ascending, Self.comparator(for: column))
+            }
+        guard !levels.isEmpty else {
             torrents.sort { $0.addedDate < $1.addedDate }
             return
         }
-        let ascending = descriptor.ascending
-        torrents = Torrent.ordered(torrents, ascending: ascending) { a, b in
-            switch column {
-            case .queue: return a.queuePosition < b.queuePosition
-            case .name: return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            case .size: return a.totalSize < b.totalSize
-            case .status: return a.statusRaw < b.statusRaw
-            case .progress: return a.displayProgress < b.displayProgress
-            case .down: return a.rateDownload < b.rateDownload
-            case .up: return a.rateUpload < b.rateUpload
-            case .eta: return a.eta < b.eta
-            case .ratio: return a.uploadRatio < b.uploadRatio
-            case .uploaded: return a.uploadedEver < b.uploadedEver
-            case .ratioLimit: return a.effectiveRatioLimit < b.effectiveRatioLimit
-            case .added: return a.addedDate < b.addedDate
-            case .tracker: return (a.trackerHost ?? "").localizedCaseInsensitiveCompare(b.trackerHost ?? "") == .orderedAscending
-            case .error: return a.sortsBeforeByError(b)
-            case .seeds: return a.seedsConnected < b.seedsConnected
-            case .peers: return a.peersConnectedForUpload < b.peersConnectedForUpload
-            }
+        torrents = Torrent.ordered(torrents, levels: levels)
+    }
+
+    private static func comparator(for column: Column) -> (Torrent, Torrent) -> Bool {
+        switch column {
+        case .queue: return { $0.queuePosition < $1.queuePosition }
+        case .name: return { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .size: return { $0.totalSize < $1.totalSize }
+        case .status: return { $0.statusSortRank < $1.statusSortRank }
+        case .progress: return { $0.displayProgress < $1.displayProgress }
+        case .down: return { $0.rateDownload < $1.rateDownload }
+        case .up: return { $0.rateUpload < $1.rateUpload }
+        case .eta: return { $0.eta < $1.eta }
+        case .ratio: return { $0.uploadRatio < $1.uploadRatio }
+        case .uploaded: return { $0.uploadedEver < $1.uploadedEver }
+        case .ratioLimit: return { $0.effectiveRatioLimit < $1.effectiveRatioLimit }
+        case .added: return { $0.addedDate < $1.addedDate }
+        case .tracker: return { ($0.trackerHost ?? "").localizedCaseInsensitiveCompare($1.trackerHost ?? "") == .orderedAscending }
+        case .error: return { $0.sortsBeforeByError($1) }
+        case .seeds: return { $0.seedsConnected < $1.seedsConnected }
+        case .peers: return { $0.peersConnectedForUpload < $1.peersConnectedForUpload }
+        case .priority: return { $0.bandwidthPriorityRaw < $1.bandwidthPriorityRaw }
         }
     }
 
@@ -907,9 +927,9 @@ final class MainWindowController: NSWindowController {
         let shown = tableView.tableColumns
             .filter { !$0.isHidden }
             .compactMap { Column(rawValue: $0.identifier.rawValue) }
-        let sortColumn = tableView.sortDescriptors.first?.key.flatMap(Column.init(rawValue:))
-        if sortColumn == nil { groups.insert(.added) }
-        for column in shown + [sortColumn].compactMap({ $0 }) {
+        let sortColumns = tableView.sortDescriptors.compactMap { $0.key.flatMap(Column.init(rawValue:)) }
+        if sortColumns.isEmpty { groups.insert(.added) }
+        for column in shown + sortColumns {
             switch column {
             case .seeds, .peers: groups.insert(.seedsAndPeers)
             case .uploaded: groups.insert(.uploaded)
@@ -1042,7 +1062,7 @@ final class MainWindowController: NSWindowController {
         case .queue: return "\(t.queuePosition + 1)"
         case .name: return t.name
         case .size: return Formatters.size(t.totalSize)
-        case .status: return t.status.displayName
+        case .status: return t.statusDisplayName
         case .progress: return ""
         case .down: return Formatters.speed(t.rateDownload)
         case .up: return Formatters.speed(t.rateUpload)
@@ -1055,6 +1075,7 @@ final class MainWindowController: NSWindowController {
         case .error: return t.errorString.components(separatedBy: .newlines).joined(separator: " ")
         case .seeds: return Formatters.peerCount(connected: t.seedsConnected, total: t.seedsTotal)
         case .peers: return Formatters.peerCount(connected: t.peersConnectedForUpload, total: t.leechersTotal)
+        case .priority: return t.bandwidthPriority.displayName
         }
     }
 
@@ -1128,10 +1149,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
             peersSortDescriptorsDidChange(from: oldDescriptors)
             return
         }
-        if let descriptor = tableView.sortDescriptors.first, let key = descriptor.key {
-            UserDefaults.standard.set(key, forKey: "TorrentSortKey")
-            UserDefaults.standard.set(descriptor.ascending, forKey: "TorrentSortAscending")
-        }
+        UserDefaults.standard.set(TorrentSortState.encode(tableView.sortDescriptors), forKey: "TorrentSortOrder")
         applyFieldGroups()
         let ids = selectedTorrentIds()
         sortTorrents()

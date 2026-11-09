@@ -9,8 +9,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "6.0"
-    MARKETING_VERSION: "2026.11.03.1"
-    CURRENT_PROJECT_VERSION: "2026.11.03.1"
+    MARKETING_VERSION: "2026.11.08.2"
+    CURRENT_PROJECT_VERSION: "2026.11.08.2"
     DEVELOPMENT_TEAM: 3D9SMH4RWM
 
 packages:
@@ -112,6 +112,8 @@ targets:
       - path: Sources/Formatters.swift
       - path: Sources/Filtering.swift
       - path: Sources/Models.swift
+      - path: Sources/GeoIPDatabase.swift
+      - path: Sources/GeoIPStore.swift
       - path: Sources/AppConfig.swift
       - path: Sources/CustomHeaders.swift
       - path: Sources/HeaderSecretStore.swift

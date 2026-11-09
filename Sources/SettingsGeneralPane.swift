@@ -22,6 +22,10 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
     private let foldersFirstBox = NSButton(checkboxWithTitle: "List folders before files in the Files tab", target: nil, action: nil)
     let toolbarLabelsBox = NSButton(checkboxWithTitle: "Show button labels in the toolbar", target: nil, action: nil)
     private let pieceMapBox = NSButton(checkboxWithTitle: "Show piece map in the Info tab", target: nil, action: nil)
+    private let peerCountryBox = NSButton(checkboxWithTitle: "Show peer countries in the Peers tab", target: nil, action: nil)
+    private let peerCountryStatus = NSTextField(wrappingLabelWithString: "")
+    private let peerCountryButton = NSButton(title: "Update Now", target: nil, action: nil)
+    private var geoObserver: NSObjectProtocol?
     private let clipboardBox = NSButton(checkboxWithTitle: "Add magnet links copied to the clipboard", target: nil, action: nil)
     /// "Magnet links: <app>" / ".torrent files: <app>" status + Make Default,
     /// keyed by kind. These act immediately (system-wide).
@@ -68,6 +72,20 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
         pieceMapBox.action = #selector(pieceMapChanged)
         pieceMapBox.toolTip = "Show the progress bar and map of downloaded pieces at the top of the "
             + "Info tab. Off also stops fetching the piece bitfield."
+        peerCountryBox.target = self
+        peerCountryBox.action = #selector(peerCountryChanged)
+        peerCountryBox.toolTip = "Downloads a free country database (about 5 MB) from DB-IP.com and "
+            + "adds a Country column to the Peers tab. Turning this off deletes the download."
+        peerCountryStatus.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        peerCountryStatus.textColor = .secondaryLabelColor
+        peerCountryStatus.preferredMaxLayoutWidth = 420
+        peerCountryButton.controlSize = .small
+        peerCountryButton.bezelStyle = .push
+        peerCountryButton.target = self
+        peerCountryButton.action = #selector(peerCountryUpdate)
+        geoObserver = NotificationCenter.default.addObserver(forName: .geoIPDatabaseDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.reloadPeerCountryStatus() }
+        }
         clipboardBox.target = self
         clipboardBox.action = #selector(clipboardChanged)
         clipboardBox.toolTip = "When the app becomes active, add a magnet link, .torrent URL, or "
@@ -98,6 +116,12 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
             handlerButtons[kind] = button
             incomingRows.append(stack([label(kind.title), status, button]))
         }
+        let advancedRows: [NSView] = [
+            sectionHeader("Advanced"),
+            peerCountryBox,
+            stack([peerCountryStatus, peerCountryButton]),
+            attributionCaption(),
+        ]
         let separator = NSBox()
         separator.boxType = .separator
         separator.translatesAutoresizingMaskIntoConstraints = false
@@ -106,12 +130,17 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
         scope.textColor = .secondaryLabelColor
         scope.setAccessibilityHelp(ServerSettingsScope.Storage.mac.help)
 
-        let column = NSStackView(views: [scope] + generalRows + [separator] + incomingRows)
+        let separator2 = NSBox()
+        separator2.boxType = .separator
+        separator2.translatesAutoresizingMaskIntoConstraints = false
+        separator2.widthAnchor.constraint(equalToConstant: 400).isActive = true
+        let column = NSStackView(views: [scope] + generalRows + [separator] + incomingRows + [separator2] + advancedRows)
         column.orientation = .vertical
         column.alignment = .leading
         column.spacing = 8
         column.setCustomSpacing(14, after: scope)
         column.setCustomSpacing(14, after: separator)
+        column.setCustomSpacing(14, after: separator2)
         separator.widthAnchor.constraint(equalToConstant: 400).isActive = true
         column.translatesAutoresizingMaskIntoConstraints = false
         pane.addSubview(column)
@@ -138,6 +167,31 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
         return l
     }
 
+    /// Country-data credit with clickable links (DB-IP's CC BY 4.0 attribution).
+    private func attributionCaption() -> NSTextField {
+        let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        let result = NSMutableAttributedString(string: "Country data: ", attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor])
+        func link(_ text: String, _ url: String) -> NSAttributedString {
+            NSAttributedString(string: text, attributes: [.font: font, .link: URL(string: url)!])
+        }
+        func plain(_ text: String) -> NSAttributedString {
+            NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.secondaryLabelColor])
+        }
+        result.append(link("IP to Country Lite", "https://db-ip.com/db/download/ip-to-country-lite"))
+        result.append(plain(" by "))
+        result.append(link("DB-IP.com", "https://db-ip.com"))
+        result.append(plain(", licensed "))
+        result.append(link("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/"))
+        result.append(plain(". Nothing is downloaded unless this is on."))
+        let l = NSTextField(labelWithAttributedString: result)
+        l.allowsEditingTextAttributes = true
+        l.isSelectable = true
+        l.lineBreakMode = .byWordWrapping
+        l.maximumNumberOfLines = 0
+        l.preferredMaxLayoutWidth = 420
+        return l
+    }
+
     private func label(_ text: String) -> NSTextField { NSTextField(labelWithString: text) }
 
     private func stack(_ views: [NSView]) -> NSStackView {
@@ -160,6 +214,8 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
         foldersFirstBox.state = editor.filesFoldersFirst ? .on : .off
         pieceMapBox.state = editor.showPieceMap ? .on : .off
         clipboardBox.state = editor.addLinksFromClipboard ? .on : .off
+        peerCountryBox.state = editor.showPeerCountry ? .on : .off
+        reloadPeerCountryStatus()
         reloadHandlerStatus()
     }
 
@@ -174,6 +230,45 @@ final class SettingsGeneralPane: NSObject, NSTextFieldDelegate {
             }
             handlerButtons[kind]?.isHidden = status == .thisApp
         }
+    }
+
+    /// Status line + button under the peer-country checkbox, from `GeoIPStore.shared`.
+    func reloadPeerCountryStatus() {
+        let enabled = peerCountryBox.state == .on
+        let state = GeoIPStore.shared.state
+        var text = "Off. Nothing is downloaded."
+        var button: String?
+        if enabled {
+            switch state {
+            case .absent: text = "Not downloaded yet."; button = "Download"
+            case .loading: text = "Loading…"
+            case .downloading: text = "Downloading…"
+            case .ready(let date, let ranges):
+                text = "Downloaded \(date.formatted(date: .abbreviated, time: .omitted)) · \(ranges.formatted()) ranges"
+                button = "Update Now"
+            case .failed(let message): text = message; button = "Retry"
+            }
+        }
+        peerCountryStatus.stringValue = text
+        peerCountryButton.title = button ?? ""
+        peerCountryButton.isHidden = button == nil
+    }
+
+    @objc private func peerCountryChanged() {
+        let on = peerCountryBox.state == .on
+        apply { $0.setShowPeerCountry(on) }
+        if on {
+            GeoIPStore.shared.loadIfPresent()
+            if GeoIPStore.shared.state == .absent { GeoIPStore.shared.download() }
+        } else {
+            GeoIPStore.shared.remove()
+        }
+        reloadPeerCountryStatus()
+    }
+
+    @objc private func peerCountryUpdate() {
+        GeoIPStore.shared.download()
+        reloadPeerCountryStatus()
     }
 
     @objc private func makeDefaultHandler(_ sender: NSButton) {

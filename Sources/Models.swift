@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Transmission torrent status codes (RPC spec). Mirrors the legacy app's `tsXxx`
@@ -87,6 +88,9 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     let id: Int
     let name: String
     let statusRaw: Int
+    /// RPC `isFinished`: the daemon stopped this torrent because it reached its seed
+    /// ratio / idle limit. Only meaningful together with `status == .stopped`.
+    let isFinished: Bool
     let percentDone: Double
     let totalSize: Int64
     let sizeWhenDone: Int64
@@ -120,6 +124,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         case id
         case name
         case statusRaw = "status"
+        case isFinished
         case percentDone
         case totalSize
         case sizeWhenDone
@@ -160,6 +165,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         id = try c.decode(Int.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         statusRaw = try c.decode(Int.self, forKey: .statusRaw)
+        isFinished = try c.decodeIfPresent(Bool.self, forKey: .isFinished) ?? false
         percentDone = try c.decode(Double.self, forKey: .percentDone)
         totalSize = try c.decode(Int64.self, forKey: .totalSize)
         sizeWhenDone = try c.decode(Int64.self, forKey: .sizeWhenDone)
@@ -194,6 +200,17 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
 
     var status: TorrentStatus { TorrentStatus(rawValue: statusRaw) ?? .stopped }
 
+    /// Stopped by the daemon because a seed limit was reached, as opposed to stopped
+    /// by the user. The legacy app showed these as "Finished".
+    var isFinishedStopped: Bool { isFinished && status == .stopped }
+
+    /// Status column text: "Finished" for a limit-stopped torrent, else the status name.
+    var statusDisplayName: String { isFinishedStopped ? "Finished" : status.displayName }
+
+    /// Status column sort key: the raw status, except finished torrents rank after
+    /// every other status so they sink to the bottom of an ascending sort.
+    var statusSortRank: Int { isFinishedStopped ? TorrentStatus.seeding.rawValue + 1 : statusRaw }
+
     /// The fraction to show in the progress bar: verify progress while checking,
     /// download progress otherwise (`percentDone` reflects download completion and
     /// is stale/misleading during a recheck).
@@ -221,6 +238,22 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
             let (x, y) = ascending ? (a, b) : (b, a)
             if before(x, y) { return true }
             if before(y, x) { return false }
+            return a.id < b.id
+        }
+    }
+
+    /// Multi-column variant of `ordered` with the Mac `NSTableView` semantics: levels are
+    /// in priority order (the most recently clicked header first), and a later level
+    /// only decides rows that tie on every earlier one. Each level has its own
+    /// direction. Ties on every level break on `id`, so the order stays total and stable.
+    static func ordered(_ torrents: [Torrent],
+                        levels: [(ascending: Bool, before: (Torrent, Torrent) -> Bool)]) -> [Torrent] {
+        torrents.sorted { a, b in
+            for level in levels {
+                let (x, y) = level.ascending ? (a, b) : (b, a)
+                if level.before(x, y) { return true }
+                if level.before(y, x) { return false }
+            }
             return a.id < b.id
         }
     }
@@ -365,7 +398,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     /// `errorString`, `downloadDir`), the progress/rate columns, and the cheap
     /// scalars the scripting dictionary and context menu read.
     private static let baseFields = [
-        "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
+        "id", "name", "status", "isFinished", "percentDone", "totalSize", "sizeWhenDone",
         "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
         "downloadDir", "errorString", "error", "hashString", "queuePosition",
         "bandwidthPriority", "trackers", "recheckProgress",
@@ -403,7 +436,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     /// grouping and Info-pane comment fill in on the next (full) poll. Decoding
     /// tolerates the omitted fields via `init(from:)`.
     static let firstFetchFields = [
-        "id", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
+        "id", "name", "status", "isFinished", "percentDone", "totalSize", "sizeWhenDone",
         "leftUntilDone", "rateDownload", "rateUpload", "eta", "uploadRatio",
         "downloadDir", "error", "errorString", "addedDate", "hashString",
         "queuePosition", "bandwidthPriority", "recheckProgress",
@@ -831,6 +864,9 @@ struct TorrentPeer: Decodable, Sendable, Equatable, Identifiable {
     let isUTP: Bool
     let isDownloadingFrom: Bool
     let isUploadingTo: Bool
+    /// ISO 3166 alpha-2 country from the optional GeoIP database; filled in by the
+    /// Peers tab after decoding (never sent by the daemon). "" when unknown.
+    var countryCode: String = ""
 
     /// Address + port — unique per connected peer; the identity that survives
     /// the table reloads each poll.
@@ -890,13 +926,44 @@ struct TorrentPeersArguments: Decodable, Sendable {
     let torrents: [TorrentPeersEntry]
 }
 
+// MARK: - Peer flag meanings
+
+/// Explains the letters in a peer's `flagStr` (Transmission's connection flags),
+/// for the Flags column tooltip.
+enum PeerFlagLegend {
+    static let meanings: [Character: String] = [
+        "O": "Optimistic unchoke",
+        "D": "Downloading from this peer",
+        "d": "Would download from this peer, but it is choking us",
+        "U": "Uploading to this peer",
+        "u": "Would upload to this peer, but it isn't interested",
+        "K": "Peer has unchoked us, but we aren't interested",
+        "?": "We unchoked this peer, but it isn't interested",
+        "E": "Encrypted connection",
+        "X": "Peer found via peer exchange (PEX)",
+        "H": "Peer found via DHT",
+        "L": "Peer found via local peer discovery",
+        "I": "Incoming connection",
+        "T": "Connected over µTP",
+    ]
+
+    /// One "X — meaning" line per flag present, in the order given; unknown
+    /// letters are shown as-is. Nil when there are no flags to explain.
+    static func tooltip(for flagStr: String) -> String? {
+        let lines = flagStr.filter { !$0.isWhitespace }.map { flag in
+            "\(flag) — \(meanings[flag] ?? "Unknown flag")"
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+}
+
 // MARK: - Peers sorting
 
 /// Sortable columns of the Peers tab. Raw values match `PeerColumn`
 /// identifiers (which are the `NSSortDescriptor` keys); sorting itself is the
 /// Foundation-only `sorted` below so it is unit-testable.
 enum PeerSortKey: String, Sendable {
-    case address, client, flags, progress, down, up
+    case address, country, client, flags, progress, down, up
 
     /// `ComparisonResult` for two `Comparable` values (Swift's `Comparable`
     /// has no `compare`, unlike Foundation's `NSNumber`).
@@ -919,6 +986,14 @@ enum PeerSortKey: String, Sendable {
             // their digit runs ("10.0.0.2" before "10.0.0.10"), not
             // lexicographically.
             case .address: order = a.address.localizedStandardCompare(b.address)
+            case .country:
+                // Unknown countries sort last when ascending.
+                switch (a.countryCode.isEmpty, b.countryCode.isEmpty) {
+                case (true, true): order = .orderedSame
+                case (true, false): order = .orderedDescending
+                case (false, true): order = .orderedAscending
+                default: order = a.countryCode.compare(b.countryCode)
+                }
             case .client: order = a.clientName.localizedCaseInsensitiveCompare(b.clientName)
             case .flags: order = a.flagStr.localizedCaseInsensitiveCompare(b.flagStr)
             case .progress: order = compare(a.progress, b.progress)
@@ -1111,4 +1186,22 @@ struct TorrentPieces: Decodable, Sendable, Equatable {
 /// straight into `TorrentPieces`.
 struct TorrentPiecesArguments: Decodable, Sendable {
     let torrents: [TorrentPieces]
+}
+
+
+/// Persisted form of the transfer list's sort order: every `NSSortDescriptor`, primary
+/// first, so a secondary sort survives relaunch. Encoded as `["name", "-size"]`
+/// (a leading `-` means descending).
+enum TorrentSortState {
+    static func encode(_ descriptors: [NSSortDescriptor]) -> [String] {
+        descriptors.compactMap { d in d.key.map { d.ascending ? $0 : "-" + $0 } }
+    }
+
+    static func decode(_ encoded: [String]) -> [NSSortDescriptor] {
+        encoded.compactMap { item in
+            let descending = item.hasPrefix("-")
+            let key = descending ? String(item.dropFirst()) : item
+            return key.isEmpty ? nil : NSSortDescriptor(key: key, ascending: !descending)
+        }
+    }
 }

@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026.11.08.2 — 2026-11-08
+
+- Sort the transfer list on multiple columns, Mac-style
+- Show Finished for torrents stopped at their seed limit
+
+## 2026.11.08.1 — 2026-11-08
+
+- Rename CLAUDE.md to AGENTS.md
+- Add sortable Priority column to the transfer list (#31)
+- Add optional peer Country column backed by a downloadable DB-IP Lite database (#31)
+- Checkmark current priority in torrent/file context menus; make DB-IP credit links clickable
+- Explain peer flag letters in a tooltip on the Flags column
+- Mark current priority via submenu delegate instead of menu validation
+- Test Priority column text and sort order (#31)
+- Test peer-country setting checkbox and DB-IP attribution links (#31)
+- Update AGENTS.md
+- Update AGENTS.md for Priority column, peer countries, flag tooltip and priority menu marks
+
 ## 2026.11.03.1 — 2026-11-03
 
 - Send custom headers over plain HTTP only to real loopback; warn about plain HTTP (#28)
