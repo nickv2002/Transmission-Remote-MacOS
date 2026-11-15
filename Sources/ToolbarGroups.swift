@@ -25,7 +25,7 @@ enum ToolbarID {
     ]
 
     static let defaultItems: [NSToolbarItem.Identifier] = [
-        add, .space, transferControls, .space, torrentControls, .space, remove,
+        add, .space, transferControls, torrentControls, remove,
         .flexibleSpace, serverControls, .flexibleSpace, search,
     ]
 }

@@ -103,7 +103,7 @@ struct ToolbarControllerTests {
             let add = try #require(try item("add") as? NSMenuToolbarItem)
             #expect(add.menu.items.map(\.title) == ["Add Torrent File…", "Add Magnet or URL…"])
             #expect(add.action == #selector(c.addFile(_:)))
-            #expect(try item("remove").label == "Remove")
+            #expect(try item("remove").label == "Remove…")
             #expect(try item("search") is NSSearchToolbarItem)
         }
     }

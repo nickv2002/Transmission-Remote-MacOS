@@ -460,7 +460,6 @@ final class SettingsWindowController: NSWindowController {
     /// without touching pending server edits.
     func showToolbarLayout(_ layout: ToolbarLayout) {
         editor.setToolbarLayout(layout)
-        generalPane.showToolbarLayout(layout)
     }
 
     /// ⌘, (last selection), Server Settings… (active server's last tab), Manage

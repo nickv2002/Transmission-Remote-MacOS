@@ -97,6 +97,7 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
             item.searchField.target = self
             item.searchField.action = #selector(searchChanged(_:))
             item.searchField.searchMenuTemplate = searchModeMenu()
+            item.preferredWidthForSearchField = 220
             item.visibilityPriority = .high
             // The palette also asks for an item (flag false); only the live one is ours.
             if flag { searchField = item.searchField }
@@ -124,7 +125,7 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         case ToolbarID.rename: spec = ("Rename", "square.and.pencil", #selector(renameSelected(_:)))
         case ToolbarID.move: spec = ("Move", "folder", #selector(moveSelected(_:)))
         case ToolbarID.verify: spec = ("Verify", "checkmark.shield", #selector(verifySelected(_:)))
-        case ToolbarID.remove: spec = ("Remove", "trash", #selector(removeSelected(_:)))
+        case ToolbarID.remove: spec = ("Remove…", "trash", #selector(removeSelected(_:)))
         default: spec = nil
         }
         guard let spec else { return nil }
@@ -141,7 +142,7 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
     private func makeNativeServerItem() -> NSMenuToolbarItem {
         let item = NSMenuToolbarItem(itemIdentifier: ToolbarID.server)
         item.label = "Server"
-        item.image = NSImage(systemSymbolName: "server.rack", accessibilityDescription: "Server")
+        item.image = NSImage(systemSymbolName: "externaldrive.connected.to.line.below", accessibilityDescription: "Server")
         item.isBordered = true
         item.autovalidates = false
         configureServerItem(item)
