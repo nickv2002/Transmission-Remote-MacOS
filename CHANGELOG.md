@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.11.15.2 — 2026-11-15
+
+- Fix standalone server toolbar outline and icon-only sizing
+
 ## 2026.11.15.1 — 2026-11-15
 
 - Use native toolbar groups across supported macOS versions
