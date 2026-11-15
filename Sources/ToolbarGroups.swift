@@ -87,6 +87,9 @@ final class NativeToolbarGroup: NSToolbarItemGroup {
     private let captionControlSize: NSControl.ControlSize?
     private var captionView: AlignedToolbarCaptions?
     private var originalBorder = false
+    private var labelsShown = true
+    /// Native symbols draw larger in icon-only mode; scale the composed server image to match.
+    static let iconOnlyScale: CGFloat = 1.2
 
     init(id: NSToolbarItem.Identifier, items: [NSToolbarItem], palette: Bool,
          showsLabels: Bool, macOSMajorVersion: Int = ProcessInfo.processInfo.operatingSystemVersion.majorVersion) {
@@ -126,6 +129,7 @@ final class NativeToolbarGroup: NSToolbarItemGroup {
     /// Keep one hit target per segment in both modes. On Sequoia and Tahoe, supply
     /// the caption row so its columns use the same widths as those segments.
     func setShowsLabels(_ shown: Bool) {
+        labelsShown = shown
         guard let captionControlSize, shown != (captionView != nil) else { return }
         if shown {
             label = " " // Reserve AppKit's caption row once for the whole group.
@@ -143,12 +147,12 @@ final class NativeToolbarGroup: NSToolbarItemGroup {
         }
     }
 
-    private static func imageWithTitle(_ title: String, icon: NSImage?) -> NSImage {
-        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    static func imageWithTitle(_ title: String, icon: NSImage?, scale: CGFloat = 1) -> NSImage {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize * scale)
         let attributes: [NSAttributedString.Key: NSObject] = [.font: font, .foregroundColor: NSColor.black]
         let text = NSAttributedString(string: title, attributes: attributes)
         let textSize = text.size()
-        let iconSize = icon?.size ?? .zero
+        let iconSize = NSSize(width: (icon?.size.width ?? 0) * scale, height: (icon?.size.height ?? 0) * scale)
         let gap: CGFloat = iconSize.width > 0 ? 6 : 0
         let size = NSSize(width: ceil(iconSize.width + gap + textSize.width),
                           height: ceil(max(iconSize.height, textSize.height)))
@@ -168,7 +172,7 @@ final class NativeToolbarGroup: NSToolbarItemGroup {
             // AppKit outlines a segment that has text. Draw the server name into a
             // template image instead so it looks like the other image-only segments.
             if item.itemIdentifier == ToolbarID.server, !item.title.isEmpty {
-                control.setImage(Self.imageWithTitle(item.title, icon: item.image), forSegment: index)
+                control.setImage(Self.imageWithTitle(item.title, icon: item.image, scale: labelsShown ? 1 : Self.iconOnlyScale), forSegment: index)
                 control.setLabel("", forSegment: index)
             } else {
                 control.setImage(item.image, forSegment: index)

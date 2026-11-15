@@ -4,7 +4,12 @@ import Testing
 @Suite("Native toolbar groups", .serialized)
 @MainActor
 struct ToolbarGroupTests {
-    @Test(arguments: [15, 26]) func alignedCaptionsMatchEachServerAction(on version: Int) throws {
+    /// The segment accessibility frames come from the host's real AppKit, whose control
+    /// metrics differ per OS (a .large control on Sequoia is taller than the Tahoe layout
+    /// assumes), so only exercise versions the host can actually render.
+    nonisolated static let hostVersions = [15, 26].filter { $0 <= ProcessInfo.processInfo.operatingSystemVersion.majorVersion }
+
+    @Test(arguments: hostVersions) func alignedCaptionsMatchEachServerAction(on version: Int) throws {
         _ = NSApplication.shared
         let server = NSMenuToolbarItem(itemIdentifier: .init("server"))
         server.label = "Server"

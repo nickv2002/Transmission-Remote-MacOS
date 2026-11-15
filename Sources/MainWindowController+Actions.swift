@@ -32,6 +32,7 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         toolbarLayout = layout
         window.apply(toolbarLayout: layout)
         window.toolbar?.items.forEach(updateToolTip)
+        updateServerPopup()
     }
 
     /// Hidden labels show as tooltips instead; visible labels need none.
@@ -73,6 +74,8 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
                  itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if let members = ToolbarID.groups[itemIdentifier] {
+            buildingToolbarGroup = true
+            defer { buildingToolbarGroup = false }
             let items = members.compactMap {
                 self.toolbar(toolbar, itemForItemIdentifier: $0, willBeInsertedIntoToolbar: flag)
             }
@@ -145,19 +148,30 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         item.image = NSImage(systemSymbolName: "externaldrive.connected.to.line.below", accessibilityDescription: "Server")
         item.isBordered = true
         item.autovalidates = false
-        configureServerItem(item)
+        configureServerItem(item, standalone: !buildingToolbarGroup)
         return item
     }
 
-    private func configureServerItem(_ item: NSMenuToolbarItem) {
-        item.title = refresh.currentServerName
+    private func configureServerItem(_ item: NSMenuToolbarItem, standalone: Bool) {
+        if standalone {
+            // AppKit outlines an item that has text; draw the name into a template image instead.
+            item.title = ""
+            item.image = NativeToolbarGroup.imageWithTitle(
+                refresh.currentServerName,
+                icon: NSImage(systemSymbolName: "externaldrive.connected.to.line.below", accessibilityDescription: "Server"),
+                scale: toolbarLayout.showsLabels ? 1 : NativeToolbarGroup.iconOnlyScale)
+        } else {
+            item.title = refresh.currentServerName
+        }
         item.toolTip = refresh.currentServerName
         item.menu = makeServerMenu()
     }
 
     func updateServerPopup() {
-        ToolbarGroups.menuItems(in: window?.toolbar?.items ?? [], identifier: ToolbarID.server)
-            .forEach(configureServerItem)
+        let items = window?.toolbar?.items ?? []
+        for item in ToolbarGroups.menuItems(in: items, identifier: ToolbarID.server) {
+            configureServerItem(item, standalone: items.contains { $0 === item })
+        }
         refreshNativeServerControls()
     }
 

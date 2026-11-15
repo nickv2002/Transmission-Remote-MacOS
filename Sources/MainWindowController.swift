@@ -5,6 +5,8 @@ import Quartz
 /// status bar. Owns the `RefreshController` that drives live updates.
 final class MainWindowController: NSWindowController {
     let refresh: RefreshController
+    /// True while a toolbar group builds its member items (the server item is standalone otherwise).
+    var buildingToolbarGroup = false
 
     let tableView = TorrentTableView()
     private let infoGrid = InfoGridView()

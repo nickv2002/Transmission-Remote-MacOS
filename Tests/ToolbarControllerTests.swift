@@ -155,7 +155,11 @@ struct ToolbarControllerTests {
         #expect(servers.count == 2)
         servers.forEach { $0.title = "Stale" }
         c.updateServerPopup()
-        #expect(servers.allSatisfy { $0.title == c.refresh.currentServerName })
+        // The standalone item draws its name into the image so AppKit adds no text outline.
+        let standalone = try #require(toolbar.items.first { $0.itemIdentifier == .init("server") })
+        #expect(standalone.title.isEmpty)
+        #expect(standalone.image?.isTemplate == true)
+        #expect(servers.filter { $0 !== standalone }.allSatisfy { $0.title == c.refresh.currentServerName })
     }
 
     @Test func savedClassicConfigurationIsCopiedOnceAndNeverOverwritten() throws {
