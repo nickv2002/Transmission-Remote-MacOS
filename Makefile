@@ -1,4 +1,4 @@
-.PHONY: help release build notarize install test generate dev run clean fixture-up fixture-down fixture-test
+.PHONY: help release release-quiet build notarize install test generate dev run clean fixture-up fixture-down fixture-test
 
 VERSION ?= $(shell scripts/next_version.sh)
 
@@ -21,6 +21,7 @@ help:
 	@echo "    fixture-test  Up, run FixtureTransmissionTests, then down (always, even on failure)"
 	@echo ""
 	@echo "  Release pipeline"
+	@echo "    release-quiet  Same as release, logs to build/release.log, prints progress only (for agents)"
 	@echo "    release    Full pipeline: build → sign → notarize → changelog → tag → push → GitHub release → install"
 	@echo "    build      Archive and export a Developer-ID-signed Release build"
 	@echo "    notarize   Notarize, staple, and zip (pass VERSION=x.y.z to override)"
@@ -31,6 +32,14 @@ help:
 # Full release pipeline: build → sign → notarize → changelog → tag → push → GitHub release → install
 release:
 	scripts/release.sh
+
+# Same pipeline, agent-friendly: full output goes to build/release.log, only the
+# "==>" progress lines print, and the last 40 log lines print on failure.
+release-quiet:
+	@mkdir -p build
+	@scripts/release.sh </dev/null >build/release.log 2>&1 \
+	  && grep -E '^(==>|error:)' build/release.log \
+	  || { grep -E '^(==>|error:)' build/release.log; echo '--- last 40 lines of build/release.log ---'; tail -40 build/release.log; exit 1; }
 
 # Archive and export a Developer-ID-signed Release build
 build:
