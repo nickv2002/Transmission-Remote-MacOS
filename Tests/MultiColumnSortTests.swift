@@ -55,6 +55,7 @@ final class MultiColumnSortTests: XCTestCase {
     }
 
     /// The Mac click model: clicking a header moves its descriptor to the front.
+    @MainActor
     func testTableViewKeepsEarlierClickAsSecondary() {
         let table = NSTableView()
         for key in ["status", "size"] {

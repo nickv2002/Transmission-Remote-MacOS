@@ -611,8 +611,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setToolbarLayout(layout)
     }
 
-    /// Persist + apply a toolbar layout chosen outside Settings (View menu or the
-    /// toolbar's own display-mode control) and mirror it in an open Settings window.
+    /// Persist toolbar-picker and View menu changes, and mirror them in Settings.
     private func setToolbarLayout(_ layout: ToolbarLayout) {
         config.toolbarLayout = layout
         persistConfigChange()

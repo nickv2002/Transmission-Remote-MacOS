@@ -32,7 +32,7 @@ final class FocusPreservationTests: XCTestCase {
     }
 
     private func focusAndAssert(_ table: NSTableView, in window: NSWindow,
-                                 file: StaticString = #file, line: UInt = #line) {
+                                 file: StaticString = #filePath, line: UInt = #line) {
         let ok = window.makeFirstResponder(table)
         XCTAssertTrue(ok, "table should accept first responder", file: file, line: line)
         XCTAssertIdentical(window.firstResponder, table,
@@ -41,7 +41,7 @@ final class FocusPreservationTests: XCTestCase {
 
     private func assertStillFocused(_ table: NSTableView, in window: NSWindow,
                                      after label: String,
-                                     file: StaticString = #file, line: UInt = #line) {
+                                     file: StaticString = #filePath, line: UInt = #line) {
         XCTAssertIdentical(window.firstResponder, table,
                            "files table should still be focused after: \(label)",
                            file: file, line: line)

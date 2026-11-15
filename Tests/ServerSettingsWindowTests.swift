@@ -35,6 +35,23 @@ struct ServerSettingsWindowTests {
         c.form.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: field))
     }
 
+    @Test func toolbarLabelsSyncWithViewAndPreservePendingServerEdits() async throws {
+        let c = try await controller()
+        c.route(to: .general)
+        let newIndex = c.editor.addServer()
+        let pendingID = c.editor.servers[newIndex].id
+        var saved: [AppConfig] = []
+        c.onChange = { saved.append($0) }
+
+        c.showToolbarLayout(ToolbarLayout(titleBar: .hidden, showsLabels: false))
+        #expect(c.generalPane.toolbarLabelsBox.state == .off)
+        #expect(saved.isEmpty)
+        c.generalPane.toolbarLabelsBox.performClick(nil)
+        #expect(saved.last?.toolbarLayout == ToolbarLayout(titleBar: .hidden, showsLabels: true))
+        #expect(saved.last?.servers.contains { $0.id == pendingID } == false)
+        #expect(c.hasPendingEdits)
+    }
+
     @Test func allSettingsHaveNativeControlsAndFiveServerTabs() async throws {
         let c = try await controller()
         #expect(c.tabView.tabViewItems.map(\.label) == ["Connection", "Transfers", "Speed", "Network", "Advanced"])
