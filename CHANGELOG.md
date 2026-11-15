@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.11.15.1 — 2026-11-15
+
+- Use native toolbar groups across supported macOS versions
+- Trim toolbar groups PR to the agreed scope
+- Show the server name without the group outline
+- Add release-quiet make target for agent-driven releases
+- Add /release skill that runs make release-quiet
+- Release skill: allow unpushed local commits
+- Rename release skill to release-transgui
+
 ## 2026.11.08.2 — 2026-11-08
 
 - Sort the transfer list on multiple columns, Mac-style

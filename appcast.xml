@@ -403,5 +403,17 @@
         length="5401776"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.11.15.1</title>
+      <sparkle:version>2026.11.15.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 15 Nov 2026 20:11:42 +0000</pubDate>
+      <description><![CDATA[<p>Toolbar buttons now use native macOS toolbar groups on all supported macOS versions, and the server name displays without the group outline.</p><ul><li>Use native toolbar groups across supported macOS versions</li><li>Trim toolbar groups PR to the agreed scope</li><li>Show the server name without the group outline</li><li>Add release-quiet make target for agent-driven releases</li><li>Add /release skill that runs make release-quiet</li><li>Release skill: allow unpushed local commits</li><li>Rename release skill to release-transgui</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.11.15.1/Transmission.Remote-2026.11.15.1.zip"
+        sparkle:edSignature="1Op5HCWw8x8Min1Jygi1x5O0zoewg9+SyMdSPF9F5fm1RN9QNag+81rYXTslSGBwbwz07d0o6wtSa/ZxkCTcAA=="
+        length="6780492"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
