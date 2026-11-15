@@ -143,10 +143,37 @@ final class NativeToolbarGroup: NSToolbarItemGroup {
         }
     }
 
+    private static func imageWithTitle(_ title: String, icon: NSImage?) -> NSImage {
+        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let attributes: [NSAttributedString.Key: NSObject] = [.font: font, .foregroundColor: NSColor.black]
+        let text = NSAttributedString(string: title, attributes: attributes)
+        let textSize = text.size()
+        let iconSize = icon?.size ?? .zero
+        let gap: CGFloat = iconSize.width > 0 ? 6 : 0
+        let size = NSSize(width: ceil(iconSize.width + gap + textSize.width),
+                          height: ceil(max(iconSize.height, textSize.height)))
+        let image = NSImage(size: size, flipped: false) { _ in
+            icon?.draw(in: NSRect(x: 0, y: (size.height - iconSize.height) / 2,
+                                  width: iconSize.width, height: iconSize.height))
+            text.draw(at: NSPoint(x: iconSize.width + gap, y: (size.height - textSize.height) / 2))
+            return true
+        }
+        image.isTemplate = true
+        image.accessibilityDescription = title
+        return image
+    }
+
     func refreshContents() {
         for (index, item) in subitems.enumerated() {
-            control.setImage(item.image, forSegment: index)
-            control.setLabel(item.title, forSegment: index)
+            // AppKit outlines a segment that has text. Draw the server name into a
+            // template image instead so it looks like the other image-only segments.
+            if item.itemIdentifier == ToolbarID.server, !item.title.isEmpty {
+                control.setImage(Self.imageWithTitle(item.title, icon: item.image), forSegment: index)
+                control.setLabel("", forSegment: index)
+            } else {
+                control.setImage(item.image, forSegment: index)
+                control.setLabel(item.title, forSegment: index)
+            }
             control.setToolTip(item.toolTip, forSegment: index)
             let menu = (item as? NSMenuToolbarItem)?.menu
             control.setMenu(menu, forSegment: index)
