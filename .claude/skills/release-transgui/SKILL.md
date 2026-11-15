@@ -1,6 +1,6 @@
 ---
-name: release
-description: Cut a Transmission Remote release (build, sign, notarize, changelog, tag, push, GitHub release, install). Use when the user says /release or asks to ship a release.
+name: release-transgui
+description: Cut a Transmission Remote release (build, sign, notarize, changelog, tag, push, GitHub release, install). Use when the user says /release-transgui or asks to ship a release.
 disable-model-invocation: true
 model: haiku
 ---
