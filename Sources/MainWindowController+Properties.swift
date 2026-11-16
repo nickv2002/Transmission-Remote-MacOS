@@ -1,19 +1,6 @@
 import AppKit
 
 extension MainWindowController {
-    /// Torrent ▸ Properties… (⌘I): shows the Properties tab for the targeted torrents and
-    /// puts the keyboard in it. The right-clicked row wins when it is outside the selection.
-    @objc func showPropertiesSelected(_ sender: Any?) {
-        if let clicked = clickedTorrent(), !selectedTorrents.contains(where: { $0.id == clicked.id }),
-           let row = (0..<tableView.numberOfRows).first(where: { torrentAt(row: $0)?.id == clicked.id }) {
-            tableView.selectRowIndexes([row], byExtendingSelection: false)
-        }
-        guard let item = detailTabView.tabViewItems.first(where: { ($0.identifier as? String) == "properties" }) else { return }
-        detailTabView.selectTabViewItem(item)
-        loadPropertiesIfNeeded()
-        propertiesPane.requestFocus()
-    }
-
     /// Points the Properties tab at the current selection (or nothing). Cheap to call on
     /// every poll and selection change: the same torrents are a no-op. While another tab
     /// is showing, an existing target is kept only for the same selection, so unsaved

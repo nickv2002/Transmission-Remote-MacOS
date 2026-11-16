@@ -281,8 +281,6 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
         priorityItem.submenu = priorityMenu
 
         menu.addItem(withTitle: "Bandwidth Group…", action: #selector(assignBandwidthGroupSelected(_:)), keyEquivalent: "")
-        menu.addItem(withTitle: "Properties…", action: #selector(showPropertiesSelected(_:)), keyEquivalent: "i")
-            .keyEquivalentModifierMask = [.command]
 
         menu.addItem(.separator())
         menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealInFinderSelected(_:)), keyEquivalent: "r")
@@ -375,10 +373,6 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
             return true
         case #selector(renameSelected(_:)):
             return selection.count == 1
-        case #selector(showPropertiesSelected(_:)):
-            guard window?.attachedSheet == nil else { return false }
-            if case .connected = refresh.state { return true }
-            return false
         case #selector(verifySelected(_:)), #selector(reannounceSelected(_:)),
              #selector(removeSelected(_:)),
              #selector(removeTorrentDirectly(_:)),

@@ -116,7 +116,7 @@ final class MainWindowController: NSWindowController {
     /// `NSPasteboard.general.changeCount` last inspected by the clipboard pickup.
     var lastPasteboardChangeCount = NSPasteboard.general.changeCount
 
-    /// Width thresholds (pt) for the Added column's three date forms, measured once
+    /// Width thresholds (pt) for the Added and Completed columns' three date forms, measured once
     /// from representative strings so each form appears right as it starts to fit:
     /// below `mid` → numeric date; `mid`..<`full` → numeric date+time; ≥`full` →
     /// full date+time.
@@ -1218,14 +1218,14 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
 
         // Added: a self-adapting cell that re-picks compact vs full date in its own
         // `layout()` — so it flips live as the column is dragged wider/narrower.
-        if column == .added {
+        if column == .added || column == .completed {
             let cell = (tableView.makeView(withIdentifier: AddedDateCellView.reuseIdentifier, owner: self) as? AddedDateCellView)
                 ?? {
                     let c = AddedDateCellView()
                     c.identifier = AddedDateCellView.reuseIdentifier
                     return c
                 }()
-            cell.configure(epoch: t.addedDate,
+            cell.configure(epoch: column == .added ? t.addedDate : t.doneDate,
                            midThreshold: addedWidthThresholds.mid,
                            fullThreshold: addedWidthThresholds.full)
             return cell

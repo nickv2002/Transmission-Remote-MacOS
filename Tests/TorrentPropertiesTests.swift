@@ -644,33 +644,18 @@ struct TorrentPropertiesTabTests {
         #expect(c.propertiesPane.header.stringValue == "No torrent selected")
     }
 
-    @Test func contextMenuHasPropertiesWithCommandIAndNeedsAConnection() throws {
+    @Test func contextMenuHasNoPropertiesItemBecauseItIsATab() throws {
         let c = MainWindowController(config: .default)
         defer { c.window?.close() }
-        let menu = c.rowContextMenu()
-        let item = try #require(menu.items.first { $0.title == "Properties…" })
-        #expect(item.keyEquivalent == "i")
-        #expect(item.keyEquivalentModifierMask == [.command])
-        #expect(item.action == #selector(MainWindowController.showPropertiesSelected(_:)))
-        let index = try #require(menu.items.firstIndex(of: item))
-        #expect(menu.items[index - 1].title == "Bandwidth Group…")
-        #expect(!c.validateMenuItem(item))
-    }
-
-    @Test func propertiesIsDisabledWhileDisconnectedEvenWithASelection() throws {
-        let c = MainWindowController(config: .default)
-        defer { c.window?.close() }
+        #expect(!c.rowContextMenu().items.contains { $0.title == "Properties…" })
+        // Sanity: an action that needs only a selection is enabled.
         c.refresh.onTorrents?([TorrentFactory.make()])
         c.tableView.selectRowIndexes([0], byExtendingSelection: false)
-        try #require(c.selectedTorrents.count == 1)
-        let item = try #require(c.rowContextMenu().items.first { $0.title == "Properties…" })
-        #expect(!c.validateMenuItem(item))
-        // Sanity: an action that needs only a selection is enabled.
         let verify = try #require(c.rowContextMenu().items.first { $0.title == "Verify" })
         #expect(c.validateMenuItem(verify))
     }
 
-    @Test func theCommandSwitchesToTheTabAndTheTabFollowsTheSelection() async throws {
+    @Test func theTabFollowsTheSelection() async throws {
         let c = MainWindowController(config: .default)
         defer { c.window?.close() }
         let service = PropertiesService(torrents: [F.torrent("a"), F.torrent("b")])
@@ -682,7 +667,7 @@ struct TorrentPropertiesTabTests {
         // Selection moves on while another tab shows: the stale target is dropped.
         c.loadPropertiesIfNeeded()
         #expect(pane.target == nil)
-        c.showPropertiesSelected(nil)
+        try selectTab(c, "properties")
         #expect(c.detailTabView.selectedTabViewItem?.identifier as? String == "properties")
     }
 

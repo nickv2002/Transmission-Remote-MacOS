@@ -441,8 +441,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .submenu = queueSub
 
         torrentMenu.addItem(withTitle: "Bandwidth Group…", action: #selector(MainWindowController.assignBandwidthGroupSelected(_:)), keyEquivalent: "")
-        torrentMenu.addItem(withTitle: "Properties…", action: #selector(MainWindowController.showPropertiesSelected(_:)), keyEquivalent: "i")
-            .keyEquivalentModifierMask = [.command]
         let prioritySub = NSMenu(title: "Priority")
         for p in [BandwidthPriority.high, .normal, .low] {
             prioritySub.addItem(withTitle: p.displayName,
