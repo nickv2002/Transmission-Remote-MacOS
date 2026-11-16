@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026.11.16.1 — 2026-11-16
+
+- Release skill: name the repo when looking up the release URL
+- Race all hosts at startup instead of probing the last-good host alone first
+- Move Torrent Properties from a window to a detail-pane tab
+- Allow Move… on a multi-torrent selection
+- Add a sortable Completed column
+- Remove Properties… menu items (now a detail-pane tab); use adaptive date cell for Completed
+
 ## 2026.11.15.3 — 2026-11-15
 
 - Create paseo.json

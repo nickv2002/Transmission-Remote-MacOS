@@ -439,5 +439,17 @@
         length="5571451"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.11.16.1</title>
+      <sparkle:version>2026.11.16.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 16 Nov 2026 21:05:10 +0000</pubDate>
+      <description><![CDATA[<p>Torrent Properties now open in a detail-pane tab, Move… works on multiple selected torrents, and there's a sortable Completed column.</p><ul><li>Release skill: name the repo when looking up the release URL</li><li>Race all hosts at startup instead of probing the last-good host alone first</li><li>Move Torrent Properties from a window to a detail-pane tab</li><li>Allow Move… on a multi-torrent selection</li><li>Add a sortable Completed column</li><li>Remove Properties… menu items (now a detail-pane tab); use adaptive date cell for Completed</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.11.16.1/Transmission.Remote-2026.11.16.1.zip"
+        sparkle:edSignature="qe6SKJEKFWz2sDPj2N0DcEGBROqf0YTlpaUjrVQcCC/CciF76HPh0n132N0wK2k0CtQiMSsF/CnavjxOdjBsBA=="
+        length="5577247"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
