@@ -119,6 +119,30 @@ enum ConnectionResolver {
     }
 }
 
+extension ConnectionResolver {
+    /// `firstToRespond` with a head start for `preferred` (matched by
+    /// `connectionKey`): every other candidate waits `headStart` seconds before
+    /// probing, so the preferred host wins ties on a stable network. It is raced,
+    /// not probed alone first, so an unreachable preferred host costs only
+    /// `headStart` instead of a full timeout. With no matching preferred
+    /// candidate, nobody waits.
+    static func firstToRespond<T: Sendable>(
+        _ candidates: [ServerConfig],
+        preferred: String?,
+        headStart: TimeInterval,
+        probe: @Sendable @escaping (ServerConfig) async -> T?
+    ) async -> T? {
+        let hasPreferred = preferred.map { key in candidates.contains { $0.connectionKey == key } } ?? false
+        return await firstToRespond(candidates) { candidate in
+            if hasPreferred, candidate.connectionKey != preferred {
+                try? await Task.sleep(nanoseconds: UInt64(headStart * 1_000_000_000))
+                if Task.isCancelled { return nil }
+            }
+            return await probe(candidate)
+        }
+    }
+}
+
 extension ServerConfig {
     /// Host candidates reached over plain HTTP on a network, in Host-field order:
     /// every one except this Mac (`isLoopbackHost`). Their traffic, Transmission's

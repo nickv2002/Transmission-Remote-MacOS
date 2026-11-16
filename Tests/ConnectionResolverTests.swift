@@ -88,4 +88,44 @@ final class ConnectionResolverTests: XCTestCase {
         XCTAssertEqual(chosen, "fast")
         XCTAssertLessThan(elapsed, 1.0, "fast winner should not wait for the slow loser")
     }
+
+    // MARK: - firstToRespond with a preferred (last-good) host
+
+    /// Dead last-good host + live second host: the live one wins after only the
+    /// head start, not after the dead host's timeout.
+    func testDeadPreferredHostDoesNotDelayLiveHost() async {
+        let cands = [server("dead"), server("live")]
+        let started = Date()
+        let chosen: String? = await ConnectionResolver.firstToRespond(
+            cands, preferred: cands[0].connectionKey, headStart: 0.15
+        ) { s in
+            if s.host == "dead" {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                return nil
+            }
+            return s.host
+        }
+        XCTAssertEqual(chosen, "live")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
+    }
+
+    /// Both hosts answer instantly: the preferred one wins thanks to the head start.
+    func testPreferredHostWinsTies() async {
+        let cands = [server("a"), server("b")]
+        let chosen: String? = await ConnectionResolver.firstToRespond(
+            cands, preferred: cands[1].connectionKey, headStart: 0.2
+        ) { $0.host }
+        XCTAssertEqual(chosen, "b")
+    }
+
+    /// A preferred key that matches no candidate must not delay anyone.
+    func testUnmatchedPreferredKeyAddsNoDelay() async {
+        let cands = [server("a")]
+        let started = Date()
+        let chosen: String? = await ConnectionResolver.firstToRespond(
+            cands, preferred: "nope", headStart: 2
+        ) { $0.host }
+        XCTAssertEqual(chosen, "a")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
+    }
 }

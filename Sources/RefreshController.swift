@@ -236,9 +236,9 @@ final class RefreshController {
     /// fails over quickly; a reachable host answers in well under this.
     private let probeTimeout: TimeInterval = 5
 
-    /// Tighter timeout for the single "last-good host" fast-path probe, so a host
-    /// that has since become unreachable doesn't delay falling back to racing.
-    private let fastPathTimeout: TimeInterval = 1.5
+    /// Head start given to the last-good host before the other candidates start
+    /// probing, so it wins ties on a stable network without gating the race.
+    private let nonPreferredDelay: TimeInterval = 0.15
 
     /// Timeout for the adopted operational client (polling + one-shot actions),
     /// as distinct from the short probe timeouts above. `timeoutIntervalForRequest`
@@ -316,26 +316,22 @@ final class RefreshController {
         let started = Date()
         let candidates = activeServer.connectionCandidates
 
-        // Fast path: try the host that worked last time, alone, with a tight
-        // timeout. The common case (still reachable) connects in one round-trip
-        // without spinning up a client per candidate.
+        // The host that worked last time gets a head start over the others, so on a
+        // stable network it wins ties — but it is raced, not probed alone first, so
+        // a now-unreachable last-good host (e.g. the network changed while the app
+        // was closed) costs nothing instead of a full timeout before the others start.
         // The last-good host is keyed by server id (see `LastGoodHostStore`).
         let accessFailures = AccessFailures()
-        if !TestIsolation.isActive,
-           let saved = LastGoodHostStore.read(for: activeServer, defaults: .standard),
-           let lastGood = candidates.first(where: { $0.connectionKey == saved }),
-           !Task.isCancelled,
-           let resolved = await Self.probe(lastGood, timeout: fastPathTimeout, accessFailures: accessFailures) {
-            adopt(resolved)
-            perfLog("resolved in \(ms(since: started)) via \(endpoint(resolved.server)) (fast-path)")
-            return
-        }
+        let lastGoodKey: String? = TestIsolation.isActive
+            ? nil : LastGoodHostStore.read(for: activeServer, defaults: .standard)
 
         if Task.isCancelled { return }
 
         // Race every candidate concurrently; the fastest responder wins, so a
         // dead/hanging host never blocks a reachable one behind it.
-        let raced = await ConnectionResolver.firstToRespond(candidates) { [probeTimeout] candidate in
+        let raced = await ConnectionResolver.firstToRespond(
+            candidates, preferred: lastGoodKey, headStart: nonPreferredDelay
+        ) { [probeTimeout] candidate in
             await Self.probe(candidate, timeout: probeTimeout, accessFailures: accessFailures)
         }
         if let raced {
