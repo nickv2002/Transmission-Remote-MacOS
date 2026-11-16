@@ -218,7 +218,7 @@ final class MainWindowController: NSWindowController {
 
     // Column identifiers double as sort keys.
     private enum Column: String, CaseIterable {
-        case queue, name, size, status, progress, down, up, eta, ratio, uploaded, ratioLimit, added, tracker, error, seeds, peers, priority
+        case queue, name, size, status, progress, down, up, eta, ratio, uploaded, ratioLimit, added, completed, tracker, error, seeds, peers, priority
 
         var title: String {
             switch self {
@@ -234,6 +234,7 @@ final class MainWindowController: NSWindowController {
             case .uploaded: return "Uploaded"
             case .ratioLimit: return "Ratio Limit"
             case .added: return "Added"
+            case .completed: return "Completed"
             case .tracker: return "Tracker"
             case .error: return "Error"
             case .seeds: return "Seeds"
@@ -254,7 +255,7 @@ final class MainWindowController: NSWindowController {
             case .ratio: return 60
             case .uploaded: return 80
             case .ratioLimit: return 80
-            case .added: return 130
+            case .added, .completed: return 130
             case .tracker: return 150
             case .error: return 200
             case .seeds, .peers: return 70
@@ -265,7 +266,7 @@ final class MainWindowController: NSWindowController {
         /// Columns hidden by default (still toggleable from the header menu).
         var hiddenByDefault: Bool {
             switch self {
-            case .size, .uploaded, .ratioLimit, .added, .tracker, .error, .seeds, .peers, .priority: return true
+            case .size, .uploaded, .ratioLimit, .added, .completed, .tracker, .error, .seeds, .peers, .priority: return true
             default: return false
             }
         }
@@ -921,6 +922,7 @@ final class MainWindowController: NSWindowController {
         case .uploaded: return { $0.uploadedEver < $1.uploadedEver }
         case .ratioLimit: return { $0.effectiveRatioLimit < $1.effectiveRatioLimit }
         case .added: return { $0.addedDate < $1.addedDate }
+        case .completed: return { $0.doneDate < $1.doneDate }
         case .tracker: return { ($0.trackerHost ?? "").localizedCaseInsensitiveCompare($1.trackerHost ?? "") == .orderedAscending }
         case .error: return { $0.sortsBeforeByError($1) }
         case .seeds: return { $0.seedsConnected < $1.seedsConnected }
@@ -948,6 +950,7 @@ final class MainWindowController: NSWindowController {
             case .uploaded: groups.insert(.uploaded)
             case .ratioLimit: groups.insert(.ratioLimit)
             case .added: groups.insert(.added)
+            case .completed: groups.insert(.completed)
             default: break
             }
         }
@@ -1084,6 +1087,7 @@ final class MainWindowController: NSWindowController {
         case .uploaded: return Formatters.size(t.uploadedEver)
         case .ratioLimit: return t.seedRatioDisplay
         case .added: return Formatters.date(t.addedDate)
+        case .completed: return Formatters.date(t.doneDate)
         case .tracker: return t.trackerHost ?? "—"
         case .error: return t.errorString.components(separatedBy: .newlines).joined(separator: " ")
         case .seeds: return Formatters.peerCount(connected: t.seedsConnected, total: t.seedsTotal)

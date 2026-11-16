@@ -298,6 +298,7 @@ final class ModelsTests: XCTestCase {
         XCTAssertEqual(added(.uploaded), ["uploadedEver"])
         XCTAssertEqual(added(.ratioLimit), ["seedRatioLimit", "seedRatioMode"])
         XCTAssertEqual(added(.added), ["addedDate"])
+        XCTAssertEqual(added(.completed), ["doneDate"])
         XCTAssertEqual(added(.info), ["peersConnected", "peersSendingToUs", "peersGettingFromUs", "addedDate",
                                       "comment", "doneDate", "activityDate", "downloadedEver", "uploadedEver"])
     }

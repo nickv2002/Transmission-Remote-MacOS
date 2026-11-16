@@ -392,7 +392,9 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         static let added = FieldGroups(rawValue: 1 << 3)
         /// Info tab: comment, dates, ever-totals, peer counts.
         static let info = FieldGroups(rawValue: 1 << 4)
-        static let all: FieldGroups = [.seedsAndPeers, .uploaded, .ratioLimit, .added, .info]
+        /// Completed column (`doneDate`).
+        static let completed = FieldGroups(rawValue: 1 << 5)
+        static let all: FieldGroups = [.seedsAndPeers, .uploaded, .ratioLimit, .added, .info, .completed]
     }
 
     /// Always requested: identity, sidebar and filter inputs (`trackers`,
@@ -411,6 +413,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
         case .uploaded: return ["uploadedEver"]
         case .ratioLimit: return ["seedRatioLimit", "seedRatioMode"]
         case .added: return ["addedDate"]
+        case .completed: return ["doneDate"]
         case .info: return ["peersConnected", "peersSendingToUs", "peersGettingFromUs", "addedDate",
                             "comment", "doneDate", "activityDate", "downloadedEver", "uploadedEver"]
         default: return []
@@ -420,7 +423,7 @@ struct Torrent: Codable, Sendable, Identifiable, Equatable {
     /// The `torrent-get` field list for the given groups: the base fields plus each
     /// requested group's fields, de-duplicated in first-seen order.
     static func fields(for groups: FieldGroups) -> [String] {
-        let all = baseFields + [FieldGroups.seedsAndPeers, .uploaded, .ratioLimit, .added, .info]
+        let all = baseFields + [FieldGroups.seedsAndPeers, .uploaded, .ratioLimit, .added, .info, .completed]
             .filter { groups.contains($0) }
             .flatMap(groupFields)
         var seen = Set<String>()
