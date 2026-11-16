@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.11.15.3 — 2026-11-15
+
+- Create paseo.json
+- Add Torrent ▸ Properties… window (⌘I) for per-torrent speed, seeding, peer and tracker settings
+- Release skill: check in and fast-forward pending work to main first
+
 ## 2026.11.15.2 — 2026-11-15
 
 - Fix standalone server toolbar outline and icon-only sizing

@@ -427,5 +427,17 @@
         length="5445431"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.11.15.3</title>
+      <sparkle:version>2026.11.15.3</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 16 Nov 2026 00:56:31 +0000</pubDate>
+      <description><![CDATA[<p>Adds a Torrent Properties window (⌘I) that shows each torrent's speed, seeding, peer, and tracker settings in one place.</p><ul><li>Create paseo.json</li><li>Add Torrent ▸ Properties… window (⌘I) for per-torrent speed, seeding, peer and tracker settings</li><li>Release skill: check in and fast-forward pending work to main first</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.11.15.3/Transmission.Remote-2026.11.15.3.zip"
+        sparkle:edSignature="jW6o2TcfRvkSCCvPzfKc7ATvZV0KXeCEK4RWQ78S9RUlQGeERyioRWgDNGKYGDLtqJtbJASzLTaCkIgSk+Q7DA=="
+        length="5571451"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
