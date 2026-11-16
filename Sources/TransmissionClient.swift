@@ -97,7 +97,7 @@ final class RedirectRefuser: NSObject, URLSessionTaskDelegate, Sendable {
 
 /// Talks to a single Transmission daemon over JSON-RPC. Handles HTTP Basic auth
 /// and the CSRF `X-Transmission-Session-Id` 409 dance (see `rpc.pas`).
-actor TransmissionClient: ServerOptionsService {
+actor TransmissionClient: ServerOptionsService, TorrentPropertiesService {
     private let endpoint: URL
     private let authHeader: String?
     private let session: URLSession
@@ -227,6 +227,24 @@ actor TransmissionClient: ServerOptionsService {
         guard Set(verified.map(\.hashString)) == Set(changed), verified.allSatisfy({ $0.group == name }) else {
             throw ServerOptionsError(message: "The group assignment could not be verified. Reopen the selector to inspect the current assignments.")
         }
+    }
+
+    /// The Properties sheet's fields for the given torrents. On demand only, never in the poll.
+    func fetchTorrentProperties(hashes: [String]) async throws -> [TorrentProperties] {
+        guard !hashes.isEmpty else { return [] }
+        struct Result: Decodable { let torrents: [TorrentProperties] }
+        let response: RPCResponse<Result> = try await send(
+            method: "torrent-get", arguments: ["ids": hashes, "fields": TorrentProperties.requestedFields])
+        guard let torrents = response.arguments?.torrents else { throw TransmissionError.decodingFailed("missing torrent properties") }
+        return torrents
+    }
+
+    /// `torrent-set` with only the given keys, targeted by hash (captured when the sheet opened).
+    func setTorrentProperties(hashes: [String], arguments: [TorrentProperty: ServerOptionValue]) async throws {
+        guard !hashes.isEmpty, !arguments.isEmpty else { return }
+        var payload = Dictionary(uniqueKeysWithValues: arguments.map { ($0.key.rawValue, $0.value.jsonValue) })
+        payload["ids"] = hashes
+        try await sendIgnoringResult(method: "torrent-set", arguments: payload)
     }
 
     /// Sets (or clears, with nil) the regular speed limit for one direction in

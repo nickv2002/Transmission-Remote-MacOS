@@ -207,6 +207,76 @@ final class FixtureTransmissionTests: XCTestCase {
         XCTAssertEqual(torrent.bandwidthPriority, .high)
     }
 
+    // MARK: - Torrent ▸ Properties (torrent-set by hash + readback)
+
+    func testTorrentPropertiesSetAndReadBack() async throws {
+        let first = try await addTorrent(Self.torrentFileNames[1])
+        let second = try await addTorrent(Self.torrentFileNames[2])
+        let all = try await client.fetchTorrents()
+        let hashes = [first, second].compactMap { id in all.first { $0.id == id }?.hashString }
+        XCTAssertEqual(hashes.count, 2)
+
+        // Make the download limit differ so the sheet sees it as Mixed.
+        try await client.setTorrentProperties(hashes: [hashes[0]], arguments: [.downloadLimit: .int(111)])
+        try await client.setTorrentProperties(hashes: [hashes[1]], arguments: [.downloadLimit: .int(222)])
+
+        try await Self.applyPropertiesThroughSession(client: client, hashes: hashes)
+        try await assertPropertiesRoundTrip(hashes: hashes)
+    }
+
+    /// The sheet's session over two torrents, the second Mixed on download limit.
+    @MainActor
+    private static func applyPropertiesThroughSession(client: TransmissionClient, hashes: [String]) async throws {
+        let session = TorrentPropertiesSession(service: client, hashes: hashes)
+        try await session.load()
+        XCTAssertEqual(session.editor?.baseline[.downloadLimit], .mixed)
+        XCTAssertNotNil(session.editor?.trackersUnavailableReason, "trackers are single-torrent only")
+        session.set(.downloadLimited, text: "true")
+        session.set(.uploadLimited, text: "true")
+        session.set(.uploadLimit, text: "64")
+        session.set(.honorsSessionLimits, text: "false")
+        session.set(.seedRatioMode, text: "1")
+        session.set(.seedRatioLimit, text: "1.25")
+        session.set(.seedIdleMode, text: "1")
+        session.set(.seedIdleLimit, text: "45")
+        session.set(.peerLimit, text: "33")
+        try await session.apply()
+    }
+
+    private func assertPropertiesRoundTrip(hashes: [String]) async throws {
+        let after = try await client.fetchTorrentProperties(hashes: hashes)
+        XCTAssertEqual(Set(after.map(\.hashString)), Set(hashes))
+        for torrent in after {
+            XCTAssertEqual(torrent.downloadLimited, true)
+            XCTAssertEqual(torrent.uploadLimited, true)
+            XCTAssertEqual(torrent.uploadLimit, 64)
+            XCTAssertEqual(torrent.honorsSessionLimits, false)
+            XCTAssertEqual(torrent.seedRatioMode, 1)
+            XCTAssertEqual(torrent.seedRatioLimit ?? 0, 1.25, accuracy: 1e-6)
+            XCTAssertEqual(torrent.seedIdleMode, 1)
+            XCTAssertEqual(torrent.seedIdleLimit, 45)
+            XCTAssertEqual(torrent.maxConnectedPeers, 33)
+        }
+        // Ticking "Limit download" over a Mixed value kept each torrent's own limit.
+        XCTAssertEqual(after.first { $0.hashString == hashes[0] }?.downloadLimit, 111)
+        XCTAssertEqual(after.first { $0.hashString == hashes[1] }?.downloadLimit, 222)
+
+        // Trackers: one torrent, tiers preserved (verified by normalized readback).
+        try await Self.applyTrackersThroughSession(client: client, hash: hashes[0])
+        let trackers = try await client.fetchTorrentProperties(hashes: [hashes[0]]).first?.trackerList ?? ""
+        XCTAssertEqual(TrackerListText.tiers(trackers),
+                       [["udp://tracker-one.invalid:80/announce"], ["https://tracker-two.invalid/announce"]])
+    }
+
+    @MainActor
+    private static func applyTrackersThroughSession(client: TransmissionClient, hash: String) async throws {
+        let single = TorrentPropertiesSession(service: client, hashes: [hash])
+        try await single.load()
+        XCTAssertNil(single.editor?.trackersUnavailableReason)
+        single.set(.trackerList, text: "udp://tracker-one.invalid:80/announce\n\n\nhttps://tracker-two.invalid/announce")
+        try await single.apply()
+    }
+
     // MARK: - delete-local-data removal (highest-value new coverage)
 
     /// The scratch downloads directory (`scripts/fixture/.data/downloads`),

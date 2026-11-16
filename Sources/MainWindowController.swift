@@ -106,6 +106,9 @@ final class MainWindowController: NSWindowController {
 
     /// Adds waiting to be shown/performed, FIFO (see `MainWindowController+Add`).
     var pendingAdds: [AddRequest] = []
+    /// Open Torrent ▸ Properties… windows, one per captured hash set
+    /// (`TorrentPropertiesWindowController.key`).
+    var propertiesWindows: [String: TorrentPropertiesWindowController] = [:]
     /// True while an Add options sheet from the queue is on screen.
     var isPresentingQueuedAdd = false
     /// Links recently queued, so the same magnet arriving twice in quick
@@ -672,6 +675,7 @@ final class MainWindowController: NSWindowController {
             self?.applyTorrents(torrents)
         }
         refresh.onState = { [weak self] state in
+            self?.closePropertiesWindowsForInactiveServers()
             self?.updateStatusBar(state: state)
             self?.drainPendingAdds()
         }

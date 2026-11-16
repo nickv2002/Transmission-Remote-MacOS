@@ -421,18 +421,23 @@ final class SettingsGroupView: NSView {
     var onToggle: ((Bool) -> Void)?
     private(set) var isExpanded: Bool
 
-    init(title: String, storage: ServerSettingsScope.Storage, collapsible: Bool, expanded: Bool) {
+    /// `storage` nil = no scope tag (e.g. the torrent Properties sheet).
+    init(title: String, storage: ServerSettingsScope.Storage?, collapsible: Bool, expanded: Bool) {
         titleLabel = NSTextField(labelWithString: title)
-        scopeLabel = NSTextField(labelWithString: storage.rawValue)
+        scopeLabel = NSTextField(labelWithString: storage?.rawValue ?? "")
         self.collapsible = collapsible
         isExpanded = collapsible ? expanded : true
         super.init(frame: .zero)
         titleLabel.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         scopeLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize - 1)
         scopeLabel.textColor = .secondaryLabelColor
-        scopeLabel.toolTip = storage.help
-        scopeLabel.setAccessibilityHelp(storage.help)
-        titleLabel.setAccessibilityHelp(storage.help)
+        if let storage {
+            scopeLabel.toolTip = storage.help
+            scopeLabel.setAccessibilityHelp(storage.help)
+            titleLabel.setAccessibilityHelp(storage.help)
+        } else {
+            scopeLabel.isHidden = true
+        }
         disclosure.bezelStyle = .disclosure
         disclosure.setButtonType(.pushOnPushOff)
         disclosure.title = ""
@@ -621,7 +626,10 @@ final class ServerOptionsTextArea: NSControl, NSTextViewDelegate {
     override var isEnabled: Bool {
         didSet { textView.isEditable = isEnabled; textView.textColor = isEnabled ? .textColor : .disabledControlTextColor }
     }
-    override init(frame: NSRect) {
+    override convenience init(frame: NSRect) {
+        self.init(frame: frame, accessibilityLabel: "Default trackers, one URL per line", identifier: "default-trackers-text")
+    }
+    init(frame: NSRect = .zero, accessibilityLabel: String, identifier: String) {
         super.init(frame: frame)
         let scroll = NSScrollView()
         scroll.borderType = .bezelBorder
@@ -643,8 +651,8 @@ final class ServerOptionsTextArea: NSControl, NSTextViewDelegate {
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
         textView.delegate = self
-        textView.setAccessibilityLabel("Default trackers, one URL per line")
-        textView.setAccessibilityIdentifier("default-trackers-text")
+        textView.setAccessibilityLabel(accessibilityLabel)
+        textView.setAccessibilityIdentifier(identifier)
         scroll.translatesAutoresizingMaskIntoConstraints = false
         addSubview(scroll)
         NSLayoutConstraint.activate([
@@ -655,4 +663,12 @@ final class ServerOptionsTextArea: NSControl, NSTextViewDelegate {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func textDidChange(_ notification: Notification) { if let action { sendAction(action, to: target) } }
+    /// Tab / Shift-Tab move focus like any other field instead of inserting a tab.
+    func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        switch selector {
+        case #selector(NSResponder.insertTab(_:)): window?.selectNextKeyView(nil); return true
+        case #selector(NSResponder.insertBacktab(_:)): window?.selectPreviousKeyView(nil); return true
+        default: return false
+        }
+    }
 }

@@ -108,10 +108,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard let settings = settingsController, settings.hasPendingEdits else { return .terminateNow }
+        let properties = windowController.map { Array($0.propertiesWindows.values) } ?? []
+        guard !properties.isEmpty || settingsController?.hasPendingEdits == true else { return .terminateNow }
         // Apply / Discard / Cancel; Apply is a server round trip, so answer later.
-        DispatchQueue.main.async {
-            settings.confirmQuit { NSApp.reply(toApplicationShouldTerminate: $0) }
+        // Each open torrent Properties window is asked in turn, then Settings.
+        DispatchQueue.main.async { [weak self] in
+            TorrentPropertiesWindowController.confirmQuit(properties) { ok in
+                guard ok else { NSApp.reply(toApplicationShouldTerminate: false); return }
+                guard let settings = self?.settingsController, settings.hasPendingEdits else {
+                    NSApp.reply(toApplicationShouldTerminate: true)
+                    return
+                }
+                settings.confirmQuit { NSApp.reply(toApplicationShouldTerminate: $0) }
+            }
         }
         return .terminateLater
     }
@@ -430,6 +439,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .submenu = queueSub
 
         torrentMenu.addItem(withTitle: "Bandwidth Group…", action: #selector(MainWindowController.assignBandwidthGroupSelected(_:)), keyEquivalent: "")
+        torrentMenu.addItem(withTitle: "Properties…", action: #selector(MainWindowController.showPropertiesSelected(_:)), keyEquivalent: "i")
+            .keyEquivalentModifierMask = [.command]
         let prioritySub = NSMenu(title: "Priority")
         for p in [BandwidthPriority.high, .normal, .low] {
             prioritySub.addItem(withTitle: p.displayName,

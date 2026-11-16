@@ -45,7 +45,8 @@ enum BandwidthPriority: Int, Sendable, CaseIterable {
 
 /// Transmission `seedRatioMode` values (RPC spec): 0 use the global limit, 1 use
 /// this torrent's own `seedRatioLimit`, 2 seed regardless of ratio.
-enum SeedRatioMode: Int, Sendable {
+/// Per-torrent `seedIdleMode` uses the same values.
+enum SeedRatioMode: Int, Sendable, CaseIterable {
     case global = 0
     case single = 1
     case unlimited = 2

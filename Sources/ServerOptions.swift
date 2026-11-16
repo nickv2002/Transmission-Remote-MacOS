@@ -417,13 +417,7 @@ struct ServerOptionsEditor: Sendable {
             return .strings(choice.protocols)
         case .trackers:
             let normalized = text(key).replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            for line in normalized.components(separatedBy: "\n") where !line.isEmpty {
-                guard !line.contains(where: { $0.isWhitespace || $0.isNewline }), !line.contains("\0"),
-                      let url = URLComponents(string: line), ["http", "https", "udp"].contains(url.scheme?.lowercased() ?? ""),
-                      let host = url.host, !host.isEmpty else {
-                    throw invalid("use one HTTP, HTTPS or UDP tracker URL per line, with blank lines between tiers.")
-                }
-            }
+            guard TrackerListText.isValid(normalized) else { throw invalid(TrackerListText.invalidMessage) }
             return .string(normalized)
         case .encryption:
             guard ServerEncryption(rawValue: raw) != nil else { throw invalid("choose a supported encryption mode.") }

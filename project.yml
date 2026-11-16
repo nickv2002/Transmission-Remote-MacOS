@@ -157,6 +157,9 @@ targets:
       - path: Sources/MainWindowController+Peers.swift
       - path: Sources/MainWindowController+Pieces.swift
       - path: Sources/MainWindowController+Trackers.swift
+      - path: Sources/MainWindowController+Properties.swift
+      - path: Sources/TorrentProperties.swift
+      - path: Sources/TorrentPropertiesWindowController.swift
       - path: Sources/RateSparklineView.swift
       - path: Sources/ProgressCellView.swift
       - path: Sources/SidebarController.swift

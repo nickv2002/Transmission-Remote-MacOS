@@ -183,6 +183,33 @@ struct ServerOptionsRPCTests {
         #expect(args["group"] as? String == "Slow")
     }
 
+    @Test func torrentPropertiesFetchRequestsPeerLimitAndTrackersByHash() async throws {
+        let reply = #"{"result":"success","arguments":{"torrents":[{"hashString":"hash-a","name":"A","maxConnectedPeers":40,"trackerList":"udp://t.invalid:80\n"}]}}"#
+        let c = try client([.init(body: reply)])
+        let torrents = try await c.fetchTorrentProperties(hashes: ["hash-a"])
+        #expect(torrents.first?.maxConnectedPeers == 40)
+        let payload = try body(#require(OptionsURLProtocol.requests.first))
+        #expect(payload["method"] as? String == "torrent-get")
+        let args = try #require(payload["arguments"] as? [String: Any])
+        #expect(args["ids"] as? [String] == ["hash-a"])
+        let fields = try #require(args["fields"] as? [String])
+        #expect(fields.contains("maxConnectedPeers") && fields.contains("trackerList") && fields.contains("seedIdleMode"))
+    }
+
+    @Test func torrentPropertiesSetSendsHashIdsPeerLimitAndNoUntouchedKeys() async throws {
+        let c = try client([.init()])
+        try await c.setTorrentProperties(hashes: ["hash-a", "hash-b"],
+                                         arguments: [.peerLimit: .int(80), .downloadLimited: .bool(true), .seedRatioLimit: .decimal(1.5)])
+        let payload = try body(#require(OptionsURLProtocol.requests.first))
+        #expect(payload["method"] as? String == "torrent-set")
+        let args = try #require(payload["arguments"] as? [String: Any])
+        #expect(Set(args.keys) == ["ids", "peer-limit", "downloadLimited", "seedRatioLimit"])
+        #expect(args["ids"] as? [String] == ["hash-a", "hash-b"])
+        #expect(args["peer-limit"] as? Int == 80)
+        #expect(args["downloadLimited"] as? Bool == true)
+        #expect(args["maxConnectedPeers"] == nil && args["downloadLimit"] == nil)
+    }
+
     @Test(arguments: [#"{"result":"success","arguments":{"torrents":[]}}"#, #"{"result":"success","arguments":{"torrents":[{"hashString":"hash-a","group":"Other"}]}}"#])
     func changedOrRemovedTorrentBlocksGroupAssignment(_ reply: String) async throws {
         let c = try client([.init(body: reply)])
