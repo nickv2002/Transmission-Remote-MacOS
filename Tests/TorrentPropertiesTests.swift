@@ -285,31 +285,50 @@ struct TorrentPropertiesSessionTests {
     }
 }
 
-@Suite("Torrent properties window", .serialized)
+@Suite("Torrent properties pane", .serialized)
 @MainActor
-struct TorrentPropertiesWindowTests {
+struct TorrentPropertiesPaneTests {
     typealias F = PropertiesFixtures
 
-    init() { TorrentPropertiesWindowController.remembersUIState = false }
-
-    private func loaded(_ torrents: [TorrentProperties], hashes: [String], rpc: Int = 17,
-                        ignoreWrites: Bool = false) async -> (TorrentPropertiesWindowController, PropertiesService) {
-        let service = PropertiesService(rpcVersion: rpc, torrents: torrents)
-        if ignoreWrites { await service.configure(ignoreWrites: true) }
-        let window = TorrentPropertiesWindowController(service: service, hashes: hashes)
-        await window.loadNow()
-        return (window, service)
+    private func target(_ service: PropertiesService, _ hashes: [String]) -> TorrentPropertiesPane.Target {
+        .init(service: service, hashes: hashes, serverID: nil)
     }
 
-    @Test func isARegularClosableWindowWithRevertAndApplyAndNoKeyEquivalents() async throws {
+    private func loaded(_ torrents: [TorrentProperties], hashes: [String], rpc: Int = 17,
+                        ignoreWrites: Bool = false) async -> (TorrentPropertiesPane, PropertiesService) {
+        let service = PropertiesService(rpcVersion: rpc, torrents: torrents)
+        if ignoreWrites { await service.configure(ignoreWrites: true) }
+        let pane = TorrentPropertiesPane()
+        host(pane)
+        pane.retarget(target(service, hashes))
+        try? await settle(pane)
+        return (pane, service)
+    }
+
+    /// Controls only react to `performClick` inside a window; this one is never shown.
+    private static var hosts: [NSWindow] = []
+    private func host(_ pane: TorrentPropertiesPane) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 420), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = pane.view
+        Self.hosts.append(window)
+    }
+
+    /// Waits for the load a retarget started.
+    private func settle(_ pane: TorrentPropertiesPane) async throws {
+        for _ in 0..<200 where pane.working { try await Task.sleep(for: .milliseconds(10)) }
+    }
+
+    @Test func showsNothingUntilATorrentIsSelectedAndHasNoKeyEquivalents() async throws {
+        let empty = TorrentPropertiesPane()
+        #expect(empty.header.stringValue == "No torrent selected")
+        #expect(empty.checkboxes.values.allSatisfy { !$0.isEnabled })
+        #expect(!empty.applyButton.isEnabled && !empty.revertButton.isEnabled)
         let (w, _) = await loaded([F.torrent("a")], hashes: ["a"])
-        let window = try #require(w.window)
-        #expect(window.styleMask.contains(.closable) && window.styleMask.contains(.miniaturizable))
-        #expect(window.sheetParent == nil)
-        #expect(window.title == "Torrent a Properties")
+        #expect(w.header.stringValue == "Torrent a")
         #expect(w.applyButton.keyEquivalent.isEmpty && w.revertButton.keyEquivalent.isEmpty)
         let (several, _) = await loaded([F.torrent("a"), F.torrent("b")], hashes: ["a", "b"])
-        #expect(several.window?.title == "2 Torrents Properties")
         #expect(several.header.stringValue == "2 torrents")
     }
 
@@ -324,7 +343,6 @@ struct TorrentPropertiesWindowTests {
         box.performClick(nil)
         #expect(!box.allowsMixedState && box.state == .on)
         #expect(w.applyButton.isEnabled && w.revertButton.isEnabled)
-        #expect(w.window?.isDocumentEdited == true)
         box.performClick(nil)
         #expect(box.state == .off)
         box.performClick(nil)
@@ -334,17 +352,41 @@ struct TorrentPropertiesWindowTests {
         #expect(await service.torrents.map(\.downloadLimit) == [100, 200])
     }
 
-    @Test func applyKeepsTheWindowOpenAndRebaselinesFromTheReadback() async throws {
+    @Test func multipleSelectionEditsEverythingExceptTrackers() async throws {
+        let (w, service) = await loaded([F.torrent("a"), F.torrent("b")], hashes: ["a", "b"])
+        for property in [TorrentProperty.downloadLimited, .uploadLimited, .honorsSessionLimits] {
+            #expect(w.checkboxes[property]?.isEnabled == true)
+        }
+        #expect(w.fields[.peerLimit]?.isEnabled == true)
+        #expect(w.popups[.seedRatioMode]?.isEnabled == true)
+        #expect(!w.trackers.isEnabled)
+        #expect(!w.trackersReason.isHidden)
+        #expect(w.trackersReason.stringValue == "Trackers can be edited for one torrent at a time.")
+        let peers = try #require(w.fields[.peerLimit])
+        peers.stringValue = "75"
+        NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: peers)
+        #expect(await w.applyNow())
+        let writes = await service.writes
+        #expect(writes.first?.hashes == ["a", "b"])
+        #expect(writes.first?.arguments == [.peerLimit: .int(75)])
+    }
+
+    @Test func singleSelectionKeepsTrackersEditable() async throws {
         let (w, _) = await loaded([F.torrent("a")], hashes: ["a"])
-        var closed = 0
-        w.onClose = { closed += 1 }
+        #expect(w.trackers.isEnabled && w.trackersReason.isHidden)
+    }
+
+    @Test func applyKeepsTheTargetAndRebaselinesFromTheReadback() async throws {
+        let (w, _) = await loaded([F.torrent("a")], hashes: ["a"])
+        var applied = 0
+        w.onApplied = { applied += 1 }
         w.checkboxes[.honorsSessionLimits]?.performClick(nil)
         #expect(await w.applyNow())
-        #expect(closed == 0)
-        #expect(w.session.editor?.baseline[.honorsSessionLimits] == .value(.bool(false)))
-        #expect(w.session.editor?.isDirty == false)
+        #expect(applied == 1)
+        #expect(w.target?.hashes == ["a"])
+        #expect(w.session?.editor?.baseline[.honorsSessionLimits] == .value(.bool(false)))
+        #expect(w.session?.editor?.isDirty == false)
         #expect(!w.applyButton.isEnabled && !w.revertButton.isEnabled)
-        #expect(w.window?.isDocumentEdited == false)
         #expect(w.status.stringValue == "Applied and verified.")
         #expect(w.checkboxes[.honorsSessionLimits]?.state == .off)
     }
@@ -354,10 +396,10 @@ struct TorrentPropertiesWindowTests {
         let peers = try #require(w.fields[.peerLimit])
         peers.stringValue = "99"
         NotificationCenter.default.post(name: NSControl.textDidChangeNotification, object: peers)
-        #expect(w.session.editor?.isDirty == true)
+        #expect(w.session?.editor?.isDirty == true)
         await service.configure(remoteEdit: { $0[0].maxConnectedPeers = 77 })
         await w.revertNow()
-        #expect(w.session.editor?.isDirty == false)
+        #expect(w.session?.editor?.isDirty == false)
         #expect(peers.stringValue == "77")
         #expect(await service.writes.isEmpty)
     }
@@ -371,7 +413,7 @@ struct TorrentPropertiesWindowTests {
         popup.selectItem(at: 1)
         _ = popup.target?.perform(popup.action, with: popup)
         #expect(!popup.itemTitles.contains("Mixed"))
-        #expect(try w.session.editor?.patch() == [.seedRatioMode: .int(1)])
+        #expect(try w.session?.editor?.patch() == [.seedRatioMode: .int(1)])
     }
 
     @Test func peersAndTrackersAreAlwaysVisibleSections() async throws {
@@ -387,19 +429,38 @@ struct TorrentPropertiesWindowTests {
         #expect(w.trackers.textView.accessibilityLabel()?.contains("Trackers") == true)
     }
 
-    @Test func windowFitsItsContentWithTheButtonsInside() async throws {
+    @Test func buttonsStayInsideThePaneAndTheContentScrolls() async throws {
         let (w, _) = await loaded([F.torrent("a")], hashes: ["a"])
-        let view = try #require(w.window?.contentView)
+        let view = w.view
         view.layoutSubtreeIfNeeded()
-        #expect(abs(view.bounds.height - view.fittingSize.height) < 1)
         #expect(view.bounds.contains(w.applyButton.convert(w.applyButton.bounds, to: view)))
-        #expect(view.bounds.contains(w.trackers.convert(w.trackers.bounds, to: view)))
+        #expect(view.bounds.contains(w.revertButton.convert(w.revertButton.bounds, to: view)))
+        #expect(view.subviews.contains { $0 is NSScrollView })
         if let dir = ProcessInfo.processInfo.environment["PROPERTIES_RENDER_DIR"],
            let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-            w.window?.appearance = NSAppearance(named: .aqua)
+            view.appearance = NSAppearance(named: .aqua)
             view.cacheDisplay(in: view.bounds, to: rep)
-            try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir + "/window.png"))
+            try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir + "/pane.png"))
         }
+    }
+
+    @Test func paneIsFlexibleInWidthAndUsesTheContentBackground() async throws {
+        let (w, _) = await loaded([F.torrent("a")], hashes: ["a"])
+        // As the tab view places it: a frame-sized subview of a container.
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 400))
+        w.view.removeFromSuperview()
+        container.addSubview(w.view)
+        w.view.frame = container.bounds
+        container.layoutSubtreeIfNeeded()
+        let scroll0 = try #require(w.view.subviews.compactMap { $0 as? NSScrollView }.first)
+        #expect(w.view.frame.width == 300 && scroll0.frame.width == 300,
+                "the content's fixed-width controls must not widen the pane")
+        w.view.frame.size.width = 900
+        container.layoutSubtreeIfNeeded()
+        #expect(scroll0.frame.width == 900)
+        let scroll = try #require(w.view.subviews.compactMap { $0 as? NSScrollView }.first)
+        #expect(scroll.drawsBackground && scroll.backgroundColor == .controlBackgroundColor)
+        #expect(w.view.wantsUpdateLayer)
     }
 
     @Test func oldServerHidesIdleAndDisablesTrackers() async throws {
@@ -410,47 +471,81 @@ struct TorrentPropertiesWindowTests {
         #expect(!w.trackersReason.isHidden)
     }
 
-    @Test func closingWithEditsAsksAndCanKeepEditing() async throws {
-        let (w, service) = await loaded([F.torrent("a")], hashes: ["a"])
-        let window = try #require(w.window)
+    @Test func sameSelectionIsANoOpAndANewOneRetargets() async throws {
+        let (w, service) = await loaded([F.torrent("a", down: 100), F.torrent("b", down: 200)], hashes: ["a"])
+        let session = w.session
+        w.retarget(target(service, ["a"]))
+        #expect(w.session === session)
+        w.retarget(target(service, ["b"]))
+        try await settle(w)
+        #expect(w.session !== session)
+        #expect(w.header.stringValue == "Torrent b")
+        #expect(w.fields[.downloadLimit]?.stringValue == "200")
+        w.retarget(nil)
+        #expect(w.header.stringValue == "No torrent selected")
+        #expect(w.checkboxes.values.allSatisfy { !$0.isEnabled })
+    }
+
+    @Test func retargetingWithEditsAsksAndKeepEditingReselectsTheOldRows() async throws {
+        let (w, service) = await loaded([F.torrent("a"), F.torrent("b")], hashes: ["a"])
         var asked: [Bool] = []
-        var closed = 0
-        w.onClose = { closed += 1 }
+        var kept: [[String]] = []
+        w.onKeepEditing = { kept.append($0) }
         w.confirmClose = { quitting, done in asked.append(quitting); done(.keepEditing) }
         w.checkboxes[.honorsSessionLimits]?.performClick(nil)
-        window.performClose(nil)
-        #expect(asked == [false] && closed == 0)
+        w.retarget(target(service, ["b"]))
+        #expect(asked == [false] && kept == [["a"]])
+        #expect(w.target?.hashes == ["a"] && w.session?.editor?.isDirty == true)
         w.confirmClose = { _, done in done(.discard) }
-        window.performClose(nil)
-        #expect(closed == 1)
+        w.retarget(target(service, ["b"]))
+        try await settle(w)
+        #expect(w.target?.hashes == ["b"] && w.session?.editor?.isDirty != true)
         #expect(await service.writes.isEmpty)
     }
 
-    @Test func closingWithEditsCanApplyFirst() async throws {
-        let (w, service) = await loaded([F.torrent("a")], hashes: ["a"])
-        var closed = 0
-        w.onClose = { closed += 1 }
+    @Test func retargetingWithEditsCanApplyFirst() async throws {
+        let (w, service) = await loaded([F.torrent("a"), F.torrent("b")], hashes: ["a"])
         w.confirmClose = { _, done in done(.apply) }
         w.checkboxes[.honorsSessionLimits]?.performClick(nil)
-        w.window?.performClose(nil)
-        for _ in 0..<100 where closed == 0 { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(closed == 1)
-        #expect(await service.writes.count == 1)
+        w.retarget(target(service, ["b"]))
+        for _ in 0..<200 where w.target?.hashes != ["b"] { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(w.target?.hashes == ["b"])
+        let writes = await service.writes
+        #expect(writes.count == 1 && writes.first?.hashes == ["a"])
     }
 
-    @Test func closingDuringLoadClosesAndNeverRenders() async throws {
-        let service = PropertiesService(torrents: [F.torrent("a")])
-        let w = TorrentPropertiesWindowController(service: service, hashes: ["a"])
-        var closed = 0
-        w.onClose = { closed += 1 }
-        w.load()
+    @Test func failedApplyWhileRetargetingKeepsTheOldRows() async throws {
+        let (w, service) = await loaded([F.torrent("a"), F.torrent("b")], hashes: ["a"], ignoreWrites: true)
+        var kept: [[String]] = []
+        w.onKeepEditing = { kept.append($0) }
+        w.confirmClose = { _, done in done(.apply) }
+        w.checkboxes[.uploadLimited]?.performClick(nil)
+        w.retarget(target(service, ["b"]))
+        for _ in 0..<200 where kept.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(kept == [["a"]])
+        #expect(w.target?.hashes == ["a"])
+    }
+
+    @Test func retargetingDuringLoadNeverRendersTheStaleTorrent() async throws {
+        let service = PropertiesService(torrents: [F.torrent("a", down: 100), F.torrent("b", down: 200)])
+        let w = TorrentPropertiesPane()
+        host(w)
+        w.retarget(target(service, ["a"]))
         #expect(w.loading)
-        w.window?.performClose(nil)
-        #expect(closed == 1)
-        for _ in 0..<20 { await Task.yield() }
+        w.retarget(target(service, ["b"]))
+        try await settle(w)
         try await Task.sleep(for: .milliseconds(50))
-        #expect(w.header.stringValue == "Loading…")
-        #expect(w.checkboxes[.honorsSessionLimits]?.isEnabled == false)
+        #expect(w.header.stringValue == "Torrent b")
+        #expect(w.fields[.downloadLimit]?.stringValue == "200")
+    }
+
+    @Test func resetDropsEditsWithoutAsking() async throws {
+        let (w, _) = await loaded([F.torrent("a")], hashes: ["a"])
+        var asked = 0
+        w.confirmClose = { _, done in asked += 1; done(.keepEditing) }
+        w.checkboxes[.honorsSessionLimits]?.performClick(nil)
+        w.reset()
+        #expect(asked == 0 && w.target == nil && !w.hasUnsavedEdits)
     }
 
     @Test func failedLoadSaysSoAndRevertRetries() async throws {
@@ -460,8 +555,8 @@ struct TorrentPropertiesWindowTests {
         #expect(w.revertButton.isEnabled && !w.applyButton.isEnabled)
     }
 
-    @Test(arguments: [TorrentPropertiesWindowController.CloseChoice.apply, .discard, .keepEditing])
-    func quittingWithEditsAsksFirst(_ choice: TorrentPropertiesWindowController.CloseChoice) async throws {
+    @Test(arguments: [TorrentPropertiesPane.CloseChoice.apply, .discard, .keepEditing])
+    func quittingWithEditsAsksFirst(_ choice: TorrentPropertiesPane.CloseChoice) async throws {
         let (w, service) = await loaded([F.torrent("a")], hashes: ["a"])
         var asked: [Bool] = []
         w.confirmClose = { quitting, done in asked.append(quitting); done(choice) }
@@ -478,38 +573,16 @@ struct TorrentPropertiesWindowTests {
         #expect(await service.writes.count == (choice == .apply ? 1 : 0))
     }
 
-    @Test func quitAsksEachWindowInTurnAndStopsAtTheFirstRefusal() async throws {
-        let (clean, _) = await loaded([F.torrent("a")], hashes: ["a"])
-        let (first, _) = await loaded([F.torrent("b")], hashes: ["b"])
-        let (second, _) = await loaded([F.torrent("c")], hashes: ["c"])
-        var order: [String] = []
-        clean.confirmClose = { _, done in order.append("clean"); done(.discard) }
-        first.confirmClose = { _, done in order.append("first"); done(.discard) }
-        second.confirmClose = { _, done in order.append("second"); done(.keepEditing) }
-        first.checkboxes[.honorsSessionLimits]?.performClick(nil)
-        second.checkboxes[.honorsSessionLimits]?.performClick(nil)
-        var replies: [Bool] = []
-        TorrentPropertiesWindowController.confirmQuit([clean, first, second]) { replies.append($0) }
-        #expect(order == ["first", "second"])
-        #expect(replies == [false])
-        replies = []
-        second.confirmClose = { _, done in done(.discard) }
-        TorrentPropertiesWindowController.confirmQuit([clean, first, second]) { replies.append($0) }
-        #expect(replies == [true])
-    }
-
-    @Test func closeAfterUnverifiedApplyDoesNotAsk() async throws {
-        let (w, _) = await loaded([F.torrent("a")], hashes: ["a"], ignoreWrites: true)
+    @Test func unverifiedApplyDoesNotAskWhenRetargeting() async throws {
+        let (w, service) = await loaded([F.torrent("a"), F.torrent("b")], hashes: ["a"], ignoreWrites: true)
         var asked = 0
-        var closed = 0
-        w.onClose = { closed += 1 }
         w.confirmClose = { _, done in asked += 1; done(.keepEditing) }
         w.checkboxes[.uploadLimited]?.performClick(nil)
         #expect(await !w.applyNow())
-        #expect(w.session.needsReload)
+        #expect(w.session?.needsReload == true)
         #expect(w.revertButton.isEnabled)
-        w.window?.performClose(nil)
-        #expect(asked == 0 && closed == 1)
+        w.retarget(target(service, ["b"]))
+        #expect(asked == 0 && w.target?.hashes == ["b"])
     }
 
     @Test func invalidEntryDisablesApply() async throws {
@@ -538,35 +611,40 @@ struct TorrentPropertiesWindowTests {
         #expect(ratio.stringValue.isEmpty && ratio.placeholderString == nil)
     }
 
-    @Test func longStatusWrapsInsideTheWindow() async throws {
+    @Test func longStatusWrapsInsideThePane() async throws {
         let (w, _) = await loaded([F.torrent("a")], hashes: ["a"], ignoreWrites: true)
         w.checkboxes[.uploadLimited]?.performClick(nil)
         _ = await w.applyNow()
         #expect(w.status.stringValue.contains("could not be fully verified"))
-        let view = try #require(w.window?.contentView)
+        let view = w.view
         view.layoutSubtreeIfNeeded()
         let frame = w.status.convert(w.status.bounds, to: view)
         #expect(view.bounds.contains(frame))
         #expect(frame.height > 20, "the long message wraps onto several lines")
         #expect(!frame.intersects(w.revertButton.convert(w.revertButton.bounds, to: view)))
-        #expect(abs(view.bounds.height - view.fittingSize.height) < 1)
-        if let dir = ProcessInfo.processInfo.environment["PROPERTIES_RENDER_DIR"],
-           let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
-            w.window?.appearance = NSAppearance(named: .aqua)
-            view.cacheDisplay(in: view.bounds, to: rep)
-            try rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: dir + "/long-status.png"))
-        }
     }
 }
 
-@Suite("Torrent properties menu", .serialized)
+@Suite("Torrent properties tab", .serialized)
 @MainActor
-struct TorrentPropertiesMenuTests {
+struct TorrentPropertiesTabTests {
     typealias F = PropertiesFixtures
 
-    init() { TorrentPropertiesWindowController.remembersUIState = false }
+    private func selectTab(_ c: MainWindowController, _ id: String) throws {
+        let item = try #require(c.detailTabView.tabViewItems.first { ($0.identifier as? String) == id })
+        c.detailTabView.selectTabViewItem(item)
+    }
 
-    @Test func contextMenuHasPropertiesWithCommandIAndNeedsASelection() throws {
+    @Test func propertiesIsADetailTabHostingThePane() throws {
+        let c = MainWindowController(config: .default)
+        defer { c.window?.close() }
+        let item = try #require(c.detailTabView.tabViewItems.first { ($0.identifier as? String) == "properties" })
+        #expect(item.label == "Properties")
+        #expect(item.view === c.propertiesPane.view)
+        #expect(c.propertiesPane.header.stringValue == "No torrent selected")
+    }
+
+    @Test func contextMenuHasPropertiesWithCommandIAndNeedsAConnection() throws {
         let c = MainWindowController(config: .default)
         defer { c.window?.close() }
         let menu = c.rowContextMenu()
@@ -592,33 +670,52 @@ struct TorrentPropertiesMenuTests {
         #expect(c.validateMenuItem(verify))
     }
 
-    @Test func oneWindowPerHashSetAndClosingForgetsIt() async throws {
+    @Test func theCommandSwitchesToTheTabAndTheTabFollowsTheSelection() async throws {
         let c = MainWindowController(config: .default)
         defer { c.window?.close() }
         let service = PropertiesService(torrents: [F.torrent("a"), F.torrent("b")])
-        let server = c.refresh.activeServerConfig.id
-        let ab = c.openPropertiesWindow(hashes: ["a", "b"], service: service, serverID: server, display: false) {}
-        let ba = c.openPropertiesWindow(hashes: ["b", "a"], service: service, serverID: server, display: false) {}
-        #expect(ab === ba)
-        let a = c.openPropertiesWindow(hashes: ["a"], service: service, serverID: server, display: false) {}
-        #expect(a !== ab)
-        #expect(c.propertiesWindows.count == 2)
-        ab.close()
-        #expect(c.propertiesWindows.count == 1)
-        #expect(c.propertiesWindows[TorrentPropertiesWindowController.key(for: ["a"])] === a)
-        a.close()
-        #expect(c.propertiesWindows.isEmpty)
+        let pane = c.propertiesPane
+        // Another tab showing and nothing targeted: selection alone loads nothing.
+        try selectTab(c, "info")
+        pane.retarget(.init(service: service, hashes: ["a"], serverID: c.refresh.activeServerConfig.id))
+        #expect(pane.target?.hashes == ["a"])
+        // Selection moves on while another tab shows: the stale target is dropped.
+        c.loadPropertiesIfNeeded()
+        #expect(pane.target == nil)
+        c.showPropertiesSelected(nil)
+        #expect(c.detailTabView.selectedTabViewItem?.identifier as? String == "properties")
     }
 
-    @Test func serverChangeClosesWindowsOpenedOnAnotherServer() async throws {
+    @Test func showingTheTabDoesNotResizeAnyPane() throws {
         let c = MainWindowController(config: .default)
         defer { c.window?.close() }
-        let service = PropertiesService(torrents: [F.torrent("a"), F.torrent("b")])
-        let current = c.openPropertiesWindow(hashes: ["a"], service: service, serverID: c.refresh.activeServerConfig.id, display: false) {}
-        _ = c.openPropertiesWindow(hashes: ["b"], service: service, serverID: UUID(), display: false) {}
-        c.closePropertiesWindowsForInactiveServers()
-        #expect(c.propertiesWindows.count == 1)
-        #expect(c.propertiesWindows.values.first === current)
-        current.close()
+        let window = try #require(c.window)
+        func splits(_ view: NSView) -> [NSSplitView] {
+            ((view as? NSSplitView).map { [$0] } ?? []) + view.subviews.flatMap(splits)
+        }
+        func widths() -> [[CGFloat]] {
+            splits(window.contentView!).map { $0.arrangedSubviews.map { $0.frame.width } }
+        }
+        window.setContentSize(NSSize(width: 1600, height: 900))
+        try selectTab(c, "peers")
+        window.layoutIfNeeded()
+        if let outer = splits(window.contentView!).first { outer.setPosition(345, ofDividerAt: 0) }
+        window.layoutIfNeeded()
+        let before = widths()
+        let size = window.frame.size
+        try selectTab(c, "properties")
+        window.layoutIfNeeded()
+        #expect(window.frame.size == size)
+        #expect(widths() == before)
+        #expect(c.propertiesPane.view.frame.width == c.detailTabView.contentRect.width)
+    }
+
+    @Test func serverChangeDropsATargetOpenedOnAnotherServer() async throws {
+        let c = MainWindowController(config: .default)
+        defer { c.window?.close() }
+        let service = PropertiesService(torrents: [F.torrent("a")])
+        c.propertiesPane.retarget(.init(service: service, hashes: ["a"], serverID: UUID()))
+        c.resetPropertiesForInactiveServer()
+        #expect(c.propertiesPane.target == nil)
     }
 }

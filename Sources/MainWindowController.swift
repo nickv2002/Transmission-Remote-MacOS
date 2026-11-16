@@ -106,9 +106,8 @@ final class MainWindowController: NSWindowController {
 
     /// Adds waiting to be shown/performed, FIFO (see `MainWindowController+Add`).
     var pendingAdds: [AddRequest] = []
-    /// Open Torrent ▸ Properties… windows, one per captured hash set
-    /// (`TorrentPropertiesWindowController.key`).
-    var propertiesWindows: [String: TorrentPropertiesWindowController] = [:]
+    /// The Properties tab of the detail pane; follows the table selection.
+    let propertiesPane = TorrentPropertiesPane()
     /// True while an Add options sheet from the queue is on screen.
     var isPresentingQueuedAdd = false
     /// Links recently queued, so the same magnet arriving twice in quick
@@ -309,6 +308,8 @@ final class MainWindowController: NSWindowController {
         applyToolbarLayout(config.toolbarLayout)
         buildLayout()
         wireRefresh()
+        propertiesPane.onApplied = { [weak self] in self?.refresh.refreshNow() }
+        propertiesPane.onKeepEditing = { [weak self] hashes in self?.reselect(hashes: hashes) }
         observeWindow()
         updateServerPopup()
     }
@@ -449,7 +450,7 @@ final class MainWindowController: NSWindowController {
         ])
 
         // Detail tabs: Info (the text above) + Files (per-file tree) + Trackers
-        // (per-tracker table) + Peers (per-peer table).
+        // (per-tracker table) + Peers (per-peer table) + Properties (editable settings).
         // Delegate is wired AFTER setup so that addTabViewItem / selectTabViewItem
         // during init cannot overwrite the user's saved tab preference.
         let filesScroll = buildFilesOutline()
@@ -470,7 +471,11 @@ final class MainWindowController: NSWindowController {
         detailTabView.addTabViewItem(infoTab)
         detailTabView.addTabViewItem(filesTab)
         detailTabView.addTabViewItem(trackersTab)
+        let propertiesTab = NSTabViewItem(identifier: "properties")
+        propertiesTab.label = "Properties"
+        propertiesTab.view = propertiesPane.view
         detailTabView.addTabViewItem(peersTab)
+        detailTabView.addTabViewItem(propertiesTab)
         if let saved = UserDefaults.standard.string(forKey: "DetailTabIdentifier"),
            let item = detailTabView.tabViewItems.first(where: { ($0.identifier as? String) == saved }) {
             detailTabView.selectTabViewItem(item)
@@ -675,7 +680,7 @@ final class MainWindowController: NSWindowController {
             self?.applyTorrents(torrents)
         }
         refresh.onState = { [weak self] state in
-            self?.closePropertiesWindowsForInactiveServers()
+            self?.resetPropertiesForInactiveServer()
             self?.updateStatusBar(state: state)
             self?.drainPendingAdds()
         }
@@ -737,6 +742,7 @@ final class MainWindowController: NSWindowController {
         loadFilesIfNeeded()
         loadTrackersIfNeeded()
         loadPeersIfNeeded()
+        loadPropertiesIfNeeded()
         loadPiecesIfNeeded()
         updateStatusBar(state: refresh.state)
         window?.toolbar?.validateVisibleItems()
@@ -795,6 +801,7 @@ final class MainWindowController: NSWindowController {
         loadFilesIfNeeded()
         loadTrackersIfNeeded()
         loadPeersIfNeeded()
+        loadPropertiesIfNeeded()
         loadPiecesIfNeeded()
         updateFreeSpaceTarget()
         updateStatusBar(state: refresh.state)
@@ -1175,6 +1182,7 @@ extension MainWindowController: NSTableViewDataSource, NSTableViewDelegate {
         loadFilesIfNeeded()
         loadTrackersIfNeeded()
         loadPeersIfNeeded()
+        loadPropertiesIfNeeded()
         loadPiecesIfNeeded()
         window?.toolbar?.validateVisibleItems()
     }

@@ -1,45 +1,45 @@
 import AppKit
 
 extension MainWindowController {
-    /// Torrent ▸ Properties… (⌘I) for the targeted torrents (the right-clicked row
-    /// wins when it is outside the selection). Each window keeps the client and the
-    /// torrent hashes captured here.
+    /// Torrent ▸ Properties… (⌘I): shows the Properties tab for the targeted torrents and
+    /// puts the keyboard in it. The right-clicked row wins when it is outside the selection.
     @objc func showPropertiesSelected(_ sender: Any?) {
-        let hashes = selectionForAction().map(\.hashString)
-        guard !hashes.isEmpty, let client = refresh.activeClient else { return }
-        openPropertiesWindow(hashes: hashes, service: client, serverID: refresh.activeServerConfig.id) { [weak self] in
-            if self?.refresh.activeClient === client { self?.refresh.refreshNow() }
+        if let clicked = clickedTorrent(), !selectedTorrents.contains(where: { $0.id == clicked.id }),
+           let row = (0..<tableView.numberOfRows).first(where: { torrentAt(row: $0)?.id == clicked.id }) {
+            tableView.selectRowIndexes([row], byExtendingSelection: false)
         }
+        guard let item = detailTabView.tabViewItems.first(where: { ($0.identifier as? String) == "properties" }) else { return }
+        detailTabView.selectTabViewItem(item)
+        loadPropertiesIfNeeded()
+        propertiesPane.requestFocus()
     }
 
-    /// One window per set of torrents: the same set brings its window to the front;
-    /// another set opens a new window, cascaded from the last one.
-    @discardableResult
-    func openPropertiesWindow(hashes: [String], service: any TorrentPropertiesService, serverID: UUID?,
-                              display: Bool = true, onApplied: @escaping () -> Void) -> TorrentPropertiesWindowController {
-        let key = TorrentPropertiesWindowController.key(for: hashes)
-        if let existing = propertiesWindows[key] {
-            if display { existing.showWindow(nil) }
-            return existing
-        }
-        let controller = TorrentPropertiesWindowController(service: service, hashes: hashes, serverID: serverID)
-        controller.onApplied = onApplied
-        controller.onClose = { [weak self] in self?.propertiesWindows[key] = nil }
-        let others = propertiesWindows.values.compactMap(\.window)
-        let previous = others.first { $0.isKeyWindow } ?? others.last
-        propertiesWindows[key] = controller
-        controller.place(cascadingFrom: previous)
-        if display { controller.showWindow(nil) }
-        controller.load()
-        return controller
+    /// Points the Properties tab at the current selection (or nothing). Cheap to call on
+    /// every poll and selection change: the same torrents are a no-op. While another tab
+    /// is showing, an existing target is kept only for the same selection, so unsaved
+    /// edits are still asked about when the selection moves on.
+    func loadPropertiesIfNeeded() {
+        let visible = detailTabView.selectedTabViewItem?.identifier as? String == "properties"
+        let hashes = selectedTorrents.map(\.hashString)
+        guard !hashes.isEmpty else { propertiesPane.retarget(nil); return }
+        guard let client = refresh.activeClient else { return }
+        let key = hashes.sorted().joined(separator: ",")
+        guard visible || propertiesPane.target?.key == key else { propertiesPane.retarget(nil); return }
+        propertiesPane.retarget(.init(service: client, hashes: hashes, serverID: refresh.activeServerConfig.id))
     }
 
-    /// Edits can't be applied to another server, so a server switch closes the
-    /// windows opened on the previous one, without asking.
-    func closePropertiesWindowsForInactiveServers() {
-        let active = refresh.activeServerConfig.id
-        for controller in propertiesWindows.values where controller.serverID != active {
-            controller.close()
-        }
+    /// Edits can't be applied to another server, so a server switch drops them without asking.
+    func resetPropertiesForInactiveServer() {
+        guard let serverID = propertiesPane.serverID, serverID != refresh.activeServerConfig.id else { return }
+        propertiesPane.reset()
+        loadPropertiesIfNeeded()
+    }
+
+    /// Reselects the rows of `hashes` (the user chose to keep editing them).
+    func reselect(hashes: [String]) {
+        let wanted = Set(hashes)
+        let rows = IndexSet((0..<tableView.numberOfRows).filter { wanted.contains(torrentAt(row: $0)?.hashString ?? "") })
+        guard !rows.isEmpty else { return }
+        tableView.selectRowIndexes(rows, byExtendingSelection: false)
     }
 }

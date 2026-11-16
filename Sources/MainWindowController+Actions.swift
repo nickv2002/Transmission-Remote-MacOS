@@ -631,7 +631,7 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
 
     // MARK: - Helpers
 
-    private func clickedTorrent() -> Torrent? {
+    func clickedTorrent() -> Torrent? {
         torrentAt(row: tableView.clickedRow)
     }
 

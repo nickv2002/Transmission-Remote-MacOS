@@ -629,7 +629,7 @@ final class ServerOptionsTextArea: NSControl, NSTextViewDelegate {
     override convenience init(frame: NSRect) {
         self.init(frame: frame, accessibilityLabel: "Default trackers, one URL per line", identifier: "default-trackers-text")
     }
-    init(frame: NSRect = .zero, accessibilityLabel: String, identifier: String) {
+    init(frame: NSRect = .zero, accessibilityLabel: String, identifier: String, height: CGFloat = 110) {
         super.init(frame: frame)
         let scroll = NSScrollView()
         scroll.borderType = .bezelBorder
@@ -658,7 +658,7 @@ final class ServerOptionsTextArea: NSControl, NSTextViewDelegate {
         NSLayoutConstraint.activate([
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor), scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.topAnchor.constraint(equalTo: topAnchor), scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: 110),
+            heightAnchor.constraint(equalToConstant: height),
         ])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }

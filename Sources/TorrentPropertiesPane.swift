@@ -1,108 +1,129 @@
 import AppKit
 
-/// Torrent ▸ Properties… (⌘I): a regular (non-modal) window over one or more
-/// torrents, like Finder's Get Info. Sections: Speed, Seeding, Peers, Trackers.
-/// Mixed values stay untouched unless edited; Apply sends only the changed keys
-/// (see `TorrentPropertiesEditor`), verifies them and re-baselines from the
-/// readback, keeping the window open. Revert drops edits and refetches.
+/// The Properties tab of the detail pane: speed, seeding, peer and tracker settings
+/// for the selected torrent(s). Follows the table selection (`retarget`). Mixed values
+/// stay untouched unless edited; Apply sends only the changed keys (see
+/// `TorrentPropertiesEditor`), verifies them and re-baselines from the readback.
+/// Revert drops edits and refetches. Trackers are editable for one torrent only, so
+/// with several selected that section is grayed out with a note.
 @MainActor
-final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDelegate, NSWindowDelegate {
+final class TorrentPropertiesPane: NSObject, NSTextFieldDelegate {
     enum CloseChoice { case apply, discard, keepEditing }
 
-    /// Off in unit tests; also skipped under `TestIsolation`. Gates the frame autosave.
-    static var remembersUIState = true
-    static let frameAutosaveName = "TorrentPropertiesWindow"
-    private static var remembers: Bool { remembersUIState && !TestIsolation.isActive }
+    /// What the pane edits: the hashes and server captured when the selection was read.
+    struct Target {
+        let service: any TorrentPropertiesService
+        let hashes: [String]
+        let serverID: UUID?
+        var key: String { hashes.sorted().joined(separator: ",") }
+    }
 
-    let session: TorrentPropertiesSession
-    /// The server the hashes were captured on (the window closes if it stops being active).
-    let serverID: UUID?
+    let view: NSView = PaneBackgroundView()
+    private(set) var target: Target?
+    private(set) var session: TorrentPropertiesSession?
+    /// The server the hashes were captured on.
+    var serverID: UUID? { target?.serverID }
     /// After a verified Apply (the caller refreshes the list).
     var onApplied: (() -> Void)?
-    var onClose: (() -> Void)?
-    /// Asked when closing (or quitting, `true`) with unsaved edits. Nil = an
-    /// Apply / Discard / Cancel alert as a sheet on this window; tests replace it.
+    /// The user cancelled leaving unsaved edits: reselect these hashes in the table.
+    var onKeepEditing: (([String]) -> Void)?
+    /// Asked when the selection changes (or the app quits, `true`) with unsaved edits.
+    /// Nil = an Apply / Discard / Cancel alert as a sheet on the window; tests replace it.
     var confirmClose: (@MainActor (_ quitting: Bool, _ done: @escaping @MainActor (CloseChoice) -> Void) -> Void)?
 
-    let header = NSTextField(labelWithString: "Loading…")
+    let header = NSTextField(labelWithString: "No torrent selected")
     private(set) var checkboxes: [TorrentProperty: NSButton] = [:]
     private(set) var fields: [TorrentProperty: NSTextField] = [:]
     private(set) var popups: [TorrentProperty: NSPopUpButton] = [:]
     let trackers = ServerOptionsTextArea(accessibilityLabel: "Trackers, one URL per line, blank line between tiers",
-                                         identifier: "torrent-properties-trackers")
+                                         identifier: "torrent-properties-trackers", height: 72)
     let trackersReason = NSTextField(wrappingLabelWithString: "")
     let status = NSTextField(wrappingLabelWithString: "")
     let applyButton = NSButton(title: "Apply", target: nil, action: nil)
     let revertButton = NSButton(title: "Revert", target: nil, action: nil)
     private var rows: [TorrentProperty: NSView] = [:]
-    /// Fetching the torrents; closing the window cancels it.
+    private var scrollView: NSScrollView?
+    private var footerView: NSView?
+    private var separatorView: NSView?
+    private var document: NSView?
+    private var documentStack: NSStackView?
+    /// Fetching the torrents; retargeting cancels it.
     private(set) var loading = false
-    /// Writing to the server; the window can't be closed until it finishes.
+    /// Writing to the server; the pane can't be retargeted until it finishes.
     private(set) var applying = false
     /// The last load failed; Revert retries it.
     private var loadFailed = false
     var working: Bool { loading || applying }
     private var loadTask: Task<Void, Never>?
-    private var closed = false
     private var loaded = false
-    private var focusedOnce = false
+    private var wantsFocus = false
+    /// A retarget that arrived mid-Apply; runs when the Apply finishes.
+    private var pending: PendingTarget?
+    private struct PendingTarget { let target: Target? }
     private static let unitHelp = "1 kB/s = 1,000 bytes per second."
     /// The status label currently shows a live validation message (cleared once fixed).
     private var showingValidation = false
     private static let mixedTitle = "Mixed"
 
-    init(service: any TorrentPropertiesService, hashes: [String], serverID: UUID? = nil) {
-        session = TorrentPropertiesSession(service: service, hashes: hashes)
-        self.serverID = serverID
-        let window = ServerOptionsWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 420),
-                                         styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-        window.title = "Properties"
-        window.isReleasedWhenClosed = false
-        window.autorecalculatesKeyViewLoop = true
-        window.setAccessibilityIdentifier("torrent-properties-window")
-        super.init(window: window)
-        window.delegate = self
-        build(in: window)
+    override init() {
+        super.init()
+        build()
         updateEnabled()
     }
 
-    /// The key MainWindowController uses to find the window for a set of torrents.
-    static func key(for hashes: [String]) -> String { hashes.sorted().joined(separator: ",") }
-    var key: String { Self.key(for: session.hashes) }
-
-    /// Position before first showing: cascade from `previous` when given, else the
-    /// remembered (autosaved) position, else centered. Only one window can own the
-    /// autosave name; later ones cascade.
-    func place(cascadingFrom previous: NSWindow?) {
-        guard let window else { return }
-        if let previous {
-            window.setFrameTopLeftPoint(window.cascadeTopLeft(from: NSPoint(x: previous.frame.minX, y: previous.frame.maxY)))
-        } else if !(Self.remembers && window.setFrameUsingName(Self.frameAutosaveName)) {
-            window.center()
-        }
-        if Self.remembers { window.setFrameAutosaveName(Self.frameAutosaveName) }
-        fitToContent()
-    }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
     // MARK: - Building
 
-    private func build(in window: NSWindow) {
+    /// Scroll view above, separator and footer (Revert / Apply and the status) below.
+    private func layoutPane() {
+        guard let scrollView, let footerView, let separatorView else { return }
+        let bounds = view.bounds
+        let footerWidth = max(0, bounds.width - 32)
+        footerView.setFrameSize(NSSize(width: footerWidth, height: footerView.frame.height))
+        footerView.layoutSubtreeIfNeeded()
+        let footerHeight = footerView.fittingSize.height
+        footerView.frame = NSRect(x: 16, y: 8, width: footerWidth, height: footerHeight)
+        let separatorY = 8 + footerHeight + 8
+        separatorView.frame = NSRect(x: 0, y: separatorY, width: bounds.width, height: 1)
+        let top = separatorY + 1
+        scrollView.frame = NSRect(x: 0, y: top, width: bounds.width, height: max(0, bounds.height - top))
+        sizeDocument()
+    }
+
+    /// The scroll document is as tall as its content and at least as wide, so a pane
+    /// narrower than the controls scrolls sideways instead of squeezing anything.
+    private func sizeDocument() {
+        guard let document, let stack = documentStack, let scroll = document.enclosingScrollView else { return }
+        stack.layoutSubtreeIfNeeded()
+        let fit = stack.fittingSize
+        let clip = scroll.contentSize
+        let size = NSSize(width: max(clip.width, fit.width + 80), height: max(clip.height, fit.height + 24))
+        if document.frame.size != size { document.setFrameSize(size) }
+    }
+
+    private func build() {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let root = NSView()
-        root.addSubview(stack)
+        // Frame-based on purpose: a constraint-based scroll document reports its content's
+        // fixed-width minimum up the chain, and the split view then squeezes the sidebar's
+        // neighbour (the whole detail pane) to that width. Only the height is tracked by hand.
+        let document = FlippedView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        document.autoresizingMask = [.width]
+        document.addSubview(stack)
+        self.document = document
+        self.documentStack = stack
         NSLayoutConstraint.activate([
-            root.widthAnchor.constraint(equalToConstant: 500),
-            stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
-            stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
-            stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
+            stack.topAnchor.constraint(equalTo: document.topAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 16),
         ])
+        // Follow the pane's width without ever demanding one: the rows have fixed-width
+        // controls, and a required trailing pin would make the whole detail pane (and the
+        // window) as wide as they are.
+        let followWidth = stack.widthAnchor.constraint(equalTo: document.widthAnchor, constant: -80)
+        followWidth.priority = .init(400)
+        followWidth.isActive = true
         func add(_ view: NSView) {
             stack.addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
@@ -147,6 +168,14 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
         trackerGroup.addRow(trackersReason)
         add(trackerGroup)
 
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = true
+        scroll.backgroundColor = .controlBackgroundColor
+        scroll.documentView = document
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
+
         status.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         status.textColor = .secondaryLabelColor
         status.setAccessibilityIdentifier("torrent-properties-status")
@@ -158,8 +187,7 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
             button.action = selector
             button.setAccessibilityIdentifier(id)
         }
-        // No key equivalents: Apply writes to the server, so it is never the Return-key
-        // button; closing is the standard ⌘W / red button.
+        // No key equivalents: Apply writes to the server, so it is never the Return-key button.
         status.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         status.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let footer = NSStackView()
@@ -167,21 +195,21 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
         footer.setViews([revertButton, applyButton], in: .trailing)
         footer.spacing = 8
         footer.alignment = .centerY
-        add(footer)
+        let separator = NSBox()
+        separator.boxType = .separator
 
-        window.contentView = root
-        fitToContent()
-    }
-
-    /// The window is exactly as tall as its content, keeping its top-left corner in place.
-    func fitToContent() {
-        guard let window, let root = window.contentView else { return }
-        root.layoutSubtreeIfNeeded()
-        let size = root.fittingSize
-        let old = window.frame
-        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
-        frame.origin = NSPoint(x: old.minX, y: old.maxY - frame.height)
-        if frame != old { window.setFrame(frame, display: window.isVisible) }
+        view.setAccessibilityLabel("Properties")
+        view.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        view.setContentHuggingPriority(.init(1), for: .horizontal)
+        view.addSubview(scroll)
+        view.addSubview(separator)
+        view.addSubview(footer)
+        // Frame-based like the scroll document: the pane's own layout must never report
+        // a minimum width, or the split view squeezes the whole detail pane to it.
+        scrollView = scroll
+        footerView = footer
+        separatorView = separator
+        (view as? PaneBackgroundView)?.onLayout = { [weak self] in self?.layoutPane() }
     }
 
     private func checkbox(_ property: TorrentProperty) -> NSButton {
@@ -259,40 +287,90 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
         control.identifier.flatMap { TorrentProperty(rawValue: $0.rawValue) }
     }
 
-    // MARK: - Loading and rendering
+    // MARK: - Targeting and loading
 
-    /// Starts loading; the window shows "Loading…" (and can be closed) right away.
+    /// Follows the table selection: `nil` for none. The same torrents on the same server
+    /// are a no-op. Unsaved edits ask Apply / Discard / Cancel first (Cancel reselects the
+    /// old rows through `onKeepEditing`); a retarget that arrives mid-Apply waits for it.
+    func retarget(_ new: Target?) {
+        if applying { pending = PendingTarget(target: new); return }
+        guard new?.key != target?.key || new?.serverID != target?.serverID else { return }
+        guard hasUnsavedEdits, let old = target else { switchTo(new); return }
+        view.window?.makeFirstResponder(nil)
+        ask(quitting: false) { [weak self] choice in
+            switch choice {
+            case .apply:
+                Task {
+                    guard let self else { return }
+                    if await self.applyNow() { self.switchTo(new) } else { self.onKeepEditing?(old.hashes) }
+                }
+            case .discard: self?.switchTo(new)
+            case .keepEditing: self?.onKeepEditing?(old.hashes)
+            }
+        }
+    }
+
+    /// Drops the target and any edits without asking (a server switch).
+    func reset() {
+        pending = nil
+        switchTo(nil)
+    }
+
+    private func switchTo(_ new: Target?) {
+        loadTask?.cancel()
+        loadTask = nil
+        target = new
+        session = new.map { TorrentPropertiesSession(service: $0.service, hashes: $0.hashes) }
+        loading = false
+        loaded = false
+        loadFailed = false
+        showingValidation = false
+        setStatus("")
+        if new == nil {
+            header.stringValue = "No torrent selected"
+            header.toolTip = nil
+            render()
+        } else {
+            header.stringValue = "Loading…"
+            header.toolTip = nil
+            render()
+            load()
+        }
+    }
+
+    /// Starts loading; the pane shows "Loading…" right away.
     func load() {
-        guard beginLoad() else { return }
-        loadTask = Task { await finishLoad() }
+        guard beginLoad(), let session else { return }
+        loadTask = Task { await finishLoad(session) }
     }
 
     func loadNow() async {
-        guard beginLoad() else { return }
-        await finishLoad()
+        guard beginLoad(), let session else { return }
+        await finishLoad(session)
     }
 
     private func beginLoad() -> Bool {
-        guard !working, !closed else { return false }
+        guard !working, session != nil else { return false }
         loading = true
         loadFailed = false
-        setStatus("Loading properties…")
+        setStatus("Loading properties…", announce: false)
         updateEnabled()
         return true
     }
 
-    private func finishLoad() async {
+    private func finishLoad(_ session: TorrentPropertiesSession) async {
         do {
             try await session.load()
+            // Retargeted meanwhile: that load owns the state now.
+            guard session === self.session, !Task.isCancelled else { return }
             loading = false
-            guard !closed, !Task.isCancelled else { return }
             loaded = true
             setStatus("")
             render()
-            focusFirstControl()
+            focusIfWanted()
         } catch {
+            guard session === self.session, !Task.isCancelled else { return }
             loading = false
-            guard !closed, !Task.isCancelled else { return }
             loadFailed = true
             header.stringValue = "Couldn’t load properties"
             setStatus(error.localizedDescription, isError: true)
@@ -300,36 +378,42 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
         }
     }
 
-    /// The first enabled text field (else the first popup) gets focus once, after the first render.
-    private func focusFirstControl() {
-        guard !focusedOnce, let window else { return }
-        focusedOnce = true
+    /// ⌘I: put the keyboard in the first editable control, now or once the load finishes.
+    func requestFocus() {
+        wantsFocus = true
+        focusIfWanted()
+    }
+
+    private func focusIfWanted() {
+        guard wantsFocus, loaded, !working, let window = view.window else { return }
+        wantsFocus = false
         let order: [TorrentProperty] = [.downloadLimit, .uploadLimit, .seedRatioLimit, .seedIdleLimit, .peerLimit]
         let visible: (NSControl) -> Bool = { $0.isEnabled && !$0.isHiddenOrHasHiddenAncestor }
-        let target: NSControl? = order.compactMap { self.fields[$0] }.first(where: visible)
+        let control: NSControl? = order.compactMap { self.fields[$0] }.first(where: visible)
             ?? [TorrentProperty.seedRatioMode, .seedIdleMode].compactMap { self.popups[$0] }.first(where: visible)
-        guard let target else { return }
-        window.initialFirstResponder = target
-        window.makeFirstResponder(target)
+        if let control { window.makeFirstResponder(control) }
     }
 
-    /// The status line beside the buttons; VoiceOver hears every non-empty message.
-    private func setStatus(_ text: String, isError: Bool = false) {
+    /// The status line beside the buttons; VoiceOver hears every non-empty message except loading.
+    private func setStatus(_ text: String, isError: Bool = false, announce: Bool = true) {
         status.stringValue = text
         status.textColor = isError ? .systemRed : .secondaryLabelColor
-        if !text.isEmpty, let window {
-            NSAccessibility.post(element: window, notification: .announcementRequested,
+        view.needsLayout = true
+        if announce, !text.isEmpty, view.window != nil {
+            NSAccessibility.post(element: view, notification: .announcementRequested,
                                  userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
         }
-        fitToContent()
     }
 
+    // MARK: - Rendering
+
+    private var defaults: ServerSeedDefaults { session?.defaults ?? ServerSeedDefaults() }
+
     func render() {
-        guard let editor = session.editor else { updateEnabled(); return }
+        guard loaded, let editor = session?.editor else { clearControls(); updateEnabled(); return }
         let torrents = editor.torrents
         header.stringValue = torrents.count == 1 ? torrents[0].name : "\(torrents.count) torrents"
         header.toolTip = torrents.count == 1 ? torrents[0].name : nil
-        window?.title = torrents.count == 1 ? "\(torrents[0].name) Properties" : "\(torrents.count) Torrents Properties"
         for (property, button) in checkboxes {
             if editor.isMixed(property) {
                 button.allowsMixedState = true
@@ -342,7 +426,7 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
         for property in fields.keys { refreshField(property) }
         for (property, popup) in popups {
             popup.removeAllItems()
-            let defaultTitle = property == .seedRatioMode ? session.defaults.ratioTitle : session.defaults.idleTitle
+            let defaultTitle = property == .seedRatioMode ? defaults.ratioTitle : defaults.idleTitle
             let ownTitle = property == .seedRatioMode ? "Stop at ratio" : "Stop when idle for"
             popup.addItems(withTitles: [defaultTitle, ownTitle, "Seed forever"])
             if editor.isMixed(property) {
@@ -360,19 +444,28 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
             row.isHidden = !editor.supports(property)
         }
         updateEnabled()
-        fitToContent()
+    }
+
+    /// No data to show (no selection, or still loading): empty values, nothing offered to edit.
+    private func clearControls() {
+        for button in checkboxes.values { button.allowsMixedState = false; button.state = .off }
+        for field in fields.values { field.stringValue = ""; field.placeholderString = nil }
+        for popup in popups.values { popup.removeAllItems() }
+        trackers.stringValue = ""
+        trackersReason.stringValue = ""
+        trackersReason.isHidden = true
     }
 
     /// A value field shows its value only while it applies. Behind "Server default" it
     /// shows the server's value as a placeholder; behind "Seed forever" (or an unticked
     /// limit's companion mode) it is empty, so nothing stale looks in effect.
     private func refreshField(_ property: TorrentProperty) {
-        guard let editor = session.editor, let field = fields[property] else { return }
+        guard let editor = session?.editor, let field = fields[property] else { return }
         let mode = property.companion.flatMap { popups[$0] != nil ? $0 : nil }
         if let mode, !editor.isEditable(property) {
             field.stringValue = ""
             let isDefault = editor.text(mode) == String(SeedRatioMode.global.rawValue)
-            field.placeholderString = isDefault ? (property == .seedRatioLimit ? session.defaults.ratioValue : session.defaults.idleValue) : nil
+            field.placeholderString = isDefault ? (property == .seedRatioLimit ? defaults.ratioValue : defaults.idleValue) : nil
         } else {
             field.stringValue = editor.text(property)
             field.placeholderString = editor.isMixed(property) ? Self.mixedTitle : nil
@@ -380,19 +473,18 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
     }
 
     func updateEnabled() {
-        let editor = session.editor
-        let editable = loaded && !working && !session.needsReload
+        let editor = session?.editor
+        let editable = loaded && !working && session?.needsReload != true
         for (property, control) in allControls {
             control.isEnabled = editable && (editor?.isEditable(property) ?? false)
         }
         trackers.isEnabled = editable && (editor?.isEditable(.trackerList) ?? false)
         let error = editor?.isDirty == true ? editor?.validationError : nil
         applyButton.isEnabled = editable && (editor?.isDirty ?? false) && error == nil
-        revertButton.isEnabled = !working && (loadFailed || session.needsReload || (loaded && editor?.isDirty == true))
-        window?.isDocumentEdited = hasUnsavedEdits
-        guard !working, !session.needsReload else { return }
+        revertButton.isEnabled = !working && (loadFailed || session?.needsReload == true || (loaded && editor?.isDirty == true))
+        guard !working, session?.needsReload != true else { return }
         if let error {
-            if status.stringValue != error { setStatus(error, isError: true) }
+            if status.stringValue != error { setStatus(error, isError: true, announce: false) }
             showingValidation = true
         } else if showingValidation {
             setStatus("")
@@ -435,31 +527,31 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
 
     private func edit(_ property: TorrentProperty, _ text: String) {
         guard loaded, !working else { return }
-        session.set(property, text: text)
+        session?.set(property, text: text)
         updateEnabled()
     }
 
-    // MARK: - Apply / Revert / close
+    // MARK: - Apply / Revert
 
     @objc func apply(_ sender: Any?) {
-        window?.makeFirstResponder(nil)
+        view.window?.makeFirstResponder(nil)
         Task { await applyNow() }
     }
 
-    /// Returns whether the changes were applied and verified. The window stays open,
-    /// re-baselined on the values read back from the server.
+    /// Returns whether the changes were applied and verified. The pane stays on the same
+    /// torrents, re-baselined on the values read back from the server.
     @discardableResult
     func applyNow() async -> Bool {
-        guard loaded, !working, !closed else { return false }
+        guard loaded, !working, let session else { return false }
         applying = true
         showingValidation = false
-        setStatus("Applying and verifying…")
+        setStatus("Applying and verifying…", announce: false)
         updateEnabled()
         var applied = false
         do {
             try await session.apply()
             applied = true
-            render()
+            if session === self.session { render() }
             setStatus("Applied and verified.")
         } catch {
             setStatus(error.localizedDescription, isError: true)
@@ -467,92 +559,53 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
         applying = false
         updateEnabled()
         if applied { onApplied?() }
+        if let next = pending {
+            pending = nil
+            retarget(next.target)
+        }
         return applied
     }
 
     /// Discard edits and refetch (also retries a failed load, and clears an unverified Apply).
     @objc func revert(_ sender: Any?) {
-        window?.makeFirstResponder(nil)
+        view.window?.makeFirstResponder(nil)
         Task { await revertNow() }
     }
 
     func revertNow() async {
-        guard !working, !closed else { return }
+        guard !working else { return }
         showingValidation = false
         await loadNow()
     }
 
     /// Edits worth asking about: unsaved, and Apply could still send them.
-    var hasUnsavedEdits: Bool { loaded && session.editor?.isDirty == true && !session.needsReload }
-
-    /// Red button / ⌘W. A load in progress is cancelled; unsaved edits ask Apply / Discard / Cancel.
-    func windowShouldClose(_ sender: NSWindow) -> Bool {
-        if applying { return false }
-        if loading { loadTask?.cancel(); return true }
-        // Nothing to lose, or a failed/unverified Apply that only a refetch can resolve.
-        guard hasUnsavedEdits else { return true }
-        guard sender.attachedSheet == nil else { return false }
-        sender.makeFirstResponder(nil)
-        ask(quitting: false) { [weak self] choice in
-            switch choice {
-            case .apply:
-                Task { if await self?.applyNow() == true { self?.close() } }
-            case .discard: self?.close()
-            case .keepEditing: break
-            }
-        }
-        return false
-    }
-
-    func windowWillClose(_ notification: Notification) {
-        guard !closed else { return }
-        closed = true
-        loadTask?.cancel()
-        onClose?()
-    }
+    var hasUnsavedEdits: Bool { loaded && session?.editor?.isDirty == true && session?.needsReload != true }
 
     /// From `applicationShouldTerminate`: true lets the app quit. Replies exactly once.
     func confirmQuit(_ reply: @escaping @MainActor (Bool) -> Void) {
-        if closed { reply(true); return }
         if applying { reply(false); return }
-        if loading { loadTask?.cancel(); close(); reply(true); return }
         guard hasUnsavedEdits else { reply(true); return }
-        // A close prompt is already up: the user is answering it, so don't queue a second one.
-        if window?.attachedSheet != nil { reply(false); return }
-        // The prompt hangs off this window; make sure it's visible before asking.
-        if !TestIsolation.isActive, let window {
+        // A prompt is already up: the user is answering it, so don't queue a second one.
+        if view.window?.attachedSheet != nil { reply(false); return }
+        // The prompt hangs off the main window; make sure it is visible before asking.
+        if !TestIsolation.isActive, let window = view.window {
             if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
-        window?.makeFirstResponder(nil)
+        view.window?.makeFirstResponder(nil)
         ask(quitting: true) { [weak self] choice in
             switch choice {
             case .apply: Task { reply(await self?.applyNow() ?? true) }
-            case .discard: self?.close(); reply(true)
+            case .discard: reply(true)
             case .keepEditing: reply(false)
             }
         }
     }
 
-    /// Asks each window in turn (quit); stops at the first that refuses. `done` runs exactly once.
-    static func confirmQuit(_ windows: [TorrentPropertiesWindowController], done: @escaping @MainActor (Bool) -> Void) {
-        guard let first = windows.first else { done(true); return }
-        first.confirmQuit { ok in
-            guard ok else { done(false); return }
-            confirmQuit(Array(windows.dropFirst()), done: done)
-        }
-    }
-
-    override func close() {
-        super.close()
-        // `windowWillClose` normally ran already; this covers a window that never showed.
-        windowWillClose(Notification(name: NSWindow.willCloseNotification, object: window))
-    }
-
     private func ask(quitting: Bool, _ done: @escaping @MainActor (CloseChoice) -> Void) {
         if let confirmClose { confirmClose(quitting, done); return }
-        guard let window else { done(.keepEditing); return }
+        guard let window = view.window else { done(.discard); return }
         let alert = NSAlert()
         alert.messageText = quitting ? "Apply your torrent property changes before quitting?"
                                      : "Apply your changes to these torrents?"
@@ -567,5 +620,16 @@ final class TorrentPropertiesWindowController: NSWindowController, NSTextFieldDe
             default: done(.keepEditing)
             }
         }
+    }
+}
+
+/// The pane's backdrop: the same content background the other detail tabs draw.
+private final class PaneBackgroundView: NSView {
+    override var wantsUpdateLayer: Bool { true }
+    override func updateLayer() { layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor }
+    var onLayout: (() -> Void)?
+    override func layout() {
+        super.layout()
+        onLayout?()
     }
 }

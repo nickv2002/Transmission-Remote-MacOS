@@ -108,12 +108,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let properties = windowController.map { Array($0.propertiesWindows.values) } ?? []
-        guard !properties.isEmpty || settingsController?.hasPendingEdits == true else { return .terminateNow }
+        let properties = windowController?.propertiesPane
+        guard properties?.hasUnsavedEdits == true || properties?.applying == true
+                || settingsController?.hasPendingEdits == true else { return .terminateNow }
         // Apply / Discard / Cancel; Apply is a server round trip, so answer later.
-        // Each open torrent Properties window is asked in turn, then Settings.
+        // The Properties tab is asked first, then Settings.
         DispatchQueue.main.async { [weak self] in
-            TorrentPropertiesWindowController.confirmQuit(properties) { ok in
+            let afterProperties: @MainActor (Bool) -> Void = { ok in
                 guard ok else { NSApp.reply(toApplicationShouldTerminate: false); return }
                 guard let settings = self?.settingsController, settings.hasPendingEdits else {
                     NSApp.reply(toApplicationShouldTerminate: true)
@@ -121,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 settings.confirmQuit { NSApp.reply(toApplicationShouldTerminate: $0) }
             }
+            if let properties { properties.confirmQuit(afterProperties) } else { afterProperties(true) }
         }
         return .terminateLater
     }
