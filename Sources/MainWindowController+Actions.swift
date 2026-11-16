@@ -373,7 +373,7 @@ extension MainWindowController: NSToolbarDelegate, NSToolbarItemValidation, NSMe
             return selection.contains { $0.status.isActive }
         case #selector(forceStartSelected(_:)):
             return true
-        case #selector(renameSelected(_:)), #selector(moveSelected(_:)):
+        case #selector(renameSelected(_:)):
             return selection.count == 1
         case #selector(showPropertiesSelected(_:)):
             guard window?.attachedSheet == nil else { return false }
