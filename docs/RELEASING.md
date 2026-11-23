@@ -59,7 +59,13 @@ This does, in order:
 6. Commits the version bump + changelog, tags `v<version>`, pushes both.
 7. Publishes a GitHub Release with the notarized zip attached
    (`gh release create`).
-8. Installs the notarized `.app` into `/Applications`
+8. Updates the shared Homebrew tap (`scripts/update_tap.sh`): renders
+   `packaging/homebrew/transmission-remote.rb` with the new version and the
+   zip's SHA-256 into `../homebrew-tap/Casks/` (cloned if missing), runs
+   `brew style`, commits and pushes `nickv2002/homebrew-tap`. A failure only
+   prints a warning, since the release is already public; rerun
+   `scripts/update_tap.sh <version> --push` (omit `--push` to commit locally).
+9. Installs the notarized `.app` into `/Applications`
    (`scripts/install_local.sh`), quitting a running instance first if needed.
 
 If any stage fails, the script stops **before** the commit/tag/push, so a
@@ -75,6 +81,7 @@ scripts/next_version.sh                  # print the version that would be used
 scripts/build_release.sh                 # archive + export only
 scripts/notarize.sh <version>             # notarize/staple/zip an existing export
 scripts/changelog.sh <version> [prev-tag] # regenerate changelog notes only
+scripts/update_tap.sh <version> [--push]  # re-render the Homebrew cask in the tap
 scripts/install_local.sh                  # install the notarized build to /Applications
 ```
 

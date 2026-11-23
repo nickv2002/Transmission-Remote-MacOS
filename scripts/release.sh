@@ -82,6 +82,12 @@ gh release create "$tag" "dist/Transmission.Remote-${version}.zip" \
   --repo nickv2002/Transmission-Remote-MacOS \
   --title "${version}" --notes-file "$release_body_file"
 
+echo "==> updating the Homebrew tap"
+# The GitHub release is already public, so a failure here must not abort; rerun the script by hand.
+if ! scripts/update_tap.sh "$version" --push; then
+  echo "==> WARNING: Homebrew tap update failed; rerun: scripts/update_tap.sh ${version} --push" >&2
+fi
+
 scripts/install_local.sh
 
 echo "==> done: ${tag}"
