@@ -1,24 +1,85 @@
 import AppKit
 
+/// Non-editable value view used when a value contains clickable links. Renders
+/// an attributed string whose `.link` spans open on click (the card routes the
+/// clicks, so the text view itself never becomes first responder) and reports
+/// its wrapped-text height through `intrinsicContentSize`, keeping the card's
+/// `fittingSize`-based layout unchanged.
+@MainActor
+final class LinkTextView: NSTextView {
+    convenience init() { self.init(frame: .zero, textContainer: nil) }
+
+    /// `init(frame:textContainer:)` with a nil container does NOT build the
+    /// default text system (unlike `init(frame:)`), so wire storage → layout
+    /// manager → container by hand.
+    override init(frame frameRect: NSRect, textContainer tc: NSTextContainer?) {
+        let container = tc ?? NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                                           height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        container.lineFragmentPadding = 0
+        let lm = NSLayoutManager()
+        lm.addTextContainer(container)
+        let storage = NSTextStorage()
+        storage.addLayoutManager(lm)
+        super.init(frame: frameRect, textContainer: container)
+        translatesAutoresizingMaskIntoConstraints = false
+        drawsBackground = false
+        isEditable = false
+        isSelectable = false
+        isRichText = false
+        isHorizontallyResizable = false
+        isVerticallyResizable = false
+        textContainerInset = .zero
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layout() {
+        super.layout()
+        invalidateIntrinsicContentSize()   // the wrap width may have changed
+    }
+
+    override var intrinsicContentSize: NSSize {
+        guard let lm = layoutManager, let tc = textContainer else {
+            return NSSize(width: NSView.noIntrinsicMetric, height: 0)
+        }
+        lm.ensureLayout(for: tc)
+        return NSSize(width: NSView.noIntrinsicMetric, height: ceil(lm.usedRect(for: tc).height))
+    }
+}
+
 /// One field in the info grid: a tiny gray uppercase caption above a value.
 /// Clicking anywhere on the card copies the value to the pasteboard and calls
 /// `onCopy` (so the owner can show a "Copied: …" toast). Shows a pointing-hand
 /// cursor over the whole card. The value wraps to the card's width, or truncates
 /// to one line for `truncate` fields like the name (still copyable in full).
 ///
+/// When a non-truncating value contains http(s) links (`LinkText.links`), the
+/// value renders through `LinkTextView` instead: link spans are highlighted and
+/// a click **on a link** opens it (`onOpenLink`, default: the default browser)
+/// instead of copying; every other click still copies the whole value.
+///
 /// Laid out internally with Auto Layout but positioned by its parent with an
 /// explicit frame, so it reports the right height for any width via `fittingSize`.
 @MainActor
 final class InfoCardView: NSView {
     private let caption = NSTextField(labelWithString: "")
-    private let value = NSTextField(labelWithString: "")
+    private let label = NSTextField(labelWithString: "")
+    private lazy var linkView = LinkTextView()
+    private var usingLinks = false
+    private var truncates = false
+    private var activeValueConstraints: [NSLayoutConstraint] = []
 
     /// Called with the copied value after a click.
     var onCopy: ((String) -> Void)?
+    /// Called with a URL clicked inside the value. Defaults to opening it in the
+    /// default browser; tests override it.
+    var onOpenLink: ((URL) -> Void)?
 
-    var displayedValue: String { value.stringValue }
+    var displayedValue: String { usingLinks ? linkView.string : label.stringValue }
     /// Nothing to copy for an empty value or the "—" placeholder.
-    private var isCopyable: Bool { !value.stringValue.isEmpty && value.stringValue != "—" }
+    private var isCopyable: Bool { !displayedValue.isEmpty && displayedValue != "—" }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -26,22 +87,19 @@ final class InfoCardView: NSView {
         caption.font = .systemFont(ofSize: 9, weight: .semibold)
         caption.textColor = .secondaryLabelColor
         caption.lineBreakMode = .byTruncatingTail
-        value.translatesAutoresizingMaskIntoConstraints = false
-        value.lineBreakMode = .byWordWrapping
-        value.maximumNumberOfLines = 0
-        value.font = .systemFont(ofSize: NSFont.systemFontSize)
-        value.textColor = .labelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 0
+        label.font = .systemFont(ofSize: NSFont.systemFontSize)
+        label.textColor = .labelColor
         addSubview(caption)
-        addSubview(value)
+        addSubview(label)
         NSLayoutConstraint.activate([
             caption.topAnchor.constraint(equalTo: topAnchor),
             caption.leadingAnchor.constraint(equalTo: leadingAnchor),
             caption.trailingAnchor.constraint(equalTo: trailingAnchor),
-            value.topAnchor.constraint(equalTo: caption.bottomAnchor, constant: 1),
-            value.leadingAnchor.constraint(equalTo: leadingAnchor),
-            value.trailingAnchor.constraint(equalTo: trailingAnchor),
-            value.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        activateValueConstraints(for: label)
     }
 
     @available(*, unavailable)
@@ -50,17 +108,84 @@ final class InfoCardView: NSView {
     func configure(caption captionText: String, value valueText: String,
                    truncate: Bool, onCopy: @escaping (String) -> Void) {
         caption.stringValue = captionText.uppercased()
-        value.stringValue = valueText
-        value.lineBreakMode = truncate ? .byTruncatingTail : .byWordWrapping
-        value.maximumNumberOfLines = truncate ? 1 : 0
+        truncates = truncate
+        label.lineBreakMode = truncate ? .byTruncatingTail : .byWordWrapping
+        label.maximumNumberOfLines = truncate ? 1 : 0
         self.onCopy = onCopy
+        setValue(valueText)
     }
 
-    func setValue(_ text: String) { value.stringValue = text }
+    func setValue(_ text: String) {
+        let links = truncates ? [] : LinkText.links(in: text)
+        if links.isEmpty {
+            label.stringValue = text
+            showValue(label)
+        } else {
+            linkView.textStorage?.setAttributedString(Self.linked(text, links: links))
+            showValue(linkView)
+        }
+    }
+
+    private func showValue(_ view: NSView) {
+        let useLinks = view === linkView
+        if useLinks, !usingLinks {
+            addSubview(linkView)
+            label.isHidden = true
+            activateValueConstraints(for: linkView)
+            usingLinks = true
+        } else if !useLinks, usingLinks {
+            linkView.isHidden = true
+            label.isHidden = false
+            activateValueConstraints(for: label)
+            usingLinks = false
+        }
+    }
+
+    private func activateValueConstraints(for view: NSView) {
+        NSLayoutConstraint.deactivate(activeValueConstraints)
+        activeValueConstraints = [
+            view.topAnchor.constraint(equalTo: caption.bottomAnchor, constant: 1),
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ]
+        NSLayoutConstraint.activate(activeValueConstraints)
+    }
+
+    /// The value text with http(s) links styled as clickable spans.
+    private static func linked(_ text: String, links: [NSTextCheckingResult]) -> NSAttributedString {
+        let s = NSMutableAttributedString(string: text, attributes: [
+            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .foregroundColor: NSColor.labelColor,
+        ])
+        for match in links {
+            guard let url = match.url else { continue }
+            s.addAttribute(.link, value: url, range: match.range)
+            s.addAttribute(.foregroundColor, value: NSColor.linkColor, range: match.range)
+            s.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
+        }
+        return s
+    }
+
+    /// The URL under a point in this card's coordinate space, or nil when the
+    /// point misses every link span.
+    func linkURL(atCardPoint point: NSPoint) -> URL? {
+        guard usingLinks else { return nil }
+        let local = linkView.convert(point, from: self)
+        guard linkView.bounds.contains(local),
+              let lm = linkView.layoutManager, let tc = linkView.textContainer
+        else { return nil }
+        lm.ensureLayout(for: tc)
+        let index = lm.characterIndex(for: local, in: tc, fractionOfDistanceBetweenInsertionPoints: nil)
+        guard index < (linkView.textStorage?.length ?? 0),
+              let url = linkView.textStorage?.attribute(.link, at: index, effectiveRange: nil) as? URL
+        else { return nil }
+        return url
+    }
 
     override func layout() {
         super.layout()
-        value.preferredMaxLayoutWidth = bounds.width
+        label.preferredMaxLayoutWidth = bounds.width
     }
 
     /// Height this card needs at the given width.
@@ -82,8 +207,14 @@ final class InfoCardView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // A click on a link span opens it; every other click copies the value.
+        let point = convert(event.locationInWindow, from: nil)
+        if let url = linkURL(atCardPoint: point) {
+            if let onOpenLink { onOpenLink(url) } else { NSWorkspace.shared.open(url) }
+            return
+        }
         guard isCopyable else { return }
-        let text = value.stringValue
+        let text = displayedValue
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)

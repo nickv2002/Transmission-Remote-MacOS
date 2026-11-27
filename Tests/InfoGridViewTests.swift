@@ -409,4 +409,98 @@ final class InfoGridViewTests: XCTestCase {
         click(card)
         XCTAssertEqual(copied, "2.15")
     }
+
+    // MARK: - Clickable links in comments
+
+    private static let linkedComment = "see https://example.com/page end"
+
+    /// Lay the comment card out and return it with its link text view.
+    private func linkedCommentCard() throws -> (InfoCardView, LinkTextView) {
+        let view = InfoGridView(frame: NSRect(x: 0, y: 0, width: 560, height: 400))
+        view.update(with: [TorrentFactory.make(["comment": Self.linkedComment])])
+        laidOut(view)
+        let card = try XCTUnwrap(view.renderedCard(forCaption: "Comment"))
+        let linkView = try XCTUnwrap(card.subviews.compactMap { $0 as? LinkTextView }.first)
+        return (card, linkView)
+    }
+
+    /// The card-space point at the centre of a substring's first-line glyphs.
+    private func cardPoint(over substring: String, in linkView: LinkTextView, on card: InfoCardView) -> NSPoint {
+        let lm = try! XCTUnwrap(linkView.layoutManager)
+        let tc = try! XCTUnwrap(linkView.textContainer)
+        let chars = (linkView.string as NSString).range(of: substring)
+        let rect = lm.boundingRect(forGlyphRange: lm.glyphRange(forCharacterRange: chars, actualCharacterRange: nil), in: tc)
+        // The text view is flipped, the card is not: map the span's centre into card space.
+        return NSPoint(x: linkView.frame.minX + rect.midX, y: linkView.frame.maxY - rect.midY)
+    }
+
+    func testCommentWithLinkRendersClickableSpan() throws {
+        let (card, linkView) = try linkedCommentCard()
+        XCTAssertEqual(card.displayedValue, Self.linkedComment)
+        XCTAssertEqual(card.linkURL(atCardPoint: cardPoint(over: "https://example.com/page", in: linkView, on: card)),
+                       URL(string: "https://example.com/page"))
+        // The plain word after the link is not a link.
+        XCTAssertNil(card.linkURL(atCardPoint: cardPoint(over: "end", in: linkView, on: card)))
+    }
+
+    func testClickOnLinkOpensItAndSkipsCopy() throws {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString("UNCHANGED", forType: .string)
+
+        let view = InfoGridView(frame: NSRect(x: 0, y: 0, width: 560, height: 400))
+        var copied: String?
+        view.onCopy = { copied = $0 }
+        view.update(with: [TorrentFactory.make(["comment": Self.linkedComment])])
+        // Put the grid in a real window: mouseDown maps event.locationInWindow
+        // through the view hierarchy, which needs a window to be meaningful.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        laidOut(view)
+        let card = try XCTUnwrap(view.renderedCard(forCaption: "Comment"))
+        var opened: URL?
+        card.onOpenLink = { opened = $0 }
+
+        let linkView = try XCTUnwrap(card.subviews.compactMap { $0 as? LinkTextView }.first)
+        let p = card.convert(cardPoint(over: "https://example.com/page", in: linkView, on: card), to: nil)
+        let event = NSEvent.mouseEvent(
+            with: .leftMouseDown, location: p, modifierFlags: [],
+            timestamp: 0, windowNumber: 0, context: nil,
+            eventNumber: 0, clickCount: 1, pressure: 1)!
+        card.mouseDown(with: event)
+
+        XCTAssertEqual(opened, URL(string: "https://example.com/page"))
+        XCTAssertNil(copied, "a link click must not copy")
+        XCTAssertEqual(pb.string(forType: .string), "UNCHANGED")
+    }
+
+    func testClickAwayFromLinkStillCopiesWholeComment() throws {
+        let (card, _) = try linkedCommentCard()
+        var copied: String?
+        card.onCopy = { copied = $0 }
+        click(card)   // (2,2): inside the value area but left of the link text
+        XCTAssertEqual(copied, Self.linkedComment)
+    }
+
+    func testInPlaceValueUpdateSwitchesBetweenPlainAndLinkedRendering() throws {
+        let view = InfoGridView(frame: NSRect(x: 0, y: 0, width: 560, height: 400))
+        view.update(with: [TorrentFactory.make(["id": 7, "comment": "plain text"])])
+        laidOut(view)
+        let card = try XCTUnwrap(view.renderedCard(forCaption: "Comment"))
+        XCTAssertNil(card.linkURL(atCardPoint: NSPoint(x: 5, y: 5)))
+
+        view.update(with: [TorrentFactory.make(["id": 7, "comment": Self.linkedComment])])
+        laidOut(view)
+        XCTAssertTrue(view.renderedCard(forCaption: "Comment") === card, "cards reused across polls")
+        let linkView = try XCTUnwrap(card.subviews.compactMap { $0 as? LinkTextView }.first)
+        XCTAssertEqual(card.linkURL(atCardPoint: cardPoint(over: "https://example.com/page", in: linkView, on: card)),
+                       URL(string: "https://example.com/page"))
+
+        // And back to plain: the label path returns.
+        view.update(with: [TorrentFactory.make(["id": 7, "comment": "plain again"])])
+        laidOut(view)
+        XCTAssertEqual(view.renderedValue(forCaption: "Comment"), "plain again")
+        XCTAssertNil(card.linkURL(atCardPoint: NSPoint(x: 5, y: 5)))
+    }
 }
