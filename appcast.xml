@@ -451,5 +451,17 @@
         length="5577247"
         type="application/octet-stream"/>
     </item>
+    <item>
+      <title>2026.11.27.1</title>
+      <sparkle:version>2026.11.27.1</sparkle:version>
+      <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+      <pubDate>Fri, 27 Nov 2026 21:15:28 +0000</pubDate>
+      <description><![CDATA[<p>Links in the info pane are now clickable, and they stay clickable when comments refresh between polls.</p><ul><li>Update the shared Homebrew tap from the release script</li><li>Make links in the info pane clickable (#37)</li><li>Fix info-pane links vanishing after a comment changes between polls</li></ul>]]></description>
+      <enclosure
+        url="https://github.com/nickv2002/Transmission-Remote-MacOS/releases/download/v2026.11.27.1/Transmission.Remote-2026.11.27.1.zip"
+        sparkle:edSignature="DCzqIq9iuJXv0+IXomR4UoMtfvIAtOzLE0yd7m0WcRTwkhoDv0pvNwzCG7YLqgdSGHwU3HRI/0FrmYl1Y2QJCA=="
+        length="5589151"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>

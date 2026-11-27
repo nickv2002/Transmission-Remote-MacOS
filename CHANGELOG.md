@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.11.27.1 — 2026-11-27
+
+- Update the shared Homebrew tap from the release script
+- Make links in the info pane clickable (#37)
+- Fix info-pane links vanishing after a comment changes between polls
+
 ## 2026.11.16.1 — 2026-11-16
 
 - Release skill: name the repo when looking up the release URL
