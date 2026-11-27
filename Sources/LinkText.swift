@@ -9,19 +9,22 @@ import Foundation
 /// are rejected, along with every other scheme (magnets, mailto, ftp…), to keep
 /// false positives out of user comments.
 enum LinkText {
+    struct Link: Equatable {
+        let range: NSRange
+        let url: URL
+    }
+
+    private static let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
     /// Non-overlapping http(s) links in `text`, in order.
-    static func links(in text: String) -> [NSTextCheckingResult] {
-        guard !text.isEmpty,
-              let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-        else { return [] }
-        let full = NSRange(location: 0, length: text.utf16.count)
-        return detector.matches(in: text, options: [], range: full).filter { match in
-            guard let url = match.url, let scheme = url.scheme?.lowercased(),
-                  scheme == "http" || scheme == "https" else { return false }
+    static func links(in text: String) -> [Link] {
+        guard let detector else { return [] }
+        let ns = text as NSString
+        return detector.matches(in: text, range: NSRange(location: 0, length: ns.length)).compactMap { match in
             // The detector reports bare domains with a synthesised http:// URL;
             // require the matched text itself to carry the scheme.
-            let matched = (text as NSString).substring(with: match.range).lowercased()
-            return matched.hasPrefix("http://") || matched.hasPrefix("https://")
+            guard let url = match.url, TorrentLink.isWebURL(ns.substring(with: match.range)) else { return nil }
+            return Link(range: match.range, url: url)
         }
     }
 }

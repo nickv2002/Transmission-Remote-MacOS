@@ -7,26 +7,26 @@ import AppKit
 /// `fittingSize`-based layout unchanged.
 @MainActor
 final class LinkTextView: NSTextView {
-    convenience init() { self.init(frame: .zero, textContainer: nil) }
+    private var lastWidth: CGFloat = -1
+    /// The text view only weakly references its storage, which owns the layout
+    /// manager and container — keep it alive here.
+    private let storage = NSTextStorage()
 
-    /// `init(frame:textContainer:)` with a nil container does NOT build the
-    /// default text system (unlike `init(frame:)`), so wire storage → layout
-    /// manager → container by hand.
-    override init(frame frameRect: NSRect, textContainer tc: NSTextContainer?) {
-        let container = tc ?? NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
-                                                           height: CGFloat.greatestFiniteMagnitude))
+    /// `init(frame:textContainer:)` does NOT build the default text system
+    /// (unlike `init(frame:)`), so wire storage → layout manager → container by hand.
+    init() {
+        let container = NSTextContainer(size: NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                                     height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
         container.lineFragmentPadding = 0
         let lm = NSLayoutManager()
         lm.addTextContainer(container)
-        let storage = NSTextStorage()
         storage.addLayoutManager(lm)
-        super.init(frame: frameRect, textContainer: container)
+        super.init(frame: .zero, textContainer: container)
         translatesAutoresizingMaskIntoConstraints = false
         drawsBackground = false
         isEditable = false
         isSelectable = false
-        isRichText = false
         isHorizontallyResizable = false
         isVerticallyResizable = false
         textContainerInset = .zero
@@ -37,7 +37,16 @@ final class LinkTextView: NSTextView {
 
     override func layout() {
         super.layout()
-        invalidateIntrinsicContentSize()   // the wrap width may have changed
+        // Only a new wrap width changes the height (text changes invalidate in `setText`).
+        if bounds.width != lastWidth {
+            lastWidth = bounds.width
+            invalidateIntrinsicContentSize()
+        }
+    }
+
+    func setText(_ text: NSAttributedString) {
+        storage.setAttributedString(text)
+        invalidateIntrinsicContentSize()
     }
 
     override var intrinsicContentSize: NSSize {
@@ -64,18 +73,18 @@ final class LinkTextView: NSTextView {
 /// explicit frame, so it reports the right height for any width via `fittingSize`.
 @MainActor
 final class InfoCardView: NSView {
+    private static let valueFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+
     private let caption = NSTextField(labelWithString: "")
     private let label = NSTextField(labelWithString: "")
-    private lazy var linkView = LinkTextView()
-    private var usingLinks = false
-    private var truncates = false
+    private let linkView = LinkTextView()
+    private var usingLinks: Bool { !linkView.isHidden }
     private var activeValueConstraints: [NSLayoutConstraint] = []
 
     /// Called with the copied value after a click.
     var onCopy: ((String) -> Void)?
-    /// Called with a URL clicked inside the value. Defaults to opening it in the
-    /// default browser; tests override it.
-    var onOpenLink: ((URL) -> Void)?
+    /// Called with a URL clicked inside the value; tests override it.
+    var onOpenLink: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
     var displayedValue: String { usingLinks ? linkView.string : label.stringValue }
     /// Nothing to copy for an empty value or the "—" placeholder.
@@ -90,10 +99,12 @@ final class InfoCardView: NSView {
         label.translatesAutoresizingMaskIntoConstraints = false
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 0
-        label.font = .systemFont(ofSize: NSFont.systemFontSize)
+        label.font = Self.valueFont
         label.textColor = .labelColor
+        linkView.isHidden = true
         addSubview(caption)
         addSubview(label)
+        addSubview(linkView)
         NSLayoutConstraint.activate([
             caption.topAnchor.constraint(equalTo: topAnchor),
             caption.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -108,7 +119,6 @@ final class InfoCardView: NSView {
     func configure(caption captionText: String, value valueText: String,
                    truncate: Bool, onCopy: @escaping (String) -> Void) {
         caption.stringValue = captionText.uppercased()
-        truncates = truncate
         label.lineBreakMode = truncate ? .byTruncatingTail : .byWordWrapping
         label.maximumNumberOfLines = truncate ? 1 : 0
         self.onCopy = onCopy
@@ -116,29 +126,20 @@ final class InfoCardView: NSView {
     }
 
     func setValue(_ text: String) {
+        // Values are re-set every poll; skip detection and relayout when unchanged.
+        guard text != displayedValue else { return }
+        let truncates = label.maximumNumberOfLines == 1
         let links = truncates ? [] : LinkText.links(in: text)
         if links.isEmpty {
             label.stringValue = text
-            showValue(label)
         } else {
-            linkView.textStorage?.setAttributedString(Self.linked(text, links: links))
-            showValue(linkView)
+            linkView.setText(Self.linked(text, links: links))
         }
-    }
-
-    private func showValue(_ view: NSView) {
-        let useLinks = view === linkView
-        if useLinks, !usingLinks {
-            addSubview(linkView)
-            label.isHidden = true
-            activateValueConstraints(for: linkView)
-            usingLinks = true
-        } else if !useLinks, usingLinks {
-            linkView.isHidden = true
-            label.isHidden = false
-            activateValueConstraints(for: label)
-            usingLinks = false
-        }
+        let useLinks = !links.isEmpty
+        guard useLinks != usingLinks else { return }
+        label.isHidden = useLinks
+        linkView.isHidden = !useLinks
+        activateValueConstraints(for: useLinks ? linkView : label)
     }
 
     private func activateValueConstraints(for view: NSView) {
@@ -153,16 +154,17 @@ final class InfoCardView: NSView {
     }
 
     /// The value text with http(s) links styled as clickable spans.
-    private static func linked(_ text: String, links: [NSTextCheckingResult]) -> NSAttributedString {
+    private static func linked(_ text: String, links: [LinkText.Link]) -> NSAttributedString {
         let s = NSMutableAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .font: valueFont,
             .foregroundColor: NSColor.labelColor,
         ])
-        for match in links {
-            guard let url = match.url else { continue }
-            s.addAttribute(.link, value: url, range: match.range)
-            s.addAttribute(.foregroundColor, value: NSColor.linkColor, range: match.range)
-            s.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
+        for link in links {
+            s.addAttributes([
+                .link: link.url,
+                .foregroundColor: NSColor.linkColor,
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ], range: link.range)
         }
         return s
     }
@@ -173,14 +175,13 @@ final class InfoCardView: NSView {
         guard usingLinks else { return nil }
         let local = linkView.convert(point, from: self)
         guard linkView.bounds.contains(local),
-              let lm = linkView.layoutManager, let tc = linkView.textContainer
+              let lm = linkView.layoutManager, let tc = linkView.textContainer,
+              let storage = linkView.textStorage
         else { return nil }
         lm.ensureLayout(for: tc)
         let index = lm.characterIndex(for: local, in: tc, fractionOfDistanceBetweenInsertionPoints: nil)
-        guard index < (linkView.textStorage?.length ?? 0),
-              let url = linkView.textStorage?.attribute(.link, at: index, effectiveRange: nil) as? URL
-        else { return nil }
-        return url
+        guard index < storage.length else { return nil }
+        return storage.attribute(.link, at: index, effectiveRange: nil) as? URL
     }
 
     override func layout() {
@@ -208,9 +209,8 @@ final class InfoCardView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         // A click on a link span opens it; every other click copies the value.
-        let point = convert(event.locationInWindow, from: nil)
-        if let url = linkURL(atCardPoint: point) {
-            if let onOpenLink { onOpenLink(url) } else { NSWorkspace.shared.open(url) }
+        if let url = linkURL(atCardPoint: convert(event.locationInWindow, from: nil)) {
+            onOpenLink(url)
             return
         }
         guard isCopyable else { return }

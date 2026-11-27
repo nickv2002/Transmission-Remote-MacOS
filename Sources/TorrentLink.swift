@@ -47,7 +47,7 @@ enum TorrentLink {
         text.lowercased().hasPrefix("magnet:")
     }
 
-    private static func isWebURL(_ text: String) -> Bool {
+    static func isWebURL(_ text: String) -> Bool {
         let lower = text.lowercased()
         return (lower.hasPrefix("http://") || lower.hasPrefix("https://"))
             && !text.contains(where: \.isWhitespace)
